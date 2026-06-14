@@ -23,13 +23,11 @@ pip install -r requirements.txt
 export BIYING_LICENCE=你的licence
 
 # 交易日收盘后（数据约 16:20 后更新）
-python scripts/fetch_by_daily.py
+# 无包年/白金证书时必须加 --no-all-turnover
+python3 scripts/fetch_by_daily.py --no-all-turnover
 
 # 申万二级行业映射
-python scripts/fetch_by_daily.py --level l2
-
-# 无包年/白金时，禁用全市场接口、改用批量拉取
-python scripts/fetch_by_daily.py --no-all-turnover
+python3 scripts/fetch_by_daily.py --level l2 --no-all-turnover
 
 ls data/
 ```
