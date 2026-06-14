@@ -38,6 +38,7 @@ from by_common import (
     infer_snapshot_time,
     pick_primary_sector,
 )
+from mapping_fallback import build_tickflow_mapping
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
@@ -75,6 +76,12 @@ def parse_args() -> argparse.Namespace:
         "--keep-cache",
         action="store_true",
         help="与 --fresh 联用：仅清 CSV，保留 data/cache/ 行业树与映射缓存",
+    )
+    parser.add_argument(
+        "--mapping-source",
+        choices=["auto", "biying", "tickflow"],
+        default="auto",
+        help="行业映射来源：auto=必盈优先、hszg 失败时回退 TickFlow（默认）",
     )
     return parser.parse_args()
 
@@ -141,6 +148,91 @@ def load_or_build_mapping(
     return mapping_df
 
 
+def load_tickflow_sector_data(level: str, refresh: bool, cache_name: str, tree_cache: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    mapping_cache = DATA_DIR / "cache" / cache_name
+    meta_cache = DATA_DIR / "cache" / f"mapping_source_{level}.json"
+    mapping_cache.parent.mkdir(parents=True, exist_ok=True)
+    if not refresh and mapping_cache.exists() and tree_cache.exists():
+        print(f"     使用缓存: {mapping_cache}")
+        tree_df = pd.DataFrame(json.loads(tree_cache.read_text(encoding="utf-8")))
+        mapping_df = pd.DataFrame(json.loads(mapping_cache.read_text(encoding="utf-8")))
+    else:
+        tree_df, mapping_df = build_tickflow_mapping(level)
+        tree_cache.write_text(tree_df.to_json(orient="records", force_ascii=False), encoding="utf-8")
+        mapping_cache.write_text(mapping_df.to_json(orient="records", force_ascii=False), encoding="utf-8")
+        meta_cache.write_text(json.dumps({"source": "tickflow"}, ensure_ascii=False), encoding="utf-8")
+    sectors_df = sectors_for_level(tree_df, level) if "type2" in tree_df.columns else pd.DataFrame()
+    return tree_df, sectors_df, mapping_df
+
+
+def load_biying_sector_data(
+    licence: str,
+    level: str,
+    refresh: bool,
+    cache_name: str,
+    tree_cache: Path,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    print("  ② 行业/概念分类树...")
+    tree_df = load_or_build_tree(licence, tree_cache, refresh=refresh)
+    sectors_df = sectors_for_level(tree_df, level)
+    print(f"     目标板块数: {len(sectors_df)}")
+    print("  ③ 板块 ↔ 个股映射...")
+    mapping_df = load_or_build_mapping(licence, sectors_df, refresh, cache_name)
+    meta_cache = DATA_DIR / "cache" / f"mapping_source_{level}.json"
+    meta_cache.write_text(json.dumps({"source": "biying"}, ensure_ascii=False), encoding="utf-8")
+    return tree_df, sectors_df, mapping_df
+
+
+def load_sector_data(
+    licence: str,
+    level: str,
+    refresh: bool,
+    cache_name: str,
+    tree_cache: Path,
+    mapping_source: str,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, str]:
+    mapping_cache = DATA_DIR / "cache" / cache_name
+    meta_cache = DATA_DIR / "cache" / f"mapping_source_{level}.json"
+
+    if mapping_source == "tickflow":
+        tree_df, sectors_df, mapping_df = load_tickflow_sector_data(level, refresh, cache_name, tree_cache)
+        return tree_df, sectors_df, mapping_df, "tickflow"
+
+    try:
+        tree_df, sectors_df, mapping_df = load_biying_sector_data(
+            licence, level, refresh, cache_name, tree_cache
+        )
+        return tree_df, sectors_df, mapping_df, "biying"
+    except Exception as exc:
+        if mapping_source == "biying":
+            raise
+        if mapping_cache.exists() and not refresh:
+            print(f"     ②③ 必盈接口失败，改用映射缓存: {exc}")
+            mapping_df = pd.DataFrame(json.loads(mapping_cache.read_text(encoding="utf-8")))
+            if tree_cache.exists():
+                tree_df = pd.DataFrame(json.loads(tree_cache.read_text(encoding="utf-8")))
+            else:
+                tree_df = pd.DataFrame(
+                    mapping_df[
+                        ["sector_code", "sector_name", "sector_type2", "sector_level", "parent_code", "parent_name"]
+                    ]
+                    .drop_duplicates("sector_code")
+                    .rename(columns={"sector_code": "code", "sector_name": "name"})
+                )
+            sectors_df = (
+                sectors_for_level(tree_df, level)
+                if "type2" in tree_df.columns
+                else mapping_df[["sector_code", "sector_name"]].drop_duplicates()
+            )
+            source = "cache"
+            if meta_cache.exists():
+                source = json.loads(meta_cache.read_text(encoding="utf-8")).get("source", source)
+            return tree_df, sectors_df, mapping_df, source
+        print(f"     ②③ 必盈 hszg 失败: {exc}")
+        tree_df, sectors_df, mapping_df = load_tickflow_sector_data(level, refresh=True, cache_name=cache_name, tree_cache=tree_cache)
+        return tree_df, sectors_df, mapping_df, "tickflow"
+
+
 def aggregate_sector_turnover(stock_df: pd.DataFrame) -> pd.DataFrame:
     grouped = (
         stock_df.groupby(["sector_code", "sector_name"], dropna=False)["turnover"]
@@ -158,13 +250,19 @@ def write_readme(
     mapped: int,
     unmapped: int,
     level: str,
+    mapping_source: str,
 ) -> None:
+    mapping_desc = {
+        "biying": "必盈 hszg/list + hszg/gg（每周六更新）",
+        "tickflow": "TickFlow 申万标的池（hszg 不可用时的回退）",
+        "cache": "本地缓存（上次成功来源见 mapping_source_*.json）",
+    }.get(mapping_source, mapping_source)
     readme = f"""# 数据说明（必盈 API）
 
 - **trade_date**: {trade_date}
 - **snapshot_time**: {snapshot_time}
-- **板块体系**: 申万行业（hszg/list, type2={level}）
-- **映射来源**: hszg/gg（每周六更新）
+- **板块体系**: 申万行业（type2={level}）
+- **映射来源**: {mapping_desc}
 - **成交额来源**: hsrl/ssjy/all 或 hsrl/ssjy_more 的 `cje` 字段
 - **板块数**: {sector_count}
 - **映射覆盖**: {mapped}
@@ -206,6 +304,7 @@ def main() -> int:
         stocks_df = fetch_stock_list(licence)
         print(f"     全 A: {len(stocks_df)}")
 
+        mapping_source = "biying"
         if args.turnover_only:
             mapping_cache = DATA_DIR / "cache" / cache_name
             if not mapping_cache.exists():
@@ -222,38 +321,20 @@ def main() -> int:
                     .rename(columns={"sector_code": "code", "sector_name": "name"})
                 )
             sectors_df = sectors_for_level(tree_df, args.level) if "type2" in tree_df.columns else pd.DataFrame()
+            meta_cache = DATA_DIR / "cache" / f"mapping_source_{args.level}.json"
+            if meta_cache.exists():
+                mapping_source = json.loads(meta_cache.read_text(encoding="utf-8")).get("source", "cache")
             print(f"     映射记录: {len(mapping_df)}")
         else:
-            mapping_cache = DATA_DIR / "cache" / cache_name
-            try:
-                print("  ② 行业/概念分类树...")
-                tree_df = load_or_build_tree(licence, tree_cache, refresh=args.refresh_mapping)
-                sectors_df = sectors_for_level(tree_df, args.level)
-                print(f"     目标板块数: {len(sectors_df)}")
-
-                print("  ③ 板块 ↔ 个股映射...")
-                mapping_df = load_or_build_mapping(licence, sectors_df, args.refresh_mapping, cache_name)
-            except Exception as exc:
-                if mapping_cache.exists() and not args.refresh_mapping:
-                    print(f"     ②③ 在线接口失败，改用映射缓存: {exc}")
-                    mapping_df = pd.DataFrame(json.loads(mapping_cache.read_text(encoding="utf-8")))
-                    if tree_cache.exists():
-                        tree_df = pd.DataFrame(json.loads(tree_cache.read_text(encoding="utf-8")))
-                    else:
-                        tree_df = pd.DataFrame(
-                            mapping_df[
-                                ["sector_code", "sector_name", "sector_type2", "sector_level", "parent_code", "parent_name"]
-                            ]
-                            .drop_duplicates("sector_code")
-                            .rename(columns={"sector_code": "code", "sector_name": "name"})
-                        )
-                    sectors_df = (
-                        sectors_for_level(tree_df, args.level)
-                        if "type2" in tree_df.columns
-                        else mapping_df[["sector_code", "sector_name"]].drop_duplicates()
-                    )
-                else:
-                    raise
+            tree_df, sectors_df, mapping_df, mapping_source = load_sector_data(
+                licence,
+                args.level,
+                args.refresh_mapping,
+                cache_name,
+                tree_cache,
+                args.mapping_source,
+            )
+            print(f"     映射来源: {mapping_source}")
             print(f"     映射记录: {len(mapping_df)}")
 
         print("  ④ 个股成交额...")
@@ -308,7 +389,15 @@ def main() -> int:
             if isinstance(sectors_df, pd.DataFrame) and len(sectors_df)
             else mapping_df["sector_code"].nunique()
         )
-        write_readme(trade_date, snapshot_time.isoformat(), sector_count, len(mapped_codes), len(unmapped_df), args.level)
+        write_readme(
+            trade_date,
+            snapshot_time.isoformat(),
+            sector_count,
+            len(mapped_codes),
+            len(unmapped_df),
+            args.level,
+            mapping_source,
+        )
 
         market_total = float(stock_df["turnover"].sum())
         sector_sum = float(sector_df["turnover"].sum()) if not sector_df.empty else 0.0
@@ -325,11 +414,11 @@ def main() -> int:
         return 0
     except Exception as exc:
         print(f"错误: {exc}", file=sys.stderr)
-        if "hszg" in str(exc).lower() or "行业" in str(exc):
+        if "hszg" in str(exc).lower() or "行业" in str(exc) or "tickflow" in str(exc).lower():
             print(
-                "\n提示: hszg 行业接口异常时，若本地仍有 data/cache/sector_mapping_l1.json，"
-                "可改用：python3 scripts/fetch_by_daily.py --no-all-turnover --turnover-only\n"
-                "清 CSV 但保留缓存：python3 scripts/fetch_by_daily.py --fresh --keep-cache --no-all-turnover",
+                "\n提示: 可安装 tickflow 后使用自动回退：pip install tickflow\n"
+                "  python3 scripts/fetch_by_daily.py --fresh --no-all-turnover\n"
+                "或强制 TickFlow 映射：--mapping-source tickflow",
                 file=sys.stderr,
             )
         return 1
