@@ -20,7 +20,7 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 # 完整服务（推荐）：注册 https://tickflow.org 获取 API Key
-export TICKFLOW_API_KEY=your-api-key
+export TICKFLOW_API_KEY=tk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 # 指定历史交易日（无 API Key 也可用免费服务）
 python scripts/fetch_daily_data.py --date 2024-06-12
