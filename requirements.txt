@@ -1,2 +1,2 @@
-bigquant>=0.1.10
+tickflow[all]>=0.1.20
 pandas>=2.0.0
