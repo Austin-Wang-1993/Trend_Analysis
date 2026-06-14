@@ -1,6 +1,6 @@
 # Trend_Analysis
 
-A 股**申万行业成交额**分析（Phase 1）。
+A 股**行业板块成交额**分析（Phase 1）。
 
 ## 文档
 
@@ -9,10 +9,33 @@ A 股**申万行业成交额**分析（Phase 1）。
 
 ## 环境要求
 
-- **Python 3.10+**（TickFlow SDK 支持 3.9+，推荐 3.10）
-- TickFlow API Key（完整服务，含实时行情）；无 Key 可用免费服务拉历史日 K
+- **Python 3.10+**
+- **StockAPI Token**（推荐，东财行业板块 + 最近交易日成交额）：https://www.stockapi.com.cn
+- 或 TickFlow API Key（申万行业方案，见下方）
 
-## 快速开始（腾讯云，交易日 17:00 后）
+## 快速开始（StockAPI，推荐）
+
+```bash
+cd ~/Trend_Analysis
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+export STOCKAPI_TOKEN=你的token   # 官网个人中心获取
+
+# 交易日 15:30 后执行
+python scripts/fetch_sector_data.py
+
+ls data/
+# sectors.csv / sector_stock_mapping.csv / stock_turnover_latest.csv / unmapped_stocks.csv
+```
+
+输出说明：
+- `sectors.csv` — 全量东财行业板块（BK 代码）
+- `sector_stock_mapping.csv` — 板块 ↔ 个股映射
+- `stock_turnover_latest.csv` — 最近交易日个股成交额 + 主行业
+- `unmapped_stocks.csv` — 全 A 中未出现在任何行业板块成份的股票（用于检查遗漏）
+
+## 快速开始（TickFlow / 申万，旧方案）
 
 ```bash
 cd ~/Trend_Analysis
