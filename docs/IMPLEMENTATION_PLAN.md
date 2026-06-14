@@ -25,7 +25,11 @@
 
 ## 2. 依赖
 
+- Python **3.11+**
+- BigQuant SDK（官方 PyPI 源）
+
 ```bash
+python3.11 -m venv .venv && source .venv/bin/activate
 pip install bigquant pandas -i https://pypi.bigquant.com/simple/
 bq auth --apikey <你的AK.SK>
 ```

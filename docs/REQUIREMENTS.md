@@ -189,9 +189,10 @@ WHERE b.date = '{trade_date}'
 
 ## 7. 前置条件
 
-1. BigQuant 账号 + API Key（AK/SK）
-2. 服务器执行：`bq auth --apikey <AK.SK>`
-3. 确认账号对 `cn_stock_industry_component`、`cn_stock_bar1d` 有查询权限
+1. **Python 3.11+**（BigQuant SDK 不支持 3.10）
+2. BigQuant 账号 + API Key（AK/SK）
+3. 服务器执行：`bq auth --apikey <AK.SK>`
+4. 确认账号对 `cn_stock_industry_component`、`cn_stock_bar1d` 有查询权限
 
 ---
 

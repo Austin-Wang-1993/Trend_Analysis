@@ -7,10 +7,24 @@ A 股**申万行业成交额**分析（Phase 1）。
 - [需求文档](docs/REQUIREMENTS.md) — BigQuant + 申万 2021
 - [实现方案](docs/IMPLEMENTATION_PLAN.md)
 
+## 环境要求
+
+- **Python 3.11+**（BigQuant SDK `0.1.10` 要求 `>=3.11,<3.14`；系统自带 3.10 不可用）
+- BigQuant AK/SK
+- 须从官方 PyPI 源安装：`https://pypi.bigquant.com/simple/`
+
 ## 快速开始（腾讯云国内节点，交易日 17:00 后）
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
+# 若 python3 --version 低于 3.11，先安装 3.11（Ubuntu 22.04 示例）
+sudo apt update
+sudo apt install -y python3.11 python3.11-venv python3.11-dev
+
+cd ~/Trend_Analysis
+rm -rf .venv
+python3.11 -m venv .venv && source .venv/bin/activate
+python --version   # 应显示 3.11.x
+
 pip install -r requirements.txt -i https://pypi.bigquant.com/simple/
 # 将下方 AK.SK 替换为你在 BigQuant 平台获取的真实凭证（不要保留尖括号）
 bq auth --apikey AK.xxxxxxxxxxxxxxxx.SK.xxxxxxxxxxxxxxxx
