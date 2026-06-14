@@ -20,6 +20,9 @@ cd ~/Trend_Analysis
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
+# BigQuant 用户额外安装（需 Python 3.11+ 且使用官方 PyPI 源）：
+# pip install -r requirements-bigquant.txt -i https://pypi.bigquant.com/simple/
+
 export BIYING_LICENCE=你的licence
 
 # 交易日收盘后（数据约 16:20 后更新）

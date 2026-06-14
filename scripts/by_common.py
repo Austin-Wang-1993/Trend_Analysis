@@ -24,8 +24,15 @@ TYPE2_SW_L2 = 1  # A股-申万二级
 def normalize_code6(code: str) -> str:
     match = re.search(r"(\d{6})", str(code))
     if not match:
-        raise ValueError(f"无法解析股票代码: {code}")
+        raise ValueError(f"无法解析股票代码: {code!r}")
     return match.group(1)
+
+
+def try_normalize_code6(code: str) -> str | None:
+    try:
+        return normalize_code6(code)
+    except ValueError:
+        return None
 
 
 def get_licence() -> str:
@@ -47,7 +54,10 @@ def _get(url: str, params: dict[str, Any] | None = None, retries: int = 3) -> An
         try:
             resp = requests.get(url, params=params, timeout=60)
             resp.raise_for_status()
-            data = resp.json()
+            try:
+                data = resp.json()
+            except ValueError as exc:
+                raise RuntimeError(f"非 JSON 响应 [{resp.status_code}]: {resp.text[:200]}") from exc
             if isinstance(data, dict) and data.get("code") not in (None, 0):
                 raise RuntimeError(f"必盈 API 错误: {data}")
             return data
@@ -152,10 +162,16 @@ def fetch_turnover_all(licence: str) -> pd.DataFrame:
 
 def fetch_turnover_batch(licence: str, stock_codes: list[str], batch_size: int = 20) -> pd.DataFrame:
     """多股实时成交 hsrl/ssjy_more，每批最多 20 只。"""
+    codes = [c for c in {try_normalize_code6(x) for x in stock_codes} if c]
+    if not codes:
+        raise RuntimeError("无有效股票代码用于批量成交额查询")
+
     records: list[dict[str, Any]] = []
-    for i in range(0, len(stock_codes), batch_size):
-        batch = stock_codes[i : i + batch_size]
+    total_batches = (len(codes) + batch_size - 1) // batch_size
+    for batch_no, i in enumerate(range(0, len(codes), batch_size), start=1):
+        batch = codes[i : i + batch_size]
         codes_param = ",".join(batch)
+        print(f"     成交额批次 {batch_no}/{total_batches} ({len(batch)} 只)...")
         rows = _get(
             f"{API_BASE}/hsrl/ssjy_more/{licence}",
             params={"stock_codes": codes_param},
@@ -169,7 +185,9 @@ def fetch_turnover_batch(licence: str, stock_codes: list[str], batch_size: int =
         for row in iterable:
             if not isinstance(row, dict):
                 continue
-            code = normalize_code6(row.get("dm", row.get("code", "")))
+            code = try_normalize_code6(row.get("dm") or row.get("code") or "")
+            if not code:
+                continue
             records.append(
                 {
                     "stock_code": code,
