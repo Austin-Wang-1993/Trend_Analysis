@@ -110,7 +110,6 @@ def main() -> int:
         )
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    tf = get_client()
 
     print(f"拉取 trade_date = {trade_date}（TickFlow 申万标的池）...")
 

@@ -47,6 +47,12 @@ ls data/
 
 项目已切换至 TickFlow，请 `git pull` 后重装：`pip install -r requirements.txt`
 
-**无 API Key**
+**无 API Key / UnicodeEncodeError**
 
-可用 `TickFlow.free()` 拉历史日 K，适合 `--date 2024-06-12` 这类历史验证；当日实时行情需注册 API Key。
+历史验证不需要 Key：`python scripts/fetch_daily_data.py --date 2024-06-12`
+
+若设置 Key 后报 `UnicodeEncodeError: 'ascii' codec can't encode`，说明环境变量仍是占位符（如 `你的key`），请到 [tickflow.org](https://tickflow.org) 复制真实 Key：
+
+```bash
+export TICKFLOW_API_KEY=tf_xxxxxxxx   # 粘贴控制台里的真实字符串
+```

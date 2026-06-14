@@ -35,8 +35,28 @@ MAPPING_COLUMNS = [
 ]
 
 
+def validate_api_key(api_key: str) -> str:
+    """校验 API Key 格式，避免占位符或非 ASCII 字符导致 httpx 报错。"""
+    if not api_key:
+        return ""
+    try:
+        api_key.encode("ascii")
+    except UnicodeEncodeError as exc:
+        raise ValueError(
+            "TICKFLOW_API_KEY 含非 ASCII 字符（常见原因：仍使用文档占位符「你的key」）。"
+            "请到 https://tickflow.org 控制台复制真实 Key，执行："
+            "export TICKFLOW_API_KEY=粘贴你的key"
+        ) from exc
+    placeholders = {"你的key", "your-api-key", "your-key", "your_api_key", "<your-api-key>"}
+    if api_key.lower() in placeholders or "你的" in api_key:
+        raise ValueError(
+            "TICKFLOW_API_KEY 仍是占位符，请替换为 tickflow.org 控制台生成的真实 Key"
+        )
+    return api_key
+
+
 def get_client() -> TickFlow:
-    api_key = os.environ.get("TICKFLOW_API_KEY", "").strip()
+    api_key = validate_api_key(os.environ.get("TICKFLOW_API_KEY", "").strip())
     if api_key:
         return TickFlow(api_key=api_key)
     return TickFlow.free()
