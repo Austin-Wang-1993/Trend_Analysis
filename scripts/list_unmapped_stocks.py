@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""从 stock_turnover_daily.csv 列出未归入申万行业的股票。"""
+"""从 stock_turnover_latest.csv 列出未归入行业的股票。"""
 
 from __future__ import annotations
 
@@ -9,11 +9,12 @@ from pathlib import Path
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_STOCK_CSV = ROOT / "data" / "stock_turnover_daily.csv"
+DEFAULT_STOCK_CSV = ROOT / "data" / "stock_turnover_latest.csv"
+FALLBACK_STOCK_CSV = ROOT / "data" / "stock_turnover_daily.csv"
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="查看未归类申万行业的股票")
+    parser = argparse.ArgumentParser(description="查看未归类行业的股票")
     parser.add_argument(
         "--input",
         type=Path,
@@ -34,8 +35,15 @@ def is_unmapped(df: pd.DataFrame) -> pd.Series:
 def main() -> int:
     args = parse_args()
     if not args.input.exists():
-        print(f"错误: 找不到 {args.input}，请先运行 fetch_daily_data.py", flush=True)
-        return 1
+        fallback = FALLBACK_STOCK_CSV if args.input == DEFAULT_STOCK_CSV else None
+        if fallback and fallback.exists():
+            args.input = fallback
+        else:
+            print(
+                f"错误: 找不到 {args.input}，请先运行 fetch_bq_daily.py",
+                flush=True,
+            )
+            return 1
 
     stock_df = pd.read_csv(args.input)
     unmapped = stock_df[is_unmapped(stock_df)].copy()
@@ -50,7 +58,7 @@ def main() -> int:
     print(f"未归类成交额:   {unmapped_turnover:,.0f} 元 ({ratio:.2%} 占大盘)")
 
     if unmapped.empty:
-        print("全部股票均有申万一级行业归属。")
+        print("全部股票均有行业归属。")
         return 0
 
     cols = [c for c in ["trade_date", "stock_code", "stock_name", "turnover", "volume"] if c in unmapped.columns]

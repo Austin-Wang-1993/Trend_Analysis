@@ -9,73 +9,76 @@ A 股**行业板块成交额**分析（Phase 1）。
 
 ## 环境要求
 
-- **Python 3.10+**
-- **StockAPI Token**（推荐，东财行业板块 + 最近交易日成交额）：https://www.stockapi.com.cn
-- 或 TickFlow API Key（申万行业方案，见下方）
+- **Python 3.11+**（BigQuant SDK 要求，[安装文档](https://bigquant.com/wiki/doc/vac4qwmQr4)）
+- **BigQuant AK/SK**，且账号已开通 **SDK 使用权限**
+- 安装需使用 BigQuant 官方 PyPI 源
 
-## 快速开始（StockAPI，推荐）
-
-```bash
-cd ~/Trend_Analysis
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-
-export STOCKAPI_TOKEN=你的token   # 官网个人中心获取
-
-# 交易日 15:30 后执行
-python scripts/fetch_sector_data.py
-
-ls data/
-# sectors.csv / sector_stock_mapping.csv / stock_turnover_latest.csv / unmapped_stocks.csv
-```
-
-输出说明：
-- `sectors.csv` — 全量东财行业板块（BK 代码）
-- `sector_stock_mapping.csv` — 板块 ↔ 个股映射
-- `stock_turnover_latest.csv` — 最近交易日个股成交额 + 主行业
-- `unmapped_stocks.csv` — 全 A 中未出现在任何行业板块成份的股票（用于检查遗漏）
-
-## 快速开始（TickFlow / 申万，旧方案）
+## 快速开始（BigQuant，推荐）
 
 ```bash
 cd ~/Trend_Analysis
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+python3.11 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt -i https://pypi.bigquant.com/simple/
 
-# 完整服务（推荐）：注册 https://tickflow.org 获取 API Key
-export TICKFLOW_API_KEY=tk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# 认证（任选其一）
+export BIGQUANT_APIKEY=你的AK.你的SK
+# 或：bq auth --apikey 你的AK.你的SK
 
-# 指定历史交易日（无 API Key 也可用免费服务）
-python scripts/fetch_daily_data.py --date 2024-06-12
+# 最近交易日（默认自动探测）
+python scripts/fetch_bq_daily.py
 
-# 当日采集（需 API Key + quotes）
-python scripts/fetch_daily_data.py
+# 指定历史交易日
+python scripts/fetch_bq_daily.py --date 2024-06-12
+
+# 切换行业标准：sw2021（默认）/ sw2014 / cs（中信）
+python scripts/fetch_bq_daily.py --industry sw2021
 
 ls data/
 ```
 
-## 数据源（TickFlow）
+### 输出文件
 
-| 用途 | TickFlow 能力 |
-|------|---------------|
-| 申万行业 ↔ 个股 | 标的池 `CN_Equity_SW1_*` / `SW2_*` / `SW3_*`（**当前成份快照**） |
-| 成交额 | 实时行情 `quotes.amount` 或历史日 K `klines.amount` |
-| 全 A 股票列表 | 标的池 `CN_Equity_A` |
+| 文件 | 说明 |
+|------|------|
+| `sectors.csv` | 全量行业分类明细（`cn_stock_industry`） |
+| `sector_stock_mapping.csv` | 板块 ↔ 个股映射（`cn_stock_industry_component`，逐日） |
+| `stock_turnover_latest.csv` | 个股成交额 + 行业归属（`cn_stock_bar1d`） |
+| `sector_turnover_daily.csv` | 一级行业成交额汇总 |
+| `unmapped_stocks.csv` | 有成交额但无行业归属（遗漏检查） |
 
-> **关于历史成份**：TickFlow 提供申万行业标的池，但是**当前快照**，不像 BigQuant 有逐日 `cn_stock_industry_component`。历史回填时行业归属用当前标的池归类，严格点-in-time 需另寻数据源。
+### 数据源
+
+| 用途 | BigQuant 表 |
+|------|-------------|
+| 行业分类明细 | [cn_stock_industry](https://bigquant.com/data/datasources/cn_stock_industry) |
+| 板块 ↔ 个股（逐日） | [cn_stock_industry_component](https://bigquant.com/data/datasources/cn_stock_industry_component) |
+| 个股成交额 | [cn_stock_bar1d](https://bigquant.com/data/datasources/cn_stock_bar1d) 字段 `amount` |
 
 ## 常见问题
 
+**`请先申请SDK使用权限`**
+
+AK/SK 已配置但仍报错时，需到 [BigQuant](https://bigquant.com) 个人中心申请开通 **SDK 本地使用权限**。
+
 **`No matching distribution found for bigquant`**
 
-项目已切换至 TickFlow，请 `git pull` 后重装：`pip install -r requirements.txt`
-
-**无 API Key / UnicodeEncodeError**
-
-历史验证不需要 Key：`python scripts/fetch_daily_data.py --date 2024-06-12`
-
-若设置 Key 后报 `UnicodeEncodeError: 'ascii' codec can't encode`，说明环境变量仍是占位符（如 `你的key`），请到 [tickflow.org](https://tickflow.org) 复制真实 Key：
+必须从官方源安装：
 
 ```bash
-export TICKFLOW_API_KEY=tf_xxxxxxxx   # 粘贴控制台里的真实字符串
+pip install bigquant -i https://pypi.bigquant.com/simple/
 ```
+
+**Python 3.10 无法安装**
+
+BigQuant SDK 要求 Python **3.11+**。腾讯云上可安装 `python3.11` 后重建 venv。
+
+**检查未归类股票**
+
+```bash
+python scripts/list_unmapped_stocks.py
+```
+
+## 其他方案（旧）
+
+- TickFlow 申万标的池：`scripts/fetch_daily_data.py`
+- StockAPI 东财 BK 板块：`scripts/fetch_sector_data.py`
