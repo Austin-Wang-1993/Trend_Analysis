@@ -12,7 +12,8 @@ A 股**申万行业成交额**分析（Phase 1）。
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt -i https://pypi.bigquant.com/simple/
-bq auth --apikey <你的AK.SK>
+# 将下方 AK.SK 替换为你在 BigQuant 平台获取的真实凭证（不要保留尖括号）
+bq auth --apikey AK.xxxxxxxxxxxxxxxx.SK.xxxxxxxxxxxxxxxx
 
 # 指定历史交易日
 python scripts/fetch_daily_data.py --date 2024-06-12
@@ -37,3 +38,21 @@ ls data/history/
 历史成交额汇总必须与**当日成份** JOIN（`b.date = c.date`），不能用最新成份回算历史。
 
 输出见 `data/*.csv`（单日）与 `data/history/*.csv`（历史回填）。
+
+## 常见问题
+
+**`No matching distribution found for bigquant>=1.0.0`**
+
+BigQuant 官方 PyPI 当前最新版约为 `0.1.10`，请 `git pull` 后重装：
+
+```bash
+pip install -r requirements.txt -i https://pypi.bigquant.com/simple/
+```
+
+**`bash: syntax error near unexpected token 'newline'`**
+
+说明 `bq auth` 行仍包含占位符 `<你的AK.SK>`，需换成真实 AK/SK。
+
+**`ModuleNotFoundError: No module named 'bigquant'`**
+
+通常是上一步 pip 安装失败，先确认 `pip show bigquant` 有输出再运行脚本。

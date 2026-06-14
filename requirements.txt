@@ -1,2 +1,2 @@
-bigquant>=1.0.0
+bigquant>=0.1.10
 pandas>=2.0.0
