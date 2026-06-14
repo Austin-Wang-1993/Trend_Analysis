@@ -38,17 +38,31 @@ bq auth --apikey <你的AK.SK>
 
 ## 3. 采集流程
 
+### 单日采集
+
 ```
 输入 trade_date（默认最近交易日）
   │
-  ├─① cn_stock_industry_component  → industry_stock_mapping.csv
+  ├─① cn_stock_industry_component  → industry_stock_mapping.csv（当日历史成份）
   │
   ├─② cn_stock_bar1d               → 大盘 SUM(amount)
-  │       JOIN component           → industry_turnover_daily.csv
+  │       JOIN 当日 component      → industry_turnover_daily.csv
   │                               → stock_turnover_daily.csv
   │
   └─③ 写 data/README.md + 校验报告
 ```
+
+### 历史回填
+
+```
+输入 start_date ~ end_date（默认 2023-07-05 ~ 最近交易日）
+  │
+  ├─ 按月分块查询 cn_stock_industry_component → industry_stock_mapping_history.csv
+  ├─ 按月分块 JOIN 当日成份汇总成交额         → market/industry_turnover_history.csv
+  └─ 可选 --include-stocks                    → stock_turnover_history.csv
+```
+
+**关键**：历史成交额必须用 `b.date = c.date` 点-in-time JOIN，不能用最新成份回算。
 
 单次运行：**3 条 SQL**（无东财式 86 次轮询）。
 
@@ -68,6 +82,21 @@ python scripts/fetch_daily_data.py --date 2024-06-12
 # 不指定则取最近一个工作日
 python scripts/fetch_daily_data.py
 ```
+
+### 历史成份回填
+
+```bash
+# 完整历史申万成份 + 大盘/行业成交额（默认 2023-07-05 ~ 最近交易日）
+python scripts/fetch_historical.py
+
+# 指定区间，仅拉成份映射
+python scripts/fetch_historical.py --start-date 2024-01-01 --end-date 2024-12-31 --mode mapping
+
+# 含个股级历史成交额（数据量大）
+python scripts/fetch_historical.py --start-date 2024-01-01 --end-date 2024-03-31 --include-stocks
+```
+
+输出目录：`data/history/`。按月分块查询，避免单次 SQL 过大。
 
 ---
 

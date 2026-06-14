@@ -59,6 +59,13 @@
 - **板块汇总默认按一级行业**（`industry_l1_code` / `industry_l1_name`）
 - 映射表保留二、三级字段，便于后续下钻
 
+**历史成份约定（已确认）**
+
+- 使用 `cn_stock_industry_component` **日频全量记录**，每个交易日反映当日真实成份
+- 历史成交额必须与 `b.date = c.date` 点-in-time JOIN，**禁止**用最新成份回算历史
+- 成份表可用起始日：**2023-07-05**（此前无日频成份数据）
+- 行业进出事件（非日频）可参考 `cn_stock_industry_change`
+
 ### 3.2 个股及板块交易行情
 
 **表名**：`cn_stock_bar1d`（股票后复权日行情）  
@@ -151,6 +158,15 @@ WHERE b.date = '{trade_date}'
 | `stock_turnover_daily.csv` | 个股成交额 + 行业归属 |
 | `data/README.md` | 采集元数据 |
 
+**历史回填（`data/history/`）**
+
+| 文件 | 内容 |
+|------|------|
+| `industry_stock_mapping_history.csv` | 完整历史日频申万成份 |
+| `market_turnover_history.csv` | 历史每日大盘成交额 |
+| `industry_turnover_history.csv` | 历史每日一级行业成交额 |
+| `stock_turnover_history.csv` | 历史每日个股成交额（可选，`--include-stocks`） |
+
 ---
 
 ## 6. 已确认决策
@@ -159,6 +175,7 @@ WHERE b.date = '{trade_date}'
 |----|------|
 | 数据源 | BigQuant DAI |
 | 行业体系 | 申万 2021（`sw2021`） |
+| 历史成份 | 日频 `cn_stock_industry_component`，点-in-time JOIN |
 | 板块层级 | 一级行业汇总 |
 | 主指标 | 成交额 `amount` |
 | 映射表 | `cn_stock_industry_component` |

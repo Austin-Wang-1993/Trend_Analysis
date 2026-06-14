@@ -13,13 +13,18 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-import pandas as pd
-from bigquant import dai
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from bq_common import (
+    fetch_industry_range,
+    fetch_mapping_range,
+    fetch_market_range,
+    fetch_stock_range,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
 CST = ZoneInfo("Asia/Shanghai")
-INDUSTRY_STD = "sw2021"
 
 
 def parse_args() -> argparse.Namespace:
@@ -46,133 +51,23 @@ def resolve_trade_date(value: str | None, snapshot_time: datetime) -> date:
     return infer_trade_date(snapshot_time)
 
 
-def query_df(sql: str, trade_date: date) -> pd.DataFrame:
-    date_str = trade_date.isoformat()
-    return dai.query(
-        sql,
-        filters={"date": [date_str, date_str]},
-    ).df()
-
-
-def fetch_mapping(trade_date: date) -> pd.DataFrame:
-    sql = f"""
-    SELECT
-        c.date,
-        c.instrument,
-        b.name,
-        c.industry_level1_code,
-        c.industry_level1_name,
-        c.industry_level2_code,
-        c.industry_level2_name,
-        c.industry_level3_code,
-        c.industry_level3_name,
-        c.industry_name
-    FROM cn_stock_industry_component c
-    LEFT JOIN cn_stock_bar1d b
-      ON c.date = b.date AND c.instrument = b.instrument
-    WHERE c.date = '{trade_date.isoformat()}'
-      AND c.industry = '{INDUSTRY_STD}'
-  """
-    df = query_df(sql, trade_date)
-    return df.rename(
-        columns={
-            "date": "trade_date",
-            "instrument": "stock_code",
-            "name": "stock_name",
-            "industry_level1_code": "industry_l1_code",
-            "industry_level1_name": "industry_l1_name",
-            "industry_level2_code": "industry_l2_code",
-            "industry_level2_name": "industry_l2_name",
-            "industry_level3_code": "industry_l3_code",
-            "industry_level3_name": "industry_l3_name",
-        }
-    )
-
-
-def fetch_market(trade_date: date) -> pd.DataFrame:
-    sql = f"""
-    SELECT
-        SUM(amount) AS total_turnover,
-        COUNT(*) AS stock_count
-    FROM cn_stock_bar1d
-    WHERE date = '{trade_date.isoformat()}'
-  """
-    return query_df(sql, trade_date)
-
-
-def fetch_industry(trade_date: date) -> pd.DataFrame:
-    sql = f"""
-    SELECT
-        c.industry_level1_code,
-        c.industry_level1_name,
-        SUM(b.amount) AS turnover,
-        SUM(b.volume) AS volume,
-        COUNT(DISTINCT b.instrument) AS stock_count
-    FROM cn_stock_bar1d b
-    JOIN cn_stock_industry_component c
-      ON b.date = c.date AND b.instrument = c.instrument
-    WHERE b.date = '{trade_date.isoformat()}'
-      AND c.industry = '{INDUSTRY_STD}'
-    GROUP BY c.industry_level1_code, c.industry_level1_name
-  """
-    return query_df(sql, trade_date).rename(
-        columns={
-            "industry_level1_code": "industry_l1_code",
-            "industry_level1_name": "industry_l1_name",
-        }
-    )
-
-
-def fetch_stocks(trade_date: date) -> pd.DataFrame:
-    sql = f"""
-    SELECT
-        b.date,
-        b.instrument,
-        b.name,
-        b.amount,
-        b.volume,
-        b.turn,
-        b.change_ratio,
-        c.industry_level1_code,
-        c.industry_level1_name
-    FROM cn_stock_bar1d b
-    JOIN cn_stock_industry_component c
-      ON b.date = c.date AND b.instrument = c.instrument
-    WHERE b.date = '{trade_date.isoformat()}'
-      AND c.industry = '{INDUSTRY_STD}'
-  """
-    df = query_df(sql, trade_date)
-    return df.rename(
-        columns={
-            "date": "trade_date",
-            "instrument": "stock_code",
-            "name": "stock_name",
-            "amount": "turnover",
-            "turn": "turnover_rate",
-            "change_ratio": "pct_chg",
-            "industry_level1_code": "industry_l1_code",
-            "industry_level1_name": "industry_l1_name",
-        }
-    )
-
-
 def write_readme(trade_date: date, snapshot_time: datetime) -> None:
     readme = f"""# 数据说明
 
 - **trade_date**: {trade_date.isoformat()}
 - **snapshot_time**: {snapshot_time.isoformat()}
 - **数据源**: BigQuant DAI（申万 2021，`industry = sw2021`）
-- **映射表**: `cn_stock_industry_component`
+- **映射表**: `cn_stock_industry_component`（当日历史成份，非静态快照）
 - **行情表**: `cn_stock_bar1d`（成交额 `amount`）
 
 ## 文件
 
 | 文件 | 说明 |
 |------|------|
-| industry_stock_mapping.csv | 行业-个股映射（含 L1/L2/L3） |
+| industry_stock_mapping.csv | 当日行业-个股映射（含 L1/L2/L3） |
 | market_turnover_daily.csv | 全 A 成交额 |
 | industry_turnover_daily.csv | 一级申万行业成交额 |
-| stock_turnover_daily.csv | 个股成交额 + 行业归属 |
+| stock_turnover_daily.csv | 个股成交额 + 当日行业归属 |
 """
     (DATA_DIR / "README.md").write_text(readme, encoding="utf-8")
 
@@ -180,10 +75,10 @@ def write_readme(trade_date: date, snapshot_time: datetime) -> None:
 def print_validation(
     trade_date: date,
     snapshot_time: datetime,
-    mapping_df: pd.DataFrame,
-    market_df: pd.DataFrame,
-    industry_df: pd.DataFrame,
-    stock_df: pd.DataFrame,
+    mapping_df,
+    market_df,
+    industry_df,
+    stock_df,
 ) -> None:
     market_total = float(market_df["total_turnover"].iloc[0])
     industry_sum = float(industry_df["turnover"].sum())
@@ -223,24 +118,22 @@ def main() -> int:
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-    print(f"拉取 trade_date = {trade_date}（申万 2021）...")
+    print(f"拉取 trade_date = {trade_date}（申万 2021，当日历史成份）...")
 
     print("  ① 行业-个股映射...")
-    mapping_df = fetch_mapping(trade_date)
+    mapping_df = fetch_mapping_range(trade_date, trade_date)
     print(f"     行数: {len(mapping_df)}")
 
     print("  ② 大盘成交额...")
-    market_df = fetch_market(trade_date)
-    market_df.insert(0, "trade_date", trade_date.isoformat())
+    market_df = fetch_market_range(trade_date, trade_date)
     market_df.insert(1, "snapshot_time", snapshot_time.isoformat())
     print(f"     股票数: {market_df['stock_count'].iloc[0]}")
 
-    print("  ③ 行业 / 个股成交额...")
-    industry_df = fetch_industry(trade_date)
-    industry_df.insert(0, "trade_date", trade_date.isoformat())
+    print("  ③ 行业 / 个股成交额（JOIN 当日成份）...")
+    industry_df = fetch_industry_range(trade_date, trade_date)
     industry_df.insert(1, "snapshot_time", snapshot_time.isoformat())
 
-    stock_df = fetch_stocks(trade_date)
+    stock_df = fetch_stock_range(trade_date, trade_date)
     stock_df.insert(1, "snapshot_time", snapshot_time.isoformat())
     print(f"     行业数: {len(industry_df)}，个股数: {len(stock_df)}")
 

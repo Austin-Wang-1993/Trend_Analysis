@@ -20,14 +20,20 @@ python scripts/fetch_daily_data.py --date 2024-06-12
 # 不指定则取最近一个工作日
 python scripts/fetch_daily_data.py
 
+# 完整历史申万成份回填（2023-07-05 起）
+python scripts/fetch_historical.py --start-date 2024-01-01 --end-date 2024-12-31
+
 ls data/
+ls data/history/
 ```
 
 ## 数据源
 
 | 用途 | BigQuant 表 |
 |------|-------------|
-| 个股 ↔ 申万行业映射 | `cn_stock_industry_component`（`industry = sw2021`） |
+| 个股 ↔ 申万行业映射（**每日历史成份**） | `cn_stock_industry_component`（`industry = sw2021`） |
 | 个股成交额 / 成交量 | `cn_stock_bar1d`（`amount` 为主指标） |
 
-输出见 `data/*.csv` 与 `data/README.md`。
+历史成交额汇总必须与**当日成份** JOIN（`b.date = c.date`），不能用最新成份回算历史。
+
+输出见 `data/*.csv`（单日）与 `data/history/*.csv`（历史回填）。
