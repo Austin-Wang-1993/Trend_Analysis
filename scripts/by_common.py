@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import time
 from datetime import datetime
 from typing import Any
@@ -18,6 +19,13 @@ CST = ZoneInfo("Asia/Shanghai")
 # type2 含义（hszg/list 文档）
 TYPE2_SW_L1 = 0  # A股-申万行业
 TYPE2_SW_L2 = 1  # A股-申万二级
+
+
+def normalize_code6(code: str) -> str:
+    match = re.search(r"(\d{6})", str(code))
+    if not match:
+        raise ValueError(f"无法解析股票代码: {code}")
+    return match.group(1)
 
 
 def get_licence() -> str:
@@ -56,7 +64,7 @@ def fetch_stock_list(licence: str) -> pd.DataFrame:
         raise RuntimeError("股票列表为空")
     df = pd.DataFrame(rows)
     df = df.rename(columns={"dm": "stock_code", "mc": "stock_name", "jys": "exchange"})
-    df["stock_code"] = df["stock_code"].astype(str).str.zfill(6)
+    df["stock_code"] = df["stock_code"].map(normalize_code6)
     return df.drop_duplicates("stock_code").reset_index(drop=True)
 
 
@@ -86,7 +94,7 @@ def fetch_sector_constituents(licence: str, sector_code: str) -> list[dict[str, 
     for row in rows:
         if not row.get("jys"):
             continue
-        code = str(row.get("dm", "")).zfill(6)
+        code = normalize_code6(row.get("dm", ""))
         result.append(
             {
                 "stock_code": code,
@@ -128,7 +136,7 @@ def fetch_turnover_all(licence: str) -> pd.DataFrame:
     if not isinstance(rows, list) or not rows:
         raise RuntimeError("全市场成交额为空（需包年/白金证书）")
     df = pd.DataFrame(rows)
-    df["stock_code"] = df["dm"].astype(str).str.zfill(6)
+    df["stock_code"] = df["dm"].map(normalize_code6)
     df["turnover"] = pd.to_numeric(df.get("cje", 0), errors="coerce").fillna(0.0)
     df["volume"] = pd.to_numeric(df.get("v", 0), errors="coerce").fillna(0).astype("int64")
     df["trade_time"] = df.get("t", "")
@@ -161,7 +169,7 @@ def fetch_turnover_batch(licence: str, stock_codes: list[str], batch_size: int =
         for row in iterable:
             if not isinstance(row, dict):
                 continue
-            code = str(row.get("dm", row.get("code", ""))).zfill(6)
+            code = normalize_code6(row.get("dm", row.get("code", "")))
             records.append(
                 {
                     "stock_code": code,
