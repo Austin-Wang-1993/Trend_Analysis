@@ -9,21 +9,31 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+# 允许从项目根目录执行: python scripts/fetch_daily_data.py
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 import akshare as ak
 import pandas as pd
-from tenacity import retry, stop_after_attempt, wait_fixed
+from tenacity import retry, stop_after_attempt, wait_exponential
+
+from em_client import patch_akshare_requests
+
+patch_akshare_requests()
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
 CST = ZoneInfo("Asia/Shanghai")
 
-REQUEST_INTERVAL_SEC = 0.8
-MAX_RETRIES = 3
-RETRY_WAIT_SEC = 3
+REQUEST_INTERVAL_SEC = 1.0
+MAX_RETRIES = 6
 
 
 def call_with_retry(func, *args, **kwargs):
-    @retry(stop=stop_after_attempt(MAX_RETRIES), wait=wait_fixed(RETRY_WAIT_SEC), reraise=True)
+    @retry(
+        stop=stop_after_attempt(MAX_RETRIES),
+        wait=wait_exponential(multiplier=2, min=2, max=30),
+        reraise=True,
+    )
     def _inner():
         return func(*args, **kwargs)
 
@@ -81,6 +91,16 @@ def main() -> int:
         )
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    print("探测东财接口...")
+    from em_client import probe_eastmoney
+
+    ok, msg = probe_eastmoney()
+    if not ok:
+        print(f"东财接口不可达: {msg}", file=sys.stderr)
+        print("请稍后重试，或在交易日 17:00 后再执行。也可先运行: python scripts/test_connectivity.py", file=sys.stderr)
+        return 1
+    print(f"  {msg}")
 
     print("拉取行业列表...")
     industries = fetch_industries()
