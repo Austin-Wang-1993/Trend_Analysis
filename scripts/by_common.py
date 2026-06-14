@@ -53,17 +53,23 @@ def _get(url: str, params: dict[str, Any] | None = None, retries: int = 3) -> An
     for attempt in range(retries):
         try:
             resp = requests.get(url, params=params, timeout=60)
-            resp.raise_for_status()
             try:
                 data = resp.json()
             except ValueError as exc:
                 raise RuntimeError(f"非 JSON 响应 [{resp.status_code}]: {resp.text[:200]}") from exc
+
             if isinstance(data, dict) and data.get("code") not in (None, 0):
-                raise RuntimeError(f"必盈 API 错误: {data}")
+                code = data.get("code")
+                message = data.get("message") or data.get("msg") or data
+                raise RuntimeError(f"必盈 API 错误 [{code}]: {message}")
+
+            if resp.status_code >= 400:
+                raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:200]}")
+
             return data
         except Exception as exc:
             last_error = exc
-            time.sleep(0.3 * (attempt + 1))
+            time.sleep(0.5 * (attempt + 1))
     raise RuntimeError(f"请求失败 {url}: {last_error}") from last_error
 
 

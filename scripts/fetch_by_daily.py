@@ -60,6 +60,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="不使用全市场成交额接口，改用 ssjy_more 批量拉取",
     )
+    parser.add_argument(
+        "--turnover-only",
+        action="store_true",
+        help="仅拉取成交额（使用已缓存的行业树与映射，跳过重试失败接口）",
+    )
     return parser.parse_args()
 
 
@@ -71,6 +76,26 @@ def sectors_for_level(tree_df: pd.DataFrame, level: str) -> pd.DataFrame:
     l1 = filter_sectors(tree_df, type2=TYPE2_SW_L1)
     l2 = filter_sectors(tree_df, type2=TYPE2_SW_L2)
     return pd.concat([l1, l2], ignore_index=True).drop_duplicates("code")
+
+
+def load_or_build_tree(
+    licence: str,
+    cache_path: Path,
+    refresh: bool,
+) -> pd.DataFrame:
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    if not refresh and cache_path.exists():
+        print(f"     使用缓存: {cache_path}")
+        return pd.DataFrame(json.loads(cache_path.read_text(encoding="utf-8")))
+    try:
+        tree_df = fetch_sector_tree(licence)
+    except Exception as exc:
+        if cache_path.exists():
+            print(f"     在线拉取失败，回退缓存: {exc}")
+            return pd.DataFrame(json.loads(cache_path.read_text(encoding="utf-8")))
+        raise
+    cache_path.write_text(tree_df.to_json(orient="records", force_ascii=False), encoding="utf-8")
+    return tree_df
 
 
 def load_or_build_mapping(
@@ -133,6 +158,7 @@ def main() -> int:
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     cache_name = f"sector_mapping_{args.level}.json"
+    tree_cache = DATA_DIR / "cache" / "sector_tree.json"
 
     print("拉取必盈 API 数据...")
 
@@ -141,14 +167,55 @@ def main() -> int:
         stocks_df = fetch_stock_list(licence)
         print(f"     全 A: {len(stocks_df)}")
 
-        print("  ② 行业/概念分类树...")
-        tree_df = fetch_sector_tree(licence)
-        sectors_df = sectors_for_level(tree_df, args.level)
-        print(f"     目标板块数: {len(sectors_df)}")
+        if args.turnover_only:
+            mapping_cache = DATA_DIR / "cache" / cache_name
+            if not mapping_cache.exists():
+                print(f"错误: 找不到映射缓存 {mapping_cache}，请先完整跑一遍采集", file=sys.stderr)
+                return 1
+            print("  ②③ 跳过（--turnover-only，使用缓存）...")
+            mapping_df = pd.DataFrame(json.loads(mapping_cache.read_text(encoding="utf-8")))
+            if tree_cache.exists():
+                tree_df = pd.DataFrame(json.loads(tree_cache.read_text(encoding="utf-8")))
+            else:
+                tree_df = pd.DataFrame(
+                    mapping_df[["sector_code", "sector_name", "sector_type2", "sector_level", "parent_code", "parent_name"]]
+                    .drop_duplicates("sector_code")
+                    .rename(columns={"sector_code": "code", "sector_name": "name"})
+                )
+            sectors_df = sectors_for_level(tree_df, args.level) if "type2" in tree_df.columns else pd.DataFrame()
+            print(f"     映射记录: {len(mapping_df)}")
+        else:
+            mapping_cache = DATA_DIR / "cache" / cache_name
+            try:
+                print("  ② 行业/概念分类树...")
+                tree_df = load_or_build_tree(licence, tree_cache, refresh=args.refresh_mapping)
+                sectors_df = sectors_for_level(tree_df, args.level)
+                print(f"     目标板块数: {len(sectors_df)}")
 
-        print("  ③ 板块 ↔ 个股映射...")
-        mapping_df = load_or_build_mapping(licence, sectors_df, args.refresh_mapping, cache_name)
-        print(f"     映射记录: {len(mapping_df)}")
+                print("  ③ 板块 ↔ 个股映射...")
+                mapping_df = load_or_build_mapping(licence, sectors_df, args.refresh_mapping, cache_name)
+            except Exception as exc:
+                if mapping_cache.exists() and not args.refresh_mapping:
+                    print(f"     ②③ 在线接口失败，改用映射缓存: {exc}")
+                    mapping_df = pd.DataFrame(json.loads(mapping_cache.read_text(encoding="utf-8")))
+                    if tree_cache.exists():
+                        tree_df = pd.DataFrame(json.loads(tree_cache.read_text(encoding="utf-8")))
+                    else:
+                        tree_df = pd.DataFrame(
+                            mapping_df[
+                                ["sector_code", "sector_name", "sector_type2", "sector_level", "parent_code", "parent_name"]
+                            ]
+                            .drop_duplicates("sector_code")
+                            .rename(columns={"sector_code": "code", "sector_name": "name"})
+                        )
+                    sectors_df = (
+                        sectors_for_level(tree_df, args.level)
+                        if "type2" in tree_df.columns
+                        else mapping_df[["sector_code", "sector_name"]].drop_duplicates()
+                    )
+                else:
+                    raise
+            print(f"     映射记录: {len(mapping_df)}")
 
         print("  ④ 个股成交额...")
         turnover_df = fetch_turnover(
@@ -197,7 +264,12 @@ def main() -> int:
         sector_df.to_csv(DATA_DIR / "sector_turnover_daily.csv", index=False, encoding="utf-8")
         unmapped_df.to_csv(DATA_DIR / "unmapped_stocks.csv", index=False, encoding="utf-8")
 
-        write_readme(trade_date, snapshot_time.isoformat(), len(sectors_df), len(mapped_codes), len(unmapped_df), args.level)
+        sector_count = (
+            len(sectors_df)
+            if isinstance(sectors_df, pd.DataFrame) and len(sectors_df)
+            else mapping_df["sector_code"].nunique()
+        )
+        write_readme(trade_date, snapshot_time.isoformat(), sector_count, len(mapped_codes), len(unmapped_df), args.level)
 
         market_total = float(stock_df["turnover"].sum())
         sector_sum = float(sector_df["turnover"].sum()) if not sector_df.empty else 0.0
