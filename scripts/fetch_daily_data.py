@@ -71,6 +71,7 @@ def write_readme(trade_date: date, snapshot_time: datetime, use_quotes: bool) ->
 | industry_turnover_l2_daily.csv | 二级申万行业成交额 |
 | industry_turnover_l3_daily.csv | 三级申万行业成交额（最细） |
 | stock_turnover_daily.csv | 个股成交额 + L1/L2/L3 归属 |
+| unmapped_stocks_daily.csv | 有成交额但未归入申万行业的股票 |
 """
     (DATA_DIR / "README.md").write_text(readme, encoding="utf-8")
 
@@ -89,6 +90,7 @@ def print_validation(
     industry_sum = float(industry_df["turnover"].sum())
     ratio = industry_sum / market_total if market_total else 0.0
     mapped = stock_df[stock_df["industry_l1_name"].astype(str).str.len() > 0]
+    unmapped = stock_df[~stock_df.index.isin(mapped.index)].copy()
 
     print("\n========== 校验报告 ==========")
     print(f"trade_date:      {trade_date}")
@@ -96,6 +98,7 @@ def print_validation(
     print(f"映射股票数:      {len(mapping_df)}")
     print(f"有行情股票数:    {len(stock_df)}")
     print(f"有申万归属:      {len(mapped)}")
+    print(f"未归类股票数:    {len(unmapped)}")
     print(f"一级行业数:      {len(industry_df)}")
     print(f"二级行业数:      {len(industry_l2_df)}")
     print(f"三级行业数:      {len(industry_l3_df)}")
@@ -183,6 +186,12 @@ def main() -> int:
     industry_l2_df.to_csv(DATA_DIR / "industry_turnover_l2_daily.csv", index=False, encoding="utf-8")
     industry_l3_df.to_csv(DATA_DIR / "industry_turnover_l3_daily.csv", index=False, encoding="utf-8")
     stock_df.to_csv(DATA_DIR / "stock_turnover_daily.csv", index=False, encoding="utf-8")
+    unmapped_cols = [
+        "trade_date", "snapshot_time", "stock_code", "stock_name", "turnover", "volume",
+    ]
+    unmapped[unmapped_cols].sort_values("turnover", ascending=False).to_csv(
+        DATA_DIR / "unmapped_stocks_daily.csv", index=False, encoding="utf-8"
+    )
     write_readme(trade_date, snapshot_time, use_quotes)
 
     print_validation(
