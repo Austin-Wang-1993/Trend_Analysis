@@ -9,16 +9,16 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-# 允许从项目根目录执行: python scripts/fetch_daily_data.py
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import akshare as ak
 import pandas as pd
+from em_client import (
+    fetch_a_share_spot,
+    fetch_industry_constituents,
+    fetch_industry_list,
+    probe_eastmoney,
+)
 from tenacity import retry, stop_after_attempt, wait_exponential
-
-from em_client import patch_akshare_requests
-
-patch_akshare_requests()
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
@@ -48,36 +48,12 @@ def normalize_code(value) -> str:
 
 
 def infer_trade_date(snapshot_time: datetime) -> date:
-    """采集时刻最近交易日：周末回退到周五。"""
     d = snapshot_time.date()
-    weekday = d.weekday()
-    if weekday == 5:
+    if d.weekday() == 5:
         return d - timedelta(days=1)
-    if weekday == 6:
+    if d.weekday() == 6:
         return d - timedelta(days=2)
     return d
-
-
-def fetch_industries() -> pd.DataFrame:
-    df = call_with_retry(ak.stock_board_industry_name_em)()
-    return df.rename(columns={"板块代码": "industry_code", "板块名称": "industry_name"})[
-        ["industry_code", "industry_name"]
-    ]
-
-
-def fetch_market_turnover(trade_date: date, snapshot_time: datetime) -> pd.DataFrame:
-    df = call_with_retry(ak.stock_zh_a_spot_em)()
-    total = pd.to_numeric(df["成交额"], errors="coerce").sum()
-    return pd.DataFrame(
-        [
-            {
-                "trade_date": trade_date.isoformat(),
-                "snapshot_time": snapshot_time.isoformat(),
-                "total_turnover": total,
-                "stock_count": len(df),
-            }
-        ]
-    )
 
 
 def main() -> int:
@@ -93,17 +69,14 @@ def main() -> int:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     print("探测东财接口...")
-    from em_client import probe_eastmoney
-
     ok, msg = probe_eastmoney()
     if not ok:
         print(f"东财接口不可达: {msg}", file=sys.stderr)
-        print("请稍后重试，或在交易日 17:00 后再执行。也可先运行: python scripts/test_connectivity.py", file=sys.stderr)
         return 1
     print(f"  {msg}")
 
     print("拉取行业列表...")
-    industries = fetch_industries()
+    industries = call_with_retry(fetch_industry_list)()
     print(f"  行业数: {len(industries)}")
 
     mapping_rows: list[dict] = []
@@ -115,11 +88,11 @@ def main() -> int:
         name = str(row["industry_name"])
         print(f"  [{idx + 1}/{len(industries)}] {name} ({code})")
         try:
-            cons = call_with_retry(ak.stock_board_industry_cons_em, symbol=code)()
+            cons = call_with_retry(fetch_industry_constituents, code)()
             for _, s in cons.iterrows():
-                stock_code = normalize_code(s["代码"])
-                stock_name = str(s["名称"])
-                turnover = pd.to_numeric(s.get("成交额"), errors="coerce")
+                stock_code = normalize_code(s["stock_code"])
+                stock_name = str(s["stock_name"])
+                turnover = pd.to_numeric(s.get("turnover"), errors="coerce")
                 mapping_rows.append(
                     {
                         "industry_code": code,
@@ -151,15 +124,24 @@ def main() -> int:
     mapping_df = pd.DataFrame(mapping_rows)
     stock_df = pd.DataFrame(stock_rows)
 
-    industry_df = (
-        stock_df.groupby(["industry_code", "industry_name"], as_index=False)
-        .agg(turnover=("turnover", "sum"), stock_count=("stock_code", "count"))
+    industry_df = stock_df.groupby(["industry_code", "industry_name"], as_index=False).agg(
+        turnover=("turnover", "sum"), stock_count=("stock_code", "count")
     )
     industry_df.insert(0, "trade_date", trade_date.isoformat())
     industry_df.insert(1, "snapshot_time", snapshot_time.isoformat())
 
     print("拉取全 A 成交额...")
-    market_df = fetch_market_turnover(trade_date, snapshot_time)
+    spot_df = call_with_retry(fetch_a_share_spot)()
+    market_df = pd.DataFrame(
+        [
+            {
+                "trade_date": trade_date.isoformat(),
+                "snapshot_time": snapshot_time.isoformat(),
+                "total_turnover": pd.to_numeric(spot_df["turnover"], errors="coerce").sum(),
+                "stock_count": len(spot_df),
+            }
+        ]
+    )
 
     mapping_df.to_csv(DATA_DIR / "industry_stock_mapping.csv", index=False, encoding="utf-8")
     stock_df.to_csv(DATA_DIR / "stock_turnover_daily.csv", index=False, encoding="utf-8")
@@ -170,20 +152,16 @@ def main() -> int:
 
 - **trade_date**: {trade_date.isoformat()}
 - **snapshot_time**: {snapshot_time.isoformat()}
-- **采集环境**: 请在腾讯云国内节点、交易日 17:00 后执行
+- **数据源**: 东财 push2 API 直连（等价于 akshare 对应接口）
 
 ## 文件
 
 | 文件 | 说明 |
 |------|------|
 | industry_stock_mapping.csv | 行业-个股映射 |
-| market_turnover_daily.csv | 全 A 成交额（stock_zh_a_spot_em 求和） |
-| industry_turnover_daily.csv | 行业成交额（成份股成交额求和） |
+| market_turnover_daily.csv | 全 A 成交额 |
+| industry_turnover_daily.csv | 行业成交额（成份股求和） |
 | stock_turnover_daily.csv | 行业内个股成交额 |
-
-## 备注
-
-- 未使用 `stock_board_industry_spot_em`，行业成交额由成份股汇总。
 """
     (DATA_DIR / "README.md").write_text(readme, encoding="utf-8")
 
@@ -196,7 +174,7 @@ def main() -> int:
     print(f"个股成交额行数:  {len(stock_df)}")
     print(f"行业数:          {len(industry_df)}")
     print(f"大盘成交额:      {market_total:,.0f} 元")
-    print(f"行业成交额合计:  {industry_sum:,.0f} 元（成份股口径，不与大盘直接对比）")
+    print(f"行业成交额合计:  {industry_sum:,.0f} 元（成份股口径）")
     if failed:
         print(f"失败行业 ({len(failed)}):")
         for item in failed:

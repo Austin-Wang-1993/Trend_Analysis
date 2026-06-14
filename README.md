@@ -11,7 +11,7 @@ A 股**行业成交额**数据（Phase 1）。
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.txt   # 仅需 pandas / requests / tenacity，不依赖 akshare
 python scripts/fetch_daily_data.py
 ls data/
 ```

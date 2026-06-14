@@ -1,11 +1,13 @@
-"""东财 API 请求增强：补充浏览器请求头，降低被断开连接的概率。"""
+"""直接调用东财 push2 API（带浏览器请求头），不依赖 akshare 请求层。"""
 
 from __future__ import annotations
 
+import math
 import random
 import time
 from typing import Any
 
+import pandas as pd
 import requests
 from requests.adapters import HTTPAdapter
 
@@ -19,55 +21,111 @@ EM_HEADERS = {
     "Accept-Language": "zh-CN,zh;q=0.9",
 }
 
+UT_TOKEN = "bd1d9ddb04089700cf9c27f6f7426281"
 
-def patch_akshare_requests(max_retries: int = 6, base_delay: float = 2.0) -> None:
-    """在调用 akshare 东财接口前执行一次。"""
-    import akshare.utils.request as req_module
 
-    if getattr(req_module, "_patched_by_trend_analysis", False):
-        return
+def em_get(url: str, params: dict[str, Any], timeout: int = 20, max_retries: int = 6) -> requests.Response:
+    last_exc: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            with requests.Session() as session:
+                adapter = HTTPAdapter(pool_connections=1, pool_maxsize=1)
+                session.mount("http://", adapter)
+                session.mount("https://", adapter)
+                resp = session.get(url, params=params, timeout=timeout, headers=EM_HEADERS)
+                resp.raise_for_status()
+                return resp
+        except (requests.RequestException, ValueError) as exc:
+            last_exc = exc
+            if attempt < max_retries - 1:
+                time.sleep(2**attempt + random.uniform(0.5, 1.5))
+    raise last_exc  # type: ignore[misc]
 
-    def request_with_retry(
-        url: str,
-        params: dict | None = None,
-        timeout: int = 20,
-        **_: Any,
-    ) -> requests.Response:
-        last_exception: Exception | None = None
-        for attempt in range(max_retries):
-            try:
-                with requests.Session() as session:
-                    adapter = HTTPAdapter(pool_connections=1, pool_maxsize=1)
-                    session.mount("http://", adapter)
-                    session.mount("https://", adapter)
-                    response = session.get(
-                        url,
-                        params=params,
-                        timeout=timeout,
-                        headers=EM_HEADERS,
-                    )
-                    response.raise_for_status()
-                    return response
-            except (requests.RequestException, ValueError) as exc:
-                last_exception = exc
-                if attempt < max_retries - 1:
-                    delay = base_delay * (2**attempt) + random.uniform(0.5, 1.5)
-                    time.sleep(delay)
-        raise last_exception  # type: ignore[misc]
 
-    req_module.request_with_retry = request_with_retry
-    req_module._patched_by_trend_analysis = True
+def fetch_paginated(url: str, base_params: dict[str, Any]) -> pd.DataFrame:
+    params = base_params.copy()
+    first = em_get(url, params).json()
+    diff = first["data"]["diff"]
+    if not diff:
+        return pd.DataFrame()
+    per_page = len(diff)
+    total_page = math.ceil(first["data"]["total"] / per_page)
+    frames = [pd.DataFrame(diff)]
+    for page in range(2, total_page + 1):
+        params["pn"] = str(page)
+        time.sleep(random.uniform(0.5, 1.2))
+        page_json = em_get(url, params).json()
+        frames.append(pd.DataFrame(page_json["data"]["diff"]))
+    return pd.concat(frames, ignore_index=True)
+
+
+def fetch_industry_list() -> pd.DataFrame:
+    """等同 stock_board_industry_name_em，仅保留板块代码、名称。"""
+    url = "https://17.push2.eastmoney.com/api/qt/clist/get"
+    params = {
+        "pn": "1",
+        "pz": "100",
+        "po": "1",
+        "np": "1",
+        "ut": UT_TOKEN,
+        "fltt": "2",
+        "invt": "2",
+        "fid": "f3",
+        "fs": "m:90 t:2 f:!50",
+        "fields": "f12,f14",
+    }
+    df = fetch_paginated(url, params)
+    return df.rename(columns={"f12": "industry_code", "f14": "industry_name"})[
+        ["industry_code", "industry_name"]
+    ]
+
+
+def fetch_industry_constituents(industry_code: str) -> pd.DataFrame:
+    """等同 stock_board_industry_cons_em(symbol=行业代码)。"""
+    url = "https://29.push2.eastmoney.com/api/qt/clist/get"
+    params = {
+        "pn": "1",
+        "pz": "100",
+        "po": "1",
+        "np": "1",
+        "ut": UT_TOKEN,
+        "fltt": "2",
+        "invt": "2",
+        "fid": "f3",
+        "fs": f"b:{industry_code} f:!50",
+        "fields": "f12,f14,f6",
+    }
+    df = fetch_paginated(url, params)
+    return df.rename(columns={"f12": "stock_code", "f14": "stock_name", "f6": "turnover"})
+
+
+def fetch_a_share_spot() -> pd.DataFrame:
+    """等同 stock_zh_a_spot_em，仅保留代码、名称、成交额。"""
+    url = "https://82.push2.eastmoney.com/api/qt/clist/get"
+    params = {
+        "pn": "1",
+        "pz": "100",
+        "po": "1",
+        "np": "1",
+        "ut": UT_TOKEN,
+        "fltt": "2",
+        "invt": "2",
+        "fid": "f12",
+        "fs": "m:0 t:6,m:0 t:80,m:1 t:2,m:1 t:23,m:0 t:81 s:2048",
+        "fields": "f12,f14,f6",
+    }
+    df = fetch_paginated(url, params)
+    return df.rename(columns={"f12": "stock_code", "f14": "stock_name", "f6": "turnover"})
 
 
 def probe_eastmoney(timeout: int = 15) -> tuple[bool, str]:
-    """探测东财 push2 接口是否可达。"""
     url = "https://17.push2.eastmoney.com/api/qt/clist/get"
     params = {
         "pn": "1",
         "pz": "5",
         "po": "1",
         "np": "1",
-        "ut": "bd1d9ddb04089700cf9c27f6f7426281",
+        "ut": UT_TOKEN,
         "fltt": "2",
         "invt": "2",
         "fid": "f3",
@@ -78,8 +136,12 @@ def probe_eastmoney(timeout: int = 15) -> tuple[bool, str]:
         with requests.Session() as session:
             resp = session.get(url, params=params, timeout=timeout, headers=EM_HEADERS)
             resp.raise_for_status()
-            data = resp.json()
-            count = len(data.get("data", {}).get("diff", []))
+            count = len(resp.json().get("data", {}).get("diff", []))
             return True, f"OK, 返回 {count} 条行业记录"
     except Exception as exc:
         return False, str(exc)
+
+
+# 兼容旧补丁入口（现改为直连，保留空操作避免旧脚本报错）
+def patch_akshare_requests(*_args, **_kwargs) -> None:
+    return None
