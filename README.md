@@ -9,11 +9,49 @@ A 股**行业板块成交额**分析（Phase 1）。
 
 ## 环境要求
 
-- **Python 3.11+**（BigQuant SDK 要求，[安装文档](https://bigquant.com/wiki/doc/vac4qwmQr4)）
-- **BigQuant AK/SK**，且账号已开通 **SDK 使用权限**
-- 安装需使用 BigQuant 官方 PyPI 源
+- **Python 3.10+**
+- **必盈 API 证书**（推荐）：https://www.biyingapi.com/doc_hs
+- 或 BigQuant AK/SK（需 Python 3.11+ 与 SDK 权限）
 
-## 快速开始（BigQuant，推荐）
+## 快速开始（必盈 API，推荐）
+
+```bash
+cd ~/Trend_Analysis
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+export BIYING_LICENCE=你的licence
+
+# 交易日收盘后（数据约 16:20 后更新）
+python scripts/fetch_by_daily.py
+
+# 申万二级行业映射
+python scripts/fetch_by_daily.py --level l2
+
+# 无包年/白金时，禁用全市场接口、改用批量拉取
+python scripts/fetch_by_daily.py --no-all-turnover
+
+ls data/
+```
+
+### 输出文件
+
+| 文件 | 必盈接口 |
+|------|----------|
+| `sectors.csv` | `hszg/list` 行业/概念树 |
+| `sector_stock_mapping.csv` | `hszg/gg/{板块代码}` |
+| `stock_turnover_latest.csv` | `hsrl/ssjy/all` 或 `ssjy_more` 的 `cje` |
+| `sector_turnover_daily.csv` | 一级行业成交额汇总 |
+| `unmapped_stocks.csv` | 遗漏检查 |
+
+### 套餐说明
+
+| 套餐 | 全市场成交额 | 每日调用 |
+|------|-------------|----------|
+| 免费版 | ❌ 需 `ssjy_more` 分批 | 200 次（不够跑全市场） |
+| 包年版 ¥688/年 | ✅ `ssjy/all` 一次拉全 | 不限 |
+
+## 快速开始（BigQuant）
 
 ```bash
 cd ~/Trend_Analysis
