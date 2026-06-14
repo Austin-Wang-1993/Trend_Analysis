@@ -234,9 +234,51 @@ def attach_industry(stock_df: pd.DataFrame, stock_map: dict[str, dict[str, str]]
         return stock_map.get(code, {}).get(field, "")
 
     out = stock_df.copy()
-    out["industry_l1_code"] = out["stock_code"].map(lambda c: lookup(c, "industry_l1_code"))
-    out["industry_l1_name"] = out["stock_code"].map(lambda c: lookup(c, "industry_l1_name"))
+    for field in (
+        "industry_l1_code",
+        "industry_l1_name",
+        "industry_l2_code",
+        "industry_l2_name",
+        "industry_l3_code",
+        "industry_l3_name",
+        "industry_name",
+    ):
+        out[field] = out["stock_code"].map(lambda c, f=field: lookup(c, f))
     return out
+
+
+def aggregate_industry_turnover(stock_df: pd.DataFrame, level: int) -> pd.DataFrame:
+    """按申万指定层级汇总成交额。level=1/2/3，低层级字段一并保留供下钻。"""
+    if level == 1:
+        key_name, key_code = "industry_l1_name", "industry_l1_code"
+        parent_cols: list[str] = []
+    elif level == 2:
+        key_name, key_code = "industry_l2_name", "industry_l2_code"
+        parent_cols = ["industry_l1_code", "industry_l1_name"]
+    elif level == 3:
+        key_name, key_code = "industry_l3_name", "industry_l3_code"
+        parent_cols = [
+            "industry_l1_code",
+            "industry_l1_name",
+            "industry_l2_code",
+            "industry_l2_name",
+        ]
+    else:
+        raise ValueError("level must be 1, 2, or 3")
+
+    mapped = stock_df[stock_df[key_name].astype(str).str.len() > 0].copy()
+    grouped = (
+        mapped.groupby(key_name, as_index=False)
+        .agg(
+            **{key_code: (key_code, "first")},
+            **{c: (c, "first") for c in parent_cols},
+            turnover=("turnover", "sum"),
+            volume=("volume", "sum"),
+            stock_count=("stock_code", "count"),
+        )
+        .sort_values("turnover", ascending=False)
+    )
+    return grouped
 
 
 def infer_trade_date(snapshot_time: datetime) -> date:

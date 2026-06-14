@@ -23,6 +23,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from tf_common import (
+    aggregate_industry_turnover,
     attach_industry,
     fetch_turnover_klines,
     fetch_turnover_quotes,
@@ -64,10 +65,12 @@ def write_readme(trade_date: date, snapshot_time: datetime, use_quotes: bool) ->
 
 | 文件 | 说明 |
 |------|------|
-| industry_stock_mapping.csv | 申万行业-个股映射（L1/L2/L3） |
+| industry_stock_mapping.csv | 申万行业-个股映射（L1/L2/L3 树形包含） |
 | market_turnover_daily.csv | 全 A 成交额 |
 | industry_turnover_daily.csv | 一级申万行业成交额 |
-| stock_turnover_daily.csv | 个股成交额 + 行业归属 |
+| industry_turnover_l2_daily.csv | 二级申万行业成交额 |
+| industry_turnover_l3_daily.csv | 三级申万行业成交额（最细） |
+| stock_turnover_daily.csv | 个股成交额 + L1/L2/L3 归属 |
 """
     (DATA_DIR / "README.md").write_text(readme, encoding="utf-8")
 
@@ -78,6 +81,8 @@ def print_validation(
     mapping_df: pd.DataFrame,
     market_df: pd.DataFrame,
     industry_df: pd.DataFrame,
+    industry_l2_df: pd.DataFrame,
+    industry_l3_df: pd.DataFrame,
     stock_df: pd.DataFrame,
 ) -> None:
     market_total = float(market_df["total_turnover"].iloc[0])
@@ -92,8 +97,10 @@ def print_validation(
     print(f"有行情股票数:    {len(stock_df)}")
     print(f"有申万归属:      {len(mapped)}")
     print(f"一级行业数:      {len(industry_df)}")
+    print(f"二级行业数:      {len(industry_l2_df)}")
+    print(f"三级行业数:      {len(industry_l3_df)}")
     print(f"大盘成交额:      {market_total:,.0f} 元")
-    print(f"行业成交额合计:  {industry_sum:,.0f} 元")
+    print(f"行业成交额合计:  {industry_sum:,.0f} 元（一级）")
     print(f"行业/大盘:       {ratio:.2%}")
 
 
@@ -101,6 +108,13 @@ def main() -> int:
     args = parse_args()
     snapshot_time = datetime.now(CST)
     trade_date = resolve_trade_date(args.trade_date, snapshot_time)
+
+    try:
+        tf = get_client()
+    except ValueError as exc:
+        print(f"错误: {exc}", file=sys.stderr)
+        return 1
+
     has_api_key = bool(os.environ.get("TICKFLOW_API_KEY", "").strip())
 
     if not args.trade_date and snapshot_time.hour < 17:
@@ -156,27 +170,25 @@ def main() -> int:
         ]
     )
 
-    mapped = stock_df[stock_df["industry_l1_name"].astype(str).str.len() > 0].copy()
-    industry_df = (
-        mapped.groupby("industry_l1_name", as_index=False)
-        .agg(
-            industry_l1_code=("industry_l1_code", "first"),
-            turnover=("turnover", "sum"),
-            volume=("volume", "sum"),
-            stock_count=("stock_code", "count"),
-        )
-        .sort_values("turnover", ascending=False)
-    )
-    industry_df.insert(0, "trade_date", trade_date.isoformat())
-    industry_df.insert(1, "snapshot_time", snapshot_time.isoformat())
+    industry_df = aggregate_industry_turnover(stock_df, level=1)
+    industry_l2_df = aggregate_industry_turnover(stock_df, level=2)
+    industry_l3_df = aggregate_industry_turnover(stock_df, level=3)
+    for df in (industry_df, industry_l2_df, industry_l3_df):
+        df.insert(0, "trade_date", trade_date.isoformat())
+        df.insert(1, "snapshot_time", snapshot_time.isoformat())
 
     mapping_df.to_csv(DATA_DIR / "industry_stock_mapping.csv", index=False, encoding="utf-8")
     market_df.to_csv(DATA_DIR / "market_turnover_daily.csv", index=False, encoding="utf-8")
     industry_df.to_csv(DATA_DIR / "industry_turnover_daily.csv", index=False, encoding="utf-8")
+    industry_l2_df.to_csv(DATA_DIR / "industry_turnover_l2_daily.csv", index=False, encoding="utf-8")
+    industry_l3_df.to_csv(DATA_DIR / "industry_turnover_l3_daily.csv", index=False, encoding="utf-8")
     stock_df.to_csv(DATA_DIR / "stock_turnover_daily.csv", index=False, encoding="utf-8")
     write_readme(trade_date, snapshot_time, use_quotes)
 
-    print_validation(trade_date, snapshot_time, mapping_df, market_df, industry_df, stock_df)
+    print_validation(
+        trade_date, snapshot_time, mapping_df, market_df,
+        industry_df, industry_l2_df, industry_l3_df, stock_df,
+    )
     print(f"\n数据已写入: {DATA_DIR}")
     return 0
 
