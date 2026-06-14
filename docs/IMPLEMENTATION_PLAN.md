@@ -1,164 +1,121 @@
-# 实现方案：A 股行业成交额数据（Phase 1）
+# 实现方案：BigQuant + 申万行业成交额
 
-> 版本：v0.2（已确认）  
-> 前置文档：[REQUIREMENTS.md](./REQUIREMENTS.md)
-
----
-
-## 1. 方案概述
-
-一个 Python 脚本，调用 **3 类** akshare 接口（共约 88 次请求），输出 4 份 CSV。
-
-```
-┌──────────────────────────┐     ┌──────────────────┐     ┌─────────────┐
-│ fetch_daily_data.py      │ ──► │  data/*.csv      │ ──► │  人工查看   │
-│ 腾讯云 17:00 后执行       │     │  4 表 + README   │     │  验证效果   │
-└──────────────────────────┘     └──────────────────┘     └─────────────┘
-```
+> 版本：v1.0  
+> 前置：[REQUIREMENTS.md](./REQUIREMENTS.md)
 
 ---
 
-## 2. 技术选型
+## 1. 架构
 
-| 项 | 选择 |
-|----|------|
-| 语言 | Python 3.10+ |
-| 依赖 | `akshare`, `pandas` |
-| 存储 | CSV（UTF-8） |
-| 环境 | 腾讯云国内 CVM |
-| 调度 | Phase 1 手动；Phase 2 cron/systemd 每日 17:00 |
+```
+┌─────────────────────┐     ┌──────────────────┐     ┌─────────────┐
+│ sync/               │     │ data/*.csv       │     │ analysis/   │
+│ bigquant_fetch.py   │ ──► │ 4 表 + README    │ ──► │ 占比/趋势   │
+│ (DAI SQL)           │     │                  │     │ (Phase 2+)  │
+└─────────────────────┘     └──────────────────┘     └─────────────┘
+         ▲
+         │ AK/SK
+   BigQuant 云端
+```
+
+- **sync**：只负责 BigQuant 查询与落 CSV
+- **analysis**：读本地数据，不算 API（后续实现）
+
+---
+
+## 2. 依赖
+
+```bash
+pip install bigquant pandas -i https://pypi.bigquant.com/simple/
+bq auth --apikey <你的AK.SK>
+```
+
+> 注意：须从 BigQuant 官方 PyPI 源安装，公共 PyPI 上的 `bigquant` 包并非本 SDK。
+
+配置文件默认：`~/.bigquant/config.json`
 
 ---
 
 ## 3. 采集流程
 
-### 3.1 顺序
-
 ```
-Step 1  stock_board_industry_name_em()          → 行业列表
-Step 2  对每个行业 stock_board_industry_cons_em(symbol=industry_code)
-        → industry_stock_mapping
-        → stock_turnover_daily
-        → 按行业 groupby SUM → industry_turnover_daily
-Step 3  stock_zh_a_spot_em()                    → market_turnover_daily
-Step 4  写 data/README.md + 校验报告
-```
-
-**不调用** `stock_board_industry_spot_em`。
-
-### 3.2 伪代码
-
-```python
-snapshot_time = now_cst()
-trade_date = infer_trade_date(snapshot_time)
-industries = ak.stock_board_industry_name_em()
-
-mapping, stocks = [], []
-for code, name in industries:
-    cons = ak.stock_board_industry_cons_em(symbol=code)
-    for row in cons:
-        mapping.append({...})
-        stocks.append({..., turnover: row["成交额"]})
-
-industry_turnover = (
-    pd.DataFrame(stocks)
-    .groupby(["industry_code", "industry_name"])
-    .agg(turnover=("turnover", "sum"), stock_count=("stock_code", "count"))
-)
-
-market = ak.stock_zh_a_spot_em()
-total = market["成交额"].sum()
+输入 trade_date（默认最近交易日）
+  │
+  ├─① cn_stock_industry_component  → industry_stock_mapping.csv
+  │
+  ├─② cn_stock_bar1d               → 大盘 SUM(amount)
+  │       JOIN component           → industry_turnover_daily.csv
+  │                               → stock_turnover_daily.csv
+  │
+  └─③ 写 data/README.md + 校验报告
 ```
 
-### 3.3 请求量
-
-| 接口 | 次数 | 间隔 |
-|------|------|------|
-| `stock_board_industry_name_em` | 1 | - |
-| `stock_board_industry_cons_em` | ~86 | 0.5～1s |
-| `stock_zh_a_spot_em` | 1 | - |
-
-预计耗时：**2～4 分钟**（较原方案减少 86 次 spot 请求）。
+单次运行：**3 条 SQL**（无东财式 86 次轮询）。
 
 ---
 
-## 4. 输出规范
-
-### 4.1 目录
-
-```
-data/
-├── README.md
-├── industry_stock_mapping.csv
-├── market_turnover_daily.csv
-├── industry_turnover_daily.csv
-└── stock_turnover_daily.csv
-```
-
-### 4.2 格式
-
-- 编码：UTF-8
-- 分隔符：逗号
-- 金额：浮点数，单位元
-
-### 4.3 元数据
-
-| 列 | 说明 |
-|----|------|
-| `trade_date` | `YYYY-MM-DD`，采集日或最近交易日 |
-| `snapshot_time` | `YYYY-MM-DDTHH:MM:SS+08:00` |
-
----
-
-## 5. 数据校验
-
-| 校验项 | 规则 |
-|--------|------|
-| 映射完整 | 每个行业 ≥ 1 只成份股 |
-| 大盘成交额 | `total_turnover > 0` |
-| 行业 = 个股之和 | `industry.turnover == SUM(stock.turnover)` 同学业内 |
-| 行数一致 | `len(mapping) == len(stock_turnover)` |
-| 行业合计 vs 大盘 | 打印比值作参考（**不要求相等**，口径不同） |
-
----
-
-## 6. 腾讯云部署
+## 4. 脚本用法
 
 ```bash
-git clone https://github.com/Austin-Wang-1993/Trend_Analysis.git
-cd Trend_Analysis
-python3 -m venv .venv && source .venv/bin/activate
+cd ~/Trend_Analysis
+source .venv/bin/activate
 pip install -r requirements.txt
+bq auth --apikey <AK.SK>
 
-# 交易日 17:00 后执行
+# 指定日期
+python scripts/fetch_daily_data.py --date 2024-06-12
+
+# 不指定则取最近一个工作日
 python scripts/fetch_daily_data.py
 ```
 
-### 定时任务（Phase 2 可选）
+---
+
+## 5. 输出字段
+
+### industry_stock_mapping.csv
+
+`trade_date, stock_code, stock_name, industry_l1_code, industry_l1_name, industry_l2_code, industry_l2_name, industry_l3_code, industry_l3_name, industry_name`
+
+### market_turnover_daily.csv
+
+`trade_date, snapshot_time, total_turnover, stock_count`
+
+### industry_turnover_daily.csv
+
+`trade_date, snapshot_time, industry_l1_code, industry_l1_name, turnover, volume, stock_count`
+
+### stock_turnover_daily.csv
+
+`trade_date, snapshot_time, stock_code, stock_name, industry_l1_code, industry_l1_name, turnover, volume, turnover_rate, pct_chg`
+
+---
+
+## 6. 校验
+
+| 项 | 规则 |
+|----|------|
+| 映射行数 = 个股行数 | JOIN 后应一致 |
+| 行业成交额之和 vs 大盘 | 应接近（JOIN 后股票子集，可能略小于全市场） |
+| 每行业 stock_count ≥ 1 | 无空行业 |
+
+---
+
+## 7. 定时任务（Phase 2）
 
 ```cron
-0 17 * * 1-5 cd /opt/trend_analysis && .venv/bin/python scripts/fetch_daily_data.py
+0 17 * * 1-5 cd /opt/Trend_Analysis && .venv/bin/python scripts/fetch_daily_data.py
 ```
 
 ---
 
-## 7. 阶段状态
+## 8. 与东财方案对比
 
-| 阶段 | 内容 | 状态 |
-|------|------|------|
-| Phase 1a | 需求 + 方案 | ✅ 已确认 |
-| Phase 1b | 下载脚本 + CSV | 🔄 进行中 |
-| Phase 1c | 腾讯云执行验证 | 待 Phase 1b |
-| Phase 2 | 定时归档 | 待定 |
-| Phase 3 | 占比 / 趋势看板 | 待定 |
+| | 东财 akshare | BigQuant 申万 |
+|--|--------------|---------------|
+| 稳定性 | 差 | 好 |
+| 历史 | 需自积累 | SQL 指定日期 |
+| 行业 | 东财 BK 板块 | 申万 2021 |
+| 请求次数/日 | ~88+ | 3 条 SQL |
 
----
-
-## 8. 已确认决策
-
-- [x] 当日 = 采集时刻最近交易日快照
-- [x] 大盘成交额 = `stock_zh_a_spot_em` 求和
-- [x] 行业成交额 = 成份股求和（不用 `stock_board_industry_spot_em`）
-- [x] 映射每交易日 17:00 后全量刷新
-- [x] CSV 交付，暂不需要 Excel
-- [x] 腾讯云国内节点执行
+东财相关脚本（`em_client.py`）已废弃，可删除。

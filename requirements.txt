@@ -1,4 +1,2 @@
+bigquant>=1.0.0
 pandas>=2.0.0
-requests>=2.28.0
-tenacity>=8.2.0
-curl_cffi>=0.13.0
