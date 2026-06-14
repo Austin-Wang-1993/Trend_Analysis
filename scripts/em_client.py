@@ -1,4 +1,4 @@
-"""直接调用东财 push2 API（带浏览器请求头），不依赖 akshare 请求层。"""
+"""直接调用东财 push2 API。优先 curl_cffi 模拟浏览器 TLS，多节点回退。"""
 
 from __future__ import annotations
 
@@ -6,10 +6,18 @@ import math
 import random
 import time
 from typing import Any
+from urllib.parse import urlparse, urlunparse
 
 import pandas as pd
 import requests
 from requests.adapters import HTTPAdapter
+
+try:
+    from curl_cffi import requests as curl_requests
+
+    HAS_CURL_CFFI = True
+except ImportError:
+    HAS_CURL_CFFI = False
 
 EM_HEADERS = {
     "User-Agent": (
@@ -19,26 +27,80 @@ EM_HEADERS = {
     "Referer": "https://quote.eastmoney.com/",
     "Accept": "application/json, text/plain, */*",
     "Accept-Language": "zh-CN,zh;q=0.9",
+    "Connection": "close",
 }
 
 UT_TOKEN = "bd1d9ddb04089700cf9c27f6f7426281"
 
+# 东财 push2 常见节点，连接失败时轮换
+PUSH2_HOSTS = (
+    "17.push2.eastmoney.com",
+    "push2.eastmoney.com",
+    "82.push2.eastmoney.com",
+    "29.push2.eastmoney.com",
+    "91.push2.eastmoney.com",
+)
 
-def em_get(url: str, params: dict[str, Any], timeout: int = 20, max_retries: int = 6) -> requests.Response:
+CURL_IMPERSONATE = "chrome120"
+
+
+class EmResponse:
+    """统一 requests / curl_cffi 响应接口。"""
+
+    def __init__(self, raw: Any):
+        self._raw = raw
+        self.text = raw.text
+
+    def json(self) -> dict:
+        return self._raw.json()
+
+    def raise_for_status(self) -> None:
+        self._raw.raise_for_status()
+
+
+def expand_url_hosts(url: str) -> list[str]:
+    parsed = urlparse(url)
+    host = parsed.netloc
+    urls = [url]
+    for alt in PUSH2_HOSTS:
+        if alt != host:
+            urls.append(urlunparse(parsed._replace(netloc=alt)))
+    return urls
+
+
+def _single_get(url: str, params: dict[str, Any], timeout: int) -> EmResponse:
+    if HAS_CURL_CFFI:
+        resp = curl_requests.get(
+            url,
+            params=params,
+            headers=EM_HEADERS,
+            timeout=timeout,
+            impersonate=CURL_IMPERSONATE,
+        )
+        resp.raise_for_status()
+        return EmResponse(resp)
+
+    with requests.Session() as session:
+        adapter = HTTPAdapter(pool_connections=1, pool_maxsize=1)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        resp = session.get(url, params=params, timeout=timeout, headers=EM_HEADERS)
+        resp.raise_for_status()
+        return EmResponse(resp)
+
+
+def em_get(url: str, params: dict[str, Any], timeout: int = 25, max_retries: int = 8) -> EmResponse:
+    urls = expand_url_hosts(url)
     last_exc: Exception | None = None
     for attempt in range(max_retries):
-        try:
-            with requests.Session() as session:
-                adapter = HTTPAdapter(pool_connections=1, pool_maxsize=1)
-                session.mount("http://", adapter)
-                session.mount("https://", adapter)
-                resp = session.get(url, params=params, timeout=timeout, headers=EM_HEADERS)
-                resp.raise_for_status()
-                return resp
-        except (requests.RequestException, ValueError) as exc:
-            last_exc = exc
-            if attempt < max_retries - 1:
-                time.sleep(2**attempt + random.uniform(0.5, 1.5))
+        for try_url in urls:
+            try:
+                return _single_get(try_url, params, timeout)
+            except Exception as exc:
+                last_exc = exc
+                time.sleep(0.5)
+        if attempt < max_retries - 1:
+            time.sleep(2**attempt + random.uniform(1.0, 3.0))
     raise last_exc  # type: ignore[misc]
 
 
@@ -53,14 +115,13 @@ def fetch_paginated(url: str, base_params: dict[str, Any]) -> pd.DataFrame:
     frames = [pd.DataFrame(diff)]
     for page in range(2, total_page + 1):
         params["pn"] = str(page)
-        time.sleep(random.uniform(0.5, 1.2))
+        time.sleep(random.uniform(0.8, 1.5))
         page_json = em_get(url, params).json()
         frames.append(pd.DataFrame(page_json["data"]["diff"]))
     return pd.concat(frames, ignore_index=True)
 
 
 def fetch_industry_list() -> pd.DataFrame:
-    """等同 stock_board_industry_name_em，仅保留板块代码、名称。"""
     url = "https://17.push2.eastmoney.com/api/qt/clist/get"
     params = {
         "pn": "1",
@@ -81,7 +142,6 @@ def fetch_industry_list() -> pd.DataFrame:
 
 
 def fetch_industry_constituents(industry_code: str) -> pd.DataFrame:
-    """等同 stock_board_industry_cons_em(symbol=行业代码)。"""
     url = "https://29.push2.eastmoney.com/api/qt/clist/get"
     params = {
         "pn": "1",
@@ -100,7 +160,6 @@ def fetch_industry_constituents(industry_code: str) -> pd.DataFrame:
 
 
 def fetch_a_share_spot() -> pd.DataFrame:
-    """等同 stock_zh_a_spot_em，仅保留代码、名称、成交额。"""
     url = "https://82.push2.eastmoney.com/api/qt/clist/get"
     params = {
         "pn": "1",
@@ -118,11 +177,11 @@ def fetch_a_share_spot() -> pd.DataFrame:
     return df.rename(columns={"f12": "stock_code", "f14": "stock_name", "f6": "turnover"})
 
 
-def probe_eastmoney(timeout: int = 15) -> tuple[bool, str]:
-    url = "https://17.push2.eastmoney.com/api/qt/clist/get"
+def probe_hosts() -> list[tuple[str, bool, str]]:
+    """逐个节点探测，便于排障。"""
     params = {
         "pn": "1",
-        "pz": "5",
+        "pz": "3",
         "po": "1",
         "np": "1",
         "ut": UT_TOKEN,
@@ -132,16 +191,29 @@ def probe_eastmoney(timeout: int = 15) -> tuple[bool, str]:
         "fs": "m:90 t:2 f:!50",
         "fields": "f12,f14",
     }
-    try:
-        with requests.Session() as session:
-            resp = session.get(url, params=params, timeout=timeout, headers=EM_HEADERS)
-            resp.raise_for_status()
+    results = []
+    for host in PUSH2_HOSTS:
+        url = f"https://{host}/api/qt/clist/get"
+        try:
+            resp = _single_get(url, params, timeout=15)
             count = len(resp.json().get("data", {}).get("diff", []))
-            return True, f"OK, 返回 {count} 条行业记录"
-    except Exception as exc:
-        return False, str(exc)
+            results.append((host, True, f"{count} 条"))
+        except Exception as exc:
+            results.append((host, False, str(exc)[:80]))
+        time.sleep(1.0)
+    return results
 
 
-# 兼容旧补丁入口（现改为直连，保留空操作避免旧脚本报错）
+def probe_eastmoney(timeout: int = 15) -> tuple[bool, str]:
+    del timeout
+    results = probe_hosts()
+    ok_hosts = [h for h, ok, _ in results if ok]
+    if ok_hosts:
+        mode = "curl_cffi" if HAS_CURL_CFFI else "requests"
+        return True, f"OK via {ok_hosts[0]} ({mode})"
+    detail = "; ".join(f"{h}: {msg}" for h, ok, msg in results if not ok)
+    return False, f"全部节点失败: {detail[:200]}"
+
+
 def patch_akshare_requests(*_args, **_kwargs) -> None:
     return None
