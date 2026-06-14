@@ -48,7 +48,7 @@ def get_licence() -> str:
     return licence
 
 
-def _get(url: str, params: dict[str, Any] | None = None, retries: int = 3) -> Any:
+def _get(url: str, params: dict[str, Any] | None = None, retries: int = 5) -> Any:
     last_error: Exception | None = None
     for attempt in range(retries):
         try:

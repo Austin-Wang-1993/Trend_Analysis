@@ -29,6 +29,9 @@ export BIYING_LICENCE=你的licence
 # 无包年/白金证书时必须加 --no-all-turnover
 python3 scripts/fetch_by_daily.py --no-all-turnover
 
+# 清空旧数据后全量重拉
+python3 scripts/fetch_by_daily.py --fresh --no-all-turnover
+
 # 申万二级行业映射
 python3 scripts/fetch_by_daily.py --level l2 --no-all-turnover
 

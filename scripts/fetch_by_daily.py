@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -65,7 +66,27 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="仅拉取成交额（使用已缓存的行业树与映射，跳过重试失败接口）",
     )
+    parser.add_argument(
+        "--fresh",
+        action="store_true",
+        help="清空 data/ 下 CSV 与 cache 后全量重拉（隐含 --refresh-mapping）",
+    )
     return parser.parse_args()
+
+
+def clear_data_dir(data_dir: Path) -> None:
+    """删除输出 CSV、README 与 cache 缓存。"""
+    data_dir.mkdir(parents=True, exist_ok=True)
+    removed = 0
+    for pattern in ("*.csv", "README.md"):
+        for path in data_dir.glob(pattern):
+            path.unlink()
+            removed += 1
+    cache_dir = data_dir / "cache"
+    if cache_dir.exists():
+        shutil.rmtree(cache_dir)
+        removed += 1
+    print(f"已清空 data/（移除 {removed} 项）")
 
 
 def sectors_for_level(tree_df: pd.DataFrame, level: str) -> pd.DataFrame:
@@ -148,6 +169,12 @@ def write_readme(
 
 def main() -> int:
     args = parse_args()
+    if args.fresh and args.turnover_only:
+        print("错误: --fresh 与 --turnover-only 不能同时使用", file=sys.stderr)
+        return 1
+    if args.fresh:
+        args.refresh_mapping = True
+
     snapshot_time = infer_snapshot_time()
 
     try:
@@ -157,6 +184,9 @@ def main() -> int:
         return 1
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+    if args.fresh:
+        clear_data_dir(DATA_DIR)
+
     cache_name = f"sector_mapping_{args.level}.json"
     tree_cache = DATA_DIR / "cache" / "sector_tree.json"
 
