@@ -29,8 +29,14 @@ export BIYING_LICENCE=你的licence
 # 无包年/白金证书时必须加 --no-all-turnover
 python3 scripts/fetch_by_daily.py --no-all-turnover
 
-# 清空旧数据后全量重拉
+# 清空 CSV 后全量重拉（会删除 cache，需 hszg 接口可用）
 python3 scripts/fetch_by_daily.py --fresh --no-all-turnover
+
+# 只清 CSV、保留行业映射缓存（hszg 偶发 404 时推荐）
+python3 scripts/fetch_by_daily.py --fresh --keep-cache --no-all-turnover
+
+# 仅更新成交额（需已有 data/cache/sector_mapping_l1.json）
+python3 scripts/fetch_by_daily.py --no-all-turnover --turnover-only
 
 # 申万二级行业映射
 python3 scripts/fetch_by_daily.py --level l2 --no-all-turnover

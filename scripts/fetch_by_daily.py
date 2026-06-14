@@ -69,13 +69,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--fresh",
         action="store_true",
-        help="清空 data/ 下 CSV 与 cache 后全量重拉（隐含 --refresh-mapping）",
+        help="清空 data/ 下 CSV 后全量重拉（隐含 --refresh-mapping）",
+    )
+    parser.add_argument(
+        "--keep-cache",
+        action="store_true",
+        help="与 --fresh 联用：仅清 CSV，保留 data/cache/ 行业树与映射缓存",
     )
     return parser.parse_args()
 
 
-def clear_data_dir(data_dir: Path) -> None:
-    """删除输出 CSV、README 与 cache 缓存。"""
+def clear_data_dir(data_dir: Path, *, keep_cache: bool = False) -> None:
+    """删除输出 CSV、README；可选是否删除 cache 缓存。"""
     data_dir.mkdir(parents=True, exist_ok=True)
     removed = 0
     for pattern in ("*.csv", "README.md"):
@@ -83,10 +88,11 @@ def clear_data_dir(data_dir: Path) -> None:
             path.unlink()
             removed += 1
     cache_dir = data_dir / "cache"
-    if cache_dir.exists():
+    if not keep_cache and cache_dir.exists():
         shutil.rmtree(cache_dir)
         removed += 1
-    print(f"已清空 data/（移除 {removed} 项）")
+    scope = "CSV" if keep_cache else "CSV 与 cache"
+    print(f"已清空 data/ {scope}（移除 {removed} 项）")
 
 
 def sectors_for_level(tree_df: pd.DataFrame, level: str) -> pd.DataFrame:
@@ -172,8 +178,11 @@ def main() -> int:
     if args.fresh and args.turnover_only:
         print("错误: --fresh 与 --turnover-only 不能同时使用", file=sys.stderr)
         return 1
+    if args.keep_cache and not args.fresh:
+        print("错误: --keep-cache 需与 --fresh 一起使用", file=sys.stderr)
+        return 1
     if args.fresh:
-        args.refresh_mapping = True
+        args.refresh_mapping = not args.keep_cache
 
     snapshot_time = infer_snapshot_time()
 
@@ -185,7 +194,7 @@ def main() -> int:
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     if args.fresh:
-        clear_data_dir(DATA_DIR)
+        clear_data_dir(DATA_DIR, keep_cache=args.keep_cache)
 
     cache_name = f"sector_mapping_{args.level}.json"
     tree_cache = DATA_DIR / "cache" / "sector_tree.json"
@@ -316,6 +325,13 @@ def main() -> int:
         return 0
     except Exception as exc:
         print(f"错误: {exc}", file=sys.stderr)
+        if "hszg" in str(exc).lower() or "行业" in str(exc):
+            print(
+                "\n提示: hszg 行业接口异常时，若本地仍有 data/cache/sector_mapping_l1.json，"
+                "可改用：python3 scripts/fetch_by_daily.py --no-all-turnover --turnover-only\n"
+                "清 CSV 但保留缓存：python3 scripts/fetch_by_daily.py --fresh --keep-cache --no-all-turnover",
+                file=sys.stderr,
+            )
         return 1
 
 
