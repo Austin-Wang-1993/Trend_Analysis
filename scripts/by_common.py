@@ -7,6 +7,7 @@ import re
 import time
 from datetime import datetime
 from typing import Any
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -16,9 +17,12 @@ API_BASE = "https://api.biyingapi.com"
 ALL_BASE = "https://all.biyingapi.com"
 CST = ZoneInfo("Asia/Shanghai")
 
-# type2 含义（hszg/list 文档）
+# hszg/list type2 含义（备用）
 TYPE2_SW_L1 = 0  # A股-申万行业
 TYPE2_SW_L2 = 1  # A股-申万二级
+
+# hslt/primarylist 申万一级行业名称前缀（中证1000成份的申万一级）
+HSLT_SW_L1_PREFIX = "1000SW1"
 
 
 def normalize_code6(code: str) -> str:
@@ -82,6 +86,109 @@ def fetch_stock_list(licence: str) -> pd.DataFrame:
     df = df.rename(columns={"dm": "stock_code", "mc": "stock_name", "jys": "exchange"})
     df["stock_code"] = df["stock_code"].map(normalize_code6)
     return df.drop_duplicates("stock_code").reset_index(drop=True)
+
+
+def fetch_primary_list(licence: str) -> pd.DataFrame:
+    """一级市场板块列表 hslt/primarylist（券商数据）。"""
+    rows = _get(f"{API_BASE}/hslt/primarylist/{licence}")
+    if not isinstance(rows, list) or not rows:
+        raise RuntimeError("一级市场板块列表为空")
+    df = pd.DataFrame(rows)
+    if "mc" not in df.columns:
+        raise RuntimeError("primarylist 缺少 mc 字段")
+    return df.drop_duplicates("mc").reset_index(drop=True)
+
+
+def filter_hslt_sectors(primary_df: pd.DataFrame, level: str = "l1") -> pd.DataFrame:
+    """从 primarylist 筛出申万行业板块名称。"""
+    if level == "l1":
+        prefix = HSLT_SW_L1_PREFIX
+        type2 = TYPE2_SW_L1
+    elif level == "l2":
+        raise ValueError("hslt/primarylist 暂不支持申万二级（无稳定 SW2 前缀），请使用 level=l1")
+    elif level == "both":
+        return filter_hslt_sectors(primary_df, "l1")
+    else:
+        raise ValueError(f"未知 level: {level}")
+
+    df = primary_df[primary_df["mc"].astype(str).str.startswith(prefix)].copy()
+    if df.empty:
+        raise RuntimeError(f"primarylist 中未找到前缀为 {prefix} 的申万行业")
+    df["code"] = df["mc"]
+    df["name"] = df["mc"].str[len(prefix) :]
+    df["type1"] = 0
+    df["type2"] = type2
+    df["level"] = 2
+    df["pcode"] = "swhy"
+    df["pname"] = "A股-申万行业"
+    df["isleaf"] = 1
+    return df.reset_index(drop=True)
+
+
+def fetch_hslt_sector_stocks(licence: str, sector_name: str) -> list[dict[str, str]]:
+    """板块成份股 hslt/sectors/{板块名称}/{licence}。"""
+    encoded = quote(sector_name, safe="")
+    data = _get(f"{API_BASE}/hslt/sectors/{encoded}/{licence}")
+    if not isinstance(data, dict):
+        raise RuntimeError(f"hslt/sectors 返回非对象: {sector_name}")
+    if data.get("detail"):
+        raise RuntimeError(f"hslt/sectors 无数据 [{sector_name}]: {data.get('detail')}")
+    stocks = data.get("stocks") or []
+    if not isinstance(stocks, list):
+        return []
+    result: list[dict[str, str]] = []
+    for row in stocks:
+        if not isinstance(row, dict):
+            continue
+        dm = row.get("dm", "")
+        if not dm:
+            continue
+        try:
+            code = normalize_code6(dm)
+        except ValueError:
+            continue
+        result.append(
+            {
+                "stock_code": code,
+                "stock_name": str(row.get("mc", "")).strip(),
+                "exchange": str(row.get("jys", "")).strip(),
+            }
+        )
+    return result
+
+
+def build_hslt_sector_mapping(licence: str, sectors_df: pd.DataFrame) -> pd.DataFrame:
+    """逐板块拉取 hslt/sectors 构建映射表。"""
+    rows: list[dict[str, Any]] = []
+    total = len(sectors_df)
+    for idx, sector in sectors_df.iterrows():
+        sector_name = str(sector["code"])
+        display_name = str(sector["name"])
+        print(f"     [{idx + 1}/{total}] {display_name} ({sector_name}) ...")
+        constituents = fetch_hslt_sector_stocks(licence, sector_name)
+        print(f"         成份: {len(constituents)}")
+        for item in constituents:
+            rows.append(
+                {
+                    "sector_code": sector_name,
+                    "sector_name": display_name,
+                    "sector_type2": int(sector.get("type2", TYPE2_SW_L1)),
+                    "sector_level": int(sector.get("level", 2)),
+                    "parent_code": sector.get("pcode", ""),
+                    "parent_name": sector.get("pname", ""),
+                    **item,
+                }
+            )
+        time.sleep(0.05)
+    if not rows:
+        raise RuntimeError("hslt 板块成份映射为空")
+    return pd.DataFrame(rows)
+
+
+def fetch_hslt_sector_tree(licence: str, level: str = "l1") -> pd.DataFrame:
+    """hslt/primarylist → 申万行业 sectors 表。"""
+    primary_df = fetch_primary_list(licence)
+    return filter_hslt_sectors(primary_df, level)
 
 
 def fetch_sector_tree(licence: str) -> pd.DataFrame:

@@ -29,33 +29,33 @@ export BIYING_LICENCE=你的licence
 # 无包年/白金证书时必须加 --no-all-turnover
 python3 scripts/fetch_by_daily.py --no-all-turnover
 
-# 清空 CSV 后全量重拉（hszg 不可用时自动回退 TickFlow 申万映射）
+# 清空后全量重拉
 python3 scripts/fetch_by_daily.py --fresh --no-all-turnover
-
-# 只清 CSV、保留行业映射缓存
-python3 scripts/fetch_by_daily.py --fresh --keep-cache --no-all-turnover
-
-# 强制使用 TickFlow 申万映射（不调用 hszg）
-python3 scripts/fetch_by_daily.py --mapping-source tickflow --no-all-turnover
-
-# 仅更新成交额（需已有 data/cache/sector_mapping_l1.json）
-python3 scripts/fetch_by_daily.py --no-all-turnover --turnover-only
-
-# 申万二级行业映射
-python3 scripts/fetch_by_daily.py --level l2 --no-all-turnover
 
 ls data/
 ```
 
+### 必盈接口（hslt 路由）
+
+| 步骤 | 接口 | 输出 |
+|------|------|------|
+| 全 A 股列表 | `hslt/list/{licence}` | 对照用 |
+| 申万一级行业清单 | `hslt/primarylist/{licence}` → 筛 `1000SW1*` | `sectors.csv` |
+| 板块成份映射 | `hslt/sectors/{板块名称}/{licence}` | `sector_stock_mapping.csv` |
+| 个股成交额 | `hsrl/ssjy_more/{licence}?stock_codes=` | `stock_turnover_latest.csv` |
+| 未归类检查 | 全 A − 映射覆盖 | `unmapped_stocks.csv` |
+
+> **注意**：`1000SW1` 行业成份来自中证1000指数池，约覆盖 1000 只股票，非全市场申万归类。全 A 约 5200 只，未归类约 4000+ 属预期现象。
+
 ### 输出文件
 
-| 文件 | 必盈接口 |
-|------|----------|
-| `sectors.csv` | `hszg/list` 行业/概念树 |
-| `sector_stock_mapping.csv` | `hszg/gg/{板块代码}` |
-| `stock_turnover_latest.csv` | `hsrl/ssjy/all` 或 `ssjy_more` 的 `cje` |
+| 文件 | 说明 |
+|------|------|
+| `sectors.csv` | 申万一级行业列表（31 个） |
+| `sector_stock_mapping.csv` | 板块 ↔ 个股映射 |
+| `stock_turnover_latest.csv` | 个股成交额 + 主行业 |
 | `sector_turnover_daily.csv` | 一级行业成交额汇总 |
-| `unmapped_stocks.csv` | 遗漏检查 |
+| `unmapped_stocks.csv` | 全 A 中不在映射里的股票 |
 
 ### 套餐说明
 
