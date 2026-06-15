@@ -161,6 +161,19 @@ class HistoryStore:
             ).fetchall()
         return sorted([r["trade_date"] for r in rows])
 
+    @staticmethod
+    def _prune_sector_daily(conn: sqlite3.Connection, trade_date: str, kept_codes: set[str]) -> int:
+        """删除当日不在 kept_codes 中的 sector_daily 行（清理 L1→L2 迁移残留等）。"""
+        if not kept_codes:
+            cur = conn.execute("DELETE FROM sector_daily WHERE trade_date=?", (trade_date,))
+            return cur.rowcount
+        placeholders = ",".join("?" * len(kept_codes))
+        cur = conn.execute(
+            f"DELETE FROM sector_daily WHERE trade_date=? AND sector_code NOT IN ({placeholders})",
+            (trade_date, *sorted(kept_codes)),
+        )
+        return cur.rowcount
+
     def upsert_snapshot(
         self,
         trade_date: str,
@@ -238,6 +251,12 @@ class HistoryStore:
                         int(row.get("stock_count") or 0),
                     ),
                 )
+            kept_sectors = {
+                str(row.get("sector_code", ""))
+                for _, row in sector.iterrows()
+                if str(row.get("sector_code", "")).strip()
+            }
+            self._prune_sector_daily(conn, trade_date, kept_sectors)
             for _, row in stock_df.iterrows():
                 conn.execute(
                     """
@@ -394,6 +413,8 @@ class HistoryStore:
                             int(row["stock_count"]),
                         ),
                     )
+                kept_sectors = set(sector["sector_code"].astype(str).str.strip()) - {""}
+                self._prune_sector_daily(conn, trade_date, kept_sectors)
                 conn.commit()
 
     def get_market_series(self, days: int = 5) -> dict[str, list[dict[str, Any]]]:

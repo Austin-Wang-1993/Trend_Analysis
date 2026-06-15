@@ -25,6 +25,8 @@ python3 scripts/fetch_by_daily.py --no-all-turnover
 # L1 库 → L2 看板（无需重打 API）
 python3 scripts/build_sector_mapping.py --level l2
 python3 scripts/migrate_sectors_to_l2.py
+# 或仅重算 sector 并清理僵尸行（stock 已是 L2 时）
+python3 scripts/rebuild_sector_aggregates.py
 
 # 看板
 python3 scripts/serve_dashboard.py
