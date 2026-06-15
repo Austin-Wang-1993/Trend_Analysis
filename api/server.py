@@ -27,7 +27,7 @@ sys.path.insert(0, str(ROOT / "api"))
 from history_store import HistoryStore  # noqa: E402
 from job_worker import cancel_job, enqueue_job, is_job_running, read_log_tail, run_scheduled_fetch  # noqa: E402
 from scheduler import compute_next_run, reload_scheduler, start_scheduler  # noqa: E402
-from trading_calendar import compare_with_biying, is_trading_day, normalize_date, sync_pmc_to_sqlite, today_cst  # noqa: E402
+from trading_calendar import compare_with_biying, get_trading_days, is_trading_day, normalize_date, sync_pmc_to_sqlite, today_cst  # noqa: E402
 
 CST = ZoneInfo("Asia/Shanghai")
 
@@ -65,18 +65,72 @@ class SettingsUpdate(BaseModel):
 
 
 class FetchRequest(BaseModel):
-    trade_date: str
+    start_date: str
+    end_date: str
 
 
-def _validate_fetch_trade_date(trade_date: str) -> str:
-    """校验补数日期为 A 股交易日。"""
-    d = normalize_date(trade_date)
-    if not is_trading_day(d):
+MAX_FETCH_TRADING_DAYS = 30
+
+
+def _validate_fetch_range(start_date: str, end_date: str) -> tuple[str, str, list[str]]:
+    """校验区间并返回 (start, end, trading_days)。"""
+    start_d = normalize_date(start_date)
+    end_d = normalize_date(end_date)
+    if start_d > end_d:
+        raise HTTPException(status_code=400, detail="结束日期不能早于开始日期")
+    if end_d > today_cst():
+        raise HTTPException(status_code=400, detail="结束日期不能晚于今天")
+    try:
+        days = get_trading_days(start_d, end_d)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not days:
+        raise HTTPException(status_code=400, detail="所选区间无 A 股交易日")
+    if len(days) > MAX_FETCH_TRADING_DAYS:
         raise HTTPException(
             status_code=400,
-            detail=f"{d} 不是 A 股交易日（休市），休市日无数据，请选择交易日",
+            detail=f"区间内交易日过多（{len(days)}），单次最多 {MAX_FETCH_TRADING_DAYS} 个",
         )
-    return d
+    if start_d == end_d and not is_trading_day(start_d):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{start_d} 不是 A 股交易日（休市），休市日无数据，请选择交易日",
+        )
+    return start_d, end_d, days
+
+
+def _preview_fetch_range(start_date: str, end_date: str) -> dict[str, Any]:
+    start_d = normalize_date(start_date)
+    end_d = normalize_date(end_date)
+    try:
+        if start_d > end_d:
+            raise ValueError("结束日期不能早于开始日期")
+        if end_d > today_cst():
+            raise ValueError("结束日期不能晚于今天")
+        days = get_trading_days(start_d, end_d)
+        if not days:
+            raise ValueError("所选区间无 A 股交易日")
+        if len(days) > MAX_FETCH_TRADING_DAYS:
+            raise ValueError(f"区间内交易日过多（{len(days)}），单次最多 {MAX_FETCH_TRADING_DAYS} 个")
+        if start_d == end_d and not is_trading_day(start_d):
+            raise ValueError(f"{start_d} 不是 A 股交易日（休市），休市日无数据，请选择交易日")
+        return {
+            "start_date": start_d,
+            "end_date": end_d,
+            "trading_day_count": len(days),
+            "trading_days": days,
+            "valid": True,
+            "error": None,
+        }
+    except ValueError as exc:
+        return {
+            "start_date": start_d,
+            "end_date": end_d,
+            "trading_day_count": 0,
+            "trading_days": [],
+            "valid": False,
+            "error": str(exc),
+        }
 
 
 class CalendarSyncRequest(BaseModel):
@@ -175,15 +229,30 @@ def admin_put_settings(body: SettingsUpdate, _: None = Depends(verify_admin)) ->
 
 
 @app.post("/api/admin/fetch")
-def admin_fetch(body: FetchRequest, _: None = Depends(verify_admin)) -> dict[str, str]:
+def admin_fetch(body: FetchRequest, _: None = Depends(verify_admin)) -> dict[str, Any]:
     if is_job_running():
         raise HTTPException(status_code=409, detail="已有任务运行中")
-    trade_date = _validate_fetch_trade_date(body.trade_date)
+    start_d, end_d, days = _validate_fetch_range(body.start_date, body.end_date)
     try:
-        job_id = enqueue_job(trade_date, trigger_type="manual")
+        job_id = enqueue_job(start_d, trigger_type="manual", end_date=end_d)
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return {"job_id": job_id, "status": "pending", "trade_date": trade_date}
+    return {
+        "job_id": job_id,
+        "status": "pending",
+        "start_date": start_d,
+        "end_date": end_d,
+        "trading_day_count": len(days),
+    }
+
+
+@app.get("/api/admin/fetch-preview")
+def admin_fetch_preview(
+    start: str = Query(..., description="YYYY-MM-DD"),
+    end: str = Query(..., description="YYYY-MM-DD"),
+    _: None = Depends(verify_admin),
+) -> dict[str, Any]:
+    return _preview_fetch_range(start, end)
 
 
 @app.get("/api/admin/trading-day")
@@ -223,9 +292,11 @@ def admin_retry_job(job_id: str, _: None = Depends(verify_admin)) -> dict[str, s
         raise HTTPException(status_code=404, detail="任务不存在")
     if is_job_running():
         raise HTTPException(status_code=409, detail="已有任务运行中")
-    trade_date = _validate_fetch_trade_date(job["trade_date"])
-    new_id = enqueue_job(trade_date, trigger_type="manual")
-    return {"job_id": new_id, "status": "pending", "trade_date": trade_date}
+    start_d = job["trade_date"]
+    end_d = job.get("end_date") or start_d
+    start_d, end_d, _ = _validate_fetch_range(start_d, end_d)
+    new_id = enqueue_job(start_d, trigger_type="manual", end_date=end_d)
+    return {"job_id": new_id, "status": "pending", "start_date": start_d, "end_date": end_d}
 
 
 @app.post("/api/admin/jobs/{job_id}/cancel")

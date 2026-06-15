@@ -17,17 +17,37 @@ async function loadSettings() {
     `下次: ${s.next_run_at || '—'} | 将执行: ${s.next_run_will_execute !== false ? '是' : '否'}`;
 }
 
-async function refreshFetchDateHint() {
-  const d = document.getElementById('fetchDate').value;
-  const hint = document.getElementById('fetchDateHint');
-  if (!d) { hint.textContent = ''; return; }
-  try {
-    const r = await apiGet(`/api/admin/trading-day?date=${encodeURIComponent(d)}`);
-    hint.textContent = r.is_trading_day ? '✓ 交易日' : '✗ 休市（不可补数）';
-    hint.className = r.is_trading_day ? 'footnote status-ok' : 'footnote status-fail';
-  } catch {
-    hint.textContent = '';
+let previewTimer = null;
+
+async function refreshFetchPreview() {
+  const start = document.getElementById('fetchStart').value;
+  const end = document.getElementById('fetchEnd').value;
+  const el = document.getElementById('fetchPreview');
+  if (!start || !end) {
+    el.textContent = '请填写开始与结束日期';
+    el.className = 'footnote';
+    return;
   }
+  try {
+    const r = await apiGet(
+      `/api/admin/fetch-preview?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`
+    );
+    if (r.valid) {
+      const range = r.start_date === r.end_date ? r.start_date : `${r.start_date} ~ ${r.end_date}`;
+      el.textContent = `共 ${r.trading_day_count} 个交易日（${range}）`;
+      el.className = 'footnote status-ok';
+    } else {
+      el.textContent = r.error || '区间无效';
+      el.className = 'footnote status-fail';
+    }
+  } catch {
+    el.textContent = '';
+  }
+}
+
+function scheduleFetchPreview() {
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(() => refreshFetchPreview().catch(console.error), 300);
 }
 
 document.getElementById('saveSettings').onclick = async () => {
@@ -43,11 +63,12 @@ document.getElementById('saveSettings').onclick = async () => {
 };
 
 document.getElementById('startFetch').onclick = async () => {
-  const d = document.getElementById('fetchDate').value;
-  if (!d) return alert('请选择日期');
+  const start = document.getElementById('fetchStart').value;
+  const end = document.getElementById('fetchEnd').value;
+  if (!start || !end) return alert('请填写开始与结束日期');
   try {
-    const r = await apiPost('/api/admin/fetch', { trade_date: d });
-    alert(`任务已创建: ${r.job_id}`);
+    const r = await apiPost('/api/admin/fetch', { start_date: start, end_date: end });
+    alert(`任务已创建: ${r.job_id}（${r.trading_day_count} 个交易日）`);
     pollJobs();
   } catch (e) {
     alert(typeof e.message === 'string' ? e.message : '创建任务失败');
@@ -80,15 +101,21 @@ function jobStatusClass(status) {
   return 'status-warn';
 }
 
+function formatJobDates(j) {
+  const end = j.end_date || j.trade_date;
+  if (!end || end === j.trade_date) return j.trade_date;
+  return `${j.trade_date} ~ ${end}`;
+}
+
 async function pollJobs() {
   const jobs = await apiGet('/api/admin/jobs?limit=20');
   const tbody = document.querySelector('#jobs tbody');
   tbody.innerHTML = jobs.map(j => `
     <tr>
       <td style="text-align:left;font-size:0.7rem">${j.job_id.slice(0,8)}…</td>
-      <td>${j.trade_date}</td>
+      <td>${formatJobDates(j)}</td>
       <td>${j.trigger_type}</td>
-      <td class="${jobStatusClass(j.status)}">${j.status}</td>
+      <td class="${jobStatusClass(j.status)}">${j.status}${j.progress ? ` (${j.progress})` : ''}</td>
       <td>${j.duration_sec ? j.duration_sec.toFixed(0)+'s' : '—'}</td>
       <td>
         <button data-id="${j.job_id}" class="logBtn secondary">日志</button>
@@ -121,12 +148,14 @@ async function pollJobs() {
 }
 
 const today = new Date().toISOString().slice(0, 10);
-document.getElementById('fetchDate').value = today;
+document.getElementById('fetchStart').value = today;
+document.getElementById('fetchEnd').value = today;
 document.getElementById('exportDate').value = today;
-document.getElementById('fetchDate').addEventListener('change', () => refreshFetchDateHint().catch(console.error));
+document.getElementById('fetchStart').addEventListener('change', scheduleFetchPreview);
+document.getElementById('fetchEnd').addEventListener('change', scheduleFetchPreview);
 
 loadSettings().catch(console.error);
 loadCalendar().catch(console.error);
-refreshFetchDateHint().catch(console.error);
+refreshFetchPreview().catch(console.error);
 pollJobs().catch(console.error);
 setInterval(pollJobs, 5000);

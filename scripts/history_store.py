@@ -111,12 +111,18 @@ class HistoryStore:
     def init_schema(self) -> None:
         with self._connect() as conn:
             conn.executescript(SCHEMA_SQL)
+            self._migrate_schema(conn)
             for key, value in DEFAULT_SETTINGS.items():
                 conn.execute(
                     "INSERT OR IGNORE INTO app_settings(key, value) VALUES (?, ?)",
                     (key, value),
                 )
             conn.commit()
+
+    def _migrate_schema(self, conn: sqlite3.Connection) -> None:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(fetch_jobs)").fetchall()}
+        if "end_date" not in cols:
+            conn.execute("ALTER TABLE fetch_jobs ADD COLUMN end_date TEXT")
 
     def get_settings(self) -> dict[str, str]:
         with self._connect() as conn:
@@ -623,16 +629,17 @@ class HistoryStore:
             })
         return result
 
-    def create_job(self, trade_date: str, trigger_type: str) -> str:
+    def create_job(self, trade_date: str, trigger_type: str, *, end_date: str | None = None) -> str:
         job_id = str(uuid.uuid4())
         now = datetime.now(CST).isoformat()
+        end = end_date or trade_date
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO fetch_jobs(job_id, trade_date, trigger_type, status, created_at)
-                VALUES (?, ?, ?, 'pending', ?)
+                INSERT INTO fetch_jobs(job_id, trade_date, end_date, trigger_type, status, created_at)
+                VALUES (?, ?, ?, ?, 'pending', ?)
                 """,
-                (job_id, trade_date, trigger_type, now),
+                (job_id, trade_date, end, trigger_type, now),
             )
             conn.commit()
         return job_id

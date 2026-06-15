@@ -4,7 +4,7 @@
 > 前置：[REQUIREMENTS.md](./REQUIREMENTS.md)  
 > 必盈接口：[BIYING_API.md](./BIYING_API.md)
 
-**v3.5 变更（待实施）**：管理页 **区间补数**（开始+结束必填，相等=单日）；`fetch_by_range.py`；`transaction` / 日 K **`st/et` 按股拉取**；不跳过已有数据；**移除强制补数**（休市日无数据）。
+**v3.5 变更**：管理页 **区间补数**（开始+结束必填，相等=单日）；`fetch_by_range.py`；`transaction` / 日 K **`st/et` 按股拉取**；不跳过已有数据；**移除强制补数**。
 
 **v3.4 变更**：看板板块默认 **申万二级（131）**；`migrate_sectors_to_l2.py` / `build_sector_mapping.py` / `rebuild_sector_aggregates.py`；管理页 **交易日校验** + **任务取消**；sector 僵尸行清理；Excel UTF-8 BOM 导出。
 
@@ -74,7 +74,7 @@ Trend_Analysis/
 ├── scripts/
 │   ├── fetch_by_daily.py       # 最新可用 trade_date
 │   ├── fetch_by_date.py        # 指定单日（区间=1 日时复用）
-│   ├── fetch_by_range.py       # 区间补数（管理页主入口，待实施）
+│   ├── fetch_by_range.py       # 区间补数（管理页主入口）
 │   ├── sector_config.py        # DEFAULT_SECTOR_LEVEL=l2
 │   ├── build_sector_mapping.py # 仅拉 hszg/gg 映射（L2 迁移用）
 │   ├── migrate_sectors_to_l2.py # L1 库 → L2 重聚合（无需重打 API）

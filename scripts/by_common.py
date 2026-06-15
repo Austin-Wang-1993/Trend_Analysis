@@ -408,12 +408,25 @@ def fetch_fund_flow_single(licence: str, stock_code: str, lt: int = 1) -> dict[s
     return rows[0] if rows else None
 
 
-def fetch_fund_flow_history(licence: str, stock_code: str, *, lt: int = 1) -> list[dict[str, Any]]:
-    """单股近 lt 日资金流向，按 trade_date 降序（API 返回顺序）。"""
+def fetch_fund_flow_history(
+    licence: str,
+    stock_code: str,
+    *,
+    lt: int | None = None,
+    st: str | None = None,
+    et: str | None = None,
+) -> list[dict[str, Any]]:
+    """单股资金流向。lt 与 st/et 二选一；区间补数用 st/et（YYYY-MM-DD 或 YYYYMMDD）。"""
     code = normalize_code6(stock_code)
+    if st and et:
+        params = {"st": st.replace("-", ""), "et": et.replace("-", "")}
+    elif lt is not None:
+        params = {"lt": lt}
+    else:
+        params = {"lt": 1}
     rows = _get(
         f"{API_BASE}/hsstock/history/transaction/{code}/{licence}",
-        params={"lt": lt},
+        params=params,
     )
     if not isinstance(rows, list) or not rows:
         return []

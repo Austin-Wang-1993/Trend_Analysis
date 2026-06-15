@@ -52,14 +52,21 @@ def _terminate_proc(proc: subprocess.Popen[str]) -> None:
         proc.wait(timeout=5)
 
 
-def run_job(job_id: str, trade_date: str, *, trigger_type: str = "manual") -> None:
+def run_job(
+    job_id: str,
+    start_date: str,
+    *,
+    end_date: str | None = None,
+    trigger_type: str = "manual",
+) -> None:
     global _running, _current_proc, _current_job_id
+    end = end_date or start_date
     store = HistoryStore(DB_PATH)
     log_file = _log_path(job_id)
     store.update_job(job_id, log_path=str(log_file), status="running", started_at=datetime.now(CST).isoformat())
 
     with open(log_file, "a", encoding="utf-8") as lf:
-        lf.write(f"[{datetime.now(CST).isoformat()}] start job={job_id} date={trade_date}\n")
+        lf.write(f"[{datetime.now(CST).isoformat()}] start job={job_id} range={start_date}~{end}\n")
         lf.flush()
         t0 = time.time()
         proc: subprocess.Popen[str] | None = None
@@ -67,9 +74,11 @@ def run_job(job_id: str, trade_date: str, *, trigger_type: str = "manual") -> No
             proc = subprocess.Popen(
                 [
                     sys.executable,
-                    str(SCRIPTS / "fetch_by_date.py"),
-                    "--date",
-                    trade_date,
+                    str(SCRIPTS / "fetch_by_range.py"),
+                    "--start",
+                    start_date,
+                    "--end",
+                    end,
                     "--no-all-turnover",
                     "--level",
                     "l2",
@@ -135,17 +144,23 @@ def _job_env() -> dict[str, str]:
     return env
 
 
-def enqueue_job(trade_date: str, trigger_type: str = "manual") -> str:
+def enqueue_job(
+    start_date: str,
+    trigger_type: str = "manual",
+    *,
+    end_date: str | None = None,
+) -> str:
     global _running
+    end = end_date or start_date
     with _lock:
         if _running:
             raise RuntimeError("已有任务运行中")
         _running = True
     store = HistoryStore(DB_PATH)
-    job_id = store.create_job(trade_date, trigger_type)
+    job_id = store.create_job(start_date, trigger_type, end_date=end)
 
     def _worker() -> None:
-        run_job(job_id, trade_date, trigger_type=trigger_type)
+        run_job(job_id, start_date, end_date=end, trigger_type=trigger_type)
 
     threading.Thread(target=_worker, daemon=True).start()
     return job_id
@@ -189,7 +204,8 @@ def run_scheduled_fetch() -> None:
         return
     mode = settings.get("schedule_run_mode", "trading_day")
     if not should_run_scheduled_task(mode):  # type: ignore[arg-type]
-        job_id = store.create_job(today_cst(), "scheduled")
+        today = today_cst()
+        job_id = store.create_job(today, "scheduled", end_date=today)
         store.update_job(
             job_id,
             status="success",
@@ -200,7 +216,8 @@ def run_scheduled_fetch() -> None:
     if is_job_running():
         return
     try:
-        enqueue_job(today_cst(), trigger_type="scheduled")
+        today = today_cst()
+        enqueue_job(today, trigger_type="scheduled", end_date=today)
     except RuntimeError:
         pass
 

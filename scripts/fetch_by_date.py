@@ -64,7 +64,12 @@ def _update_job(job_id: str | None, **fields) -> None:
     store.update_job(job_id, **fields)
 
 
-def fetch_historical_day(licence: str, trade_date: str, args: argparse.Namespace) -> int:
+def fetch_historical_day(
+    licence: str,
+    trade_date: str,
+    args: argparse.Namespace,
+    job_id: str | None = None,
+) -> int:
     """历史日：K 线成交额 + transaction(st/et) 买卖。"""
     store = HistoryStore(DB_PATH)
     cache_name = mapping_cache_name(args.level)
@@ -185,7 +190,7 @@ def main() -> int:
             rc = daily_main()
         else:
             _update_job(job_id, progress=f"historical:{trade_date}")
-            rc = fetch_historical_day(licence, trade_date, args)
+            rc = fetch_historical_day(licence, trade_date, args, job_id=job_id)
 
         finished = datetime.now(CST).isoformat()
         if _job_cancelled(job_id):

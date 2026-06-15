@@ -36,10 +36,11 @@
     <div class="card">
       <h2 style="font-size:1rem;margin:0 0 0.75rem">手动补数</h2>
       <div class="toolbar">
-        <input id="fetchDate" type="date" />
-        <span id="fetchDateHint" class="footnote"></span>
+        <label>开始 <input id="fetchStart" type="date" /></label>
+        <label>结束 <input id="fetchEnd" type="date" /></label>
         <button id="startFetch">开始更新</button>
       </div>
+      <p id="fetchPreview" class="footnote"></p>
     </div>
 
     <div class="card">
@@ -58,7 +59,7 @@
 
     <div class="card">
       <h2 style="font-size:1rem;margin:0 0 0.75rem">任务记录</h2>
-      <div class="table-wrap"><table id="jobs"><thead><tr><th>ID</th><th>日期</th><th>触发</th><th>状态</th><th>耗时</th><th>操作</th></tr></thead><tbody></tbody></table></div>
+      <div class="table-wrap"><table id="jobs"><thead><tr><th>ID</th><th>日期范围</th><th>触发</th><th>状态</th><th>耗时</th><th>操作</th></tr></thead><tbody></tbody></table></div>
       <pre id="logTail" style="font-size:0.75rem;max-height:200px;overflow:auto;margin-top:0.75rem"></pre>
     </div>
   </main>
