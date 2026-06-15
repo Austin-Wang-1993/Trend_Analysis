@@ -170,6 +170,11 @@ button.secondary { background: transparent; }
   font-size: 0.88rem;
   font-weight: 600;
   line-height: 1.25;
+  color: var(--accent);
+  text-decoration: none;
+}
+.sector-name:hover {
+  text-decoration: underline;
 }
 .sector-metrics {
   margin: 0;

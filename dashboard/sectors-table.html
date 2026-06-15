@@ -55,11 +55,13 @@
     function renderCard(sector) {
       const code = sector.sector_code;
       const cls = highlightedCode === code ? 'sector-card highlighted' : 'sector-card';
+      const name = escapeHtml(formatSectorName(sector.sector_name));
+      const stocksUrl = `/sector-stocks.html?sector=${encodeURIComponent(code)}`;
       return `
         <article class="${cls}" data-sector-code="${escapeAttr(code)}" tabindex="0">
           <div class="sector-card-head">
             <span class="sector-rank">#${sector.rank}</span>
-            <span class="sector-name">${escapeHtml(formatSectorName(sector.sector_name))}</span>
+            <a class="sector-name" href="${stocksUrl}">${name}</a>
           </div>
           <dl class="sector-metrics">
             <div><dt>成交</dt><dd>${fmtMoney(sector.turnover)} <span class="metric-pct">${fmtPct(sector.turnover_pct)}</span></dd></div>
