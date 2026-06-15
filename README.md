@@ -4,8 +4,14 @@ A 股**行业板块成交额**分析（Phase 1）。
 
 ## 文档
 
-- [需求文档](docs/REQUIREMENTS.md)
-- [实现方案](docs/IMPLEMENTATION_PLAN.md)
+| 文档 | 说明 |
+|------|------|
+| [文档索引](docs/README.md) | 全部文档入口 |
+| [需求文档](docs/REQUIREMENTS.md) | 目标、数据能力、交付物 |
+| [实现方案](docs/IMPLEMENTATION_PLAN.md) | 架构、采集流程、脚本用法 |
+| [**必盈 API 归档**](docs/BIYING_API.md) | 接口 URL、字段、命令、实测记录 |
+
+**必盈官方文档**：https://www.biyingapi.com/doc_hs
 
 ## 环境要求
 
