@@ -24,7 +24,7 @@
     else {
       (async () => {
         const data = await apiGet(`/api/sectors/${encodeURIComponent(sector)}/stocks?days=5`);
-        document.getElementById('title').textContent = `${data.sector_name} — 成份股（近 5 日）`;
+        document.getElementById('title').textContent = `${formatSectorName(data.sector_name)} — 成份股（近 5 日）`;
         const list = document.getElementById('list');
         const top = (data.stocks || []).slice(0, 30);
         top.forEach((s, i) => {

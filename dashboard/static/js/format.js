@@ -12,6 +12,13 @@ function formatPct(v) {
   return `${(v * 100).toFixed(2)}%`;
 }
 
+function formatSectorName(name) {
+  if (!name) return '';
+  return String(name)
+    .replace(/^A股-申万行业-/, '')
+    .replace(/^A股-申万二级-/, '');
+}
+
 function shortDate(iso) {
   if (!iso) return '';
   const p = iso.split('-');

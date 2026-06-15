@@ -5,8 +5,8 @@
   - sectors.csv                 全量行业/概念分类树（hszg/list）
   - sector_stock_mapping.csv    板块 ↔ 个股映射（hszg/gg）
   - stock_turnover_latest.csv   个股成交额 + 主买/主卖 + 主行业归属
-  - sector_turnover_daily.csv   一级行业成交额汇总
-  - sector_fund_flow_daily.csv  一级行业买卖汇总
+  - sector_turnover_daily.csv   申万二级行业成交额汇总
+  - sector_fund_flow_daily.csv  申万二级行业买卖汇总
   - market_summary_daily.csv    全 A 成交 + 买卖汇总
   - etf_turnover_latest.csv     ETF 成交额（必盈暂无 ETF 买卖拆分）
   - unmapped_stocks.csv         全 A 中未出现在映射里的股票
@@ -48,6 +48,7 @@ from by_common import (
     pick_primary_sector,
 )
 
+from sector_config import DEFAULT_SECTOR_LEVEL, primary_type2_for_level
 from history_store import HistoryStore
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -60,8 +61,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--level",
         choices=["l1", "l2", "both"],
-        default="l1",
-        help="映射使用的申万层级（默认一级）",
+        default="l2",
+        help="映射使用的申万层级（默认二级 l2）",
     )
     parser.add_argument(
         "--refresh-mapping",
@@ -306,7 +307,7 @@ def main() -> int:
         else:
             print("  ⑤ 跳过资金流")
 
-        primary_type2 = TYPE2_SW_L1 if args.level in {"l1", "both"} else TYPE2_SW_L2
+        primary_type2 = primary_type2_for_level(args.level if args.level != "both" else "l2")
         primary_df = pick_primary_sector(mapping_df, type2=primary_type2)
         stock_df = turnover_df.merge(stocks_df, on="stock_code", how="left")
         if include_fund_flow and not fund_flow_df.empty:

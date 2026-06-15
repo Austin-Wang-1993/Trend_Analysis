@@ -1,8 +1,10 @@
 # 实现方案：历史落库 + Web 看板 + 管理页
 
-> 版本：**v3.3**  
+> 版本：**v3.4**  
 > 前置：[REQUIREMENTS.md](./REQUIREMENTS.md)  
 > 必盈接口：[BIYING_API.md](./BIYING_API.md)
+
+**v3.4 变更**：看板板块默认 **申万二级（131）**；`migrate_sectors_to_l2.py`；管理页 **交易日校验** + **任务取消**。
 
 ---
 
@@ -50,11 +52,13 @@
 
 **版本变更摘要**
 
-| 项 | v3.2 | v3.3 |
+| 项 | v3.3 | v3.4 |
 |----|------|------|
-| 默认定时 | 05:00 | **21:35** |
-| 执行日 | `schedule_trading_days_only` | **`schedule_run_mode`**：`trading_day` / `calendar_day` |
-| 交易日历 | weekday 简易 | **PMC SSE + 可选 SQLite 缓存** |
+| 看板板块 | 申万一级 31 | **申万二级 131** |
+| 默认 `--level` | `l1` | **`l2`** |
+| L1→L2 迁移 | — | **`migrate_sectors_to_l2.py`** |
+| 手动补数 | 无交易日校验 | **拒绝休市日**；可 `force` |
+| 任务取消 | — | **`POST .../cancel`** |
 
 ---
 
@@ -65,7 +69,8 @@ Trend_Analysis/
 ├── scripts/
 │   ├── fetch_by_daily.py       # 最新可用 trade_date
 │   ├── fetch_by_date.py        # 指定 trade_date（管理页补数）
-│   ├── backfill_history.py     # --days 5
+│   ├── sector_config.py        # DEFAULT_SECTOR_LEVEL=l2
+│   ├── migrate_sectors_to_l2.py # L1 库 → L2 重聚合（无需重打 API）
 │   ├── history_store.py
 │   ├── scheduler.py            # APScheduler，默认 21:35
 │   ├── trading_calendar.py     # PMC SSE + 必盈校验 CLI
@@ -393,7 +398,7 @@ python3 scripts/backfill_history.py --days 5 --no-all-turnover
 
 ### 4.4 GET /api/sectors/charts?days=5&sort=pct_desc
 
-页面 3 用。返回 31 板块 × 三序列。
+页面 3 用。返回 **131** 个申万二级板块 × 三序列。
 
 ### 4.5 GET /api/sectors/{sector_code}/stocks?days=5
 
@@ -471,19 +476,22 @@ python3 scripts/backfill_history.py --days 5 --no-all-turnover
 
 ### 4b.3 POST /api/admin/fetch
 
-手动触发指定日采集。
+手动触发指定日采集。**默认拒绝非 A 股交易日**（400）。
 
 ```json
-{ "trade_date": "2026-06-12" }
+{ "trade_date": "2026-06-12", "force": false }
 ```
 
-响应：
+- `force: true` — 跳过交易日校验（极少使用）
+- 已有 `running` 任务 → `409 Conflict`
 
-```json
-{ "job_id": "uuid", "status": "pending" }
-```
+### 4b.3b GET /api/admin/trading-day?date=
 
-若已有 `running` 任务 → `409 Conflict`。
+返回 `{ "trade_date", "is_trading_day" }`，供管理页日期提示。
+
+### 4b.3c POST /api/admin/jobs/{job_id}/cancel
+
+取消 `pending` / `running` 任务，终止子进程，状态 `cancelled`。
 
 ### 4b.4 GET /api/admin/jobs
 

@@ -14,7 +14,6 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from by_common import (
-    TYPE2_SW_L1,
     ensure_stock_codes,
     fetch_fund_flow_history,
     fetch_stock_kline_daily,
@@ -22,6 +21,7 @@ from by_common import (
     get_licence,
     pick_primary_sector,
 )
+from sector_config import mapping_cache_name, primary_type2_for_level
 from history_store import HistoryStore
 from trading_calendar import get_recent_trading_days
 
@@ -40,7 +40,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def load_mapping() -> pd.DataFrame:
-    cache = DATA_DIR / "cache" / "sector_mapping_l1.json"
+    cache = DATA_DIR / "cache" / mapping_cache_name("l2")
     if not cache.exists():
         raise FileNotFoundError(f"缺少映射缓存 {cache}，请先运行 fetch_by_daily.py")
     return ensure_stock_codes(pd.DataFrame(json.loads(cache.read_text(encoding="utf-8"))))
@@ -63,7 +63,7 @@ def main() -> int:
 
     stocks_df = ensure_stock_codes(fetch_stock_list(licence))
     mapping_df = load_mapping()
-    primary_df = pick_primary_sector(mapping_df, type2=TYPE2_SW_L1)
+    primary_df = pick_primary_sector(mapping_df, type2=primary_type2_for_level("l2"))
     name_map = dict(zip(stocks_df["stock_code"], stocks_df["stock_name"]))
     sector_map = primary_df.set_index("stock_code")[["sector_code", "sector_name"]].to_dict("index")
 

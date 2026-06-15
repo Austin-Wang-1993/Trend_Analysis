@@ -71,6 +71,8 @@ def run_job(job_id: str, trade_date: str, *, trigger_type: str = "manual") -> No
                     "--date",
                     trade_date,
                     "--no-all-turnover",
+                    "--level",
+                    "l2",
                     "--job-id",
                     job_id,
                 ],

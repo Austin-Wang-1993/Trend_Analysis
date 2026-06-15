@@ -1,144 +1,87 @@
 # Trend_Analysis
 
-A 股**行业板块成交额**分析（Phase 1）。
+A 股**申万二级行业**成交额 + 买卖分析 + Web 看板（近 5 交易日）。
 
 ## 文档
 
 | 文档 | 说明 |
 |------|------|
 | [文档索引](docs/README.md) | 全部文档入口 |
-| [需求文档](docs/REQUIREMENTS.md) | 目标、数据能力、交付物 |
-| [实现方案](docs/IMPLEMENTATION_PLAN.md) | 架构、采集流程、脚本用法 |
-| [**必盈 API 归档**](docs/BIYING_API.md) | 接口 URL、字段、命令、实测记录 |
+| [需求文档](docs/REQUIREMENTS.md) | **v3.4** 目标、看板、管理页 |
+| [实现方案](docs/IMPLEMENTATION_PLAN.md) | 架构、API、部署 |
+| [**必盈 API 归档**](docs/BIYING_API.md) | 接口、L2 映射、命令 |
 
 **必盈官方文档**：https://www.biyingapi.com/doc_hs
 
 ## 环境要求
 
 - **Python 3.10+**
-- **必盈 API 证书**（推荐）：https://www.biyingapi.com/doc_hs
-- 或 BigQuant AK/SK（需 Python 3.11+ 与 SDK 权限）
+- **必盈 API 证书**：https://www.biyingapi.com/doc_hs
 
-## 快速开始（必盈 API，推荐）
+## 快速开始（采集）
 
 ```bash
 cd ~/Trend_Analysis
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+set -a && source .env && set +a
 
-# BigQuant 用户额外安装（需 Python 3.11+ 且使用官方 PyPI 源）：
-# pip install -r requirements-bigquant.txt -i https://pypi.bigquant.com/simple/
-
-export BIYING_LICENCE=你的licence
-
-# 交易日收盘后（数据约 16:20 后更新）
+# 日常更新（默认申万二级，约 20–25 分钟含买卖+ETF）
 python3 scripts/fetch_by_daily.py --no-all-turnover
-
-# 清空后全量重拉
-python3 scripts/fetch_by_daily.py --fresh --no-all-turnover
-
-ls data/
 ```
 
-### 必盈接口
-
-| 步骤 | 接口 | 输出 |
-|------|------|------|
-| 全 A 股列表 | `hslt/list/{licence}` | 对照 / 未归类检查 |
-| 行业/概念树 | `hszg/list/{licence}` | `sectors.csv` |
-| 板块成份映射 | `hszg/gg/{code}/{licence}` | `sector_stock_mapping.csv` |
-| 个股成交额 | `hsrl/ssjy_more/{licence}?stock_codes=` | `stock_turnover_latest.csv` |
-| 个股买卖 | `hsstock/history/transaction/{code}/{licence}` | 合并进 `stock_turnover_latest.csv` |
-| 板块买卖 | 本地聚合 | `sector_fund_flow_daily.csv` |
-| 全 A 汇总 | 本地聚合 | `market_summary_daily.csv` |
-| ETF 成交 | `fd/list/etf` + `fd/real/time` | `etf_turnover_latest.csv` |
-
-### 输出文件
-
-| 文件 | 说明 |
-|------|------|
-| `sectors.csv` | 申万行业/概念分类树 |
-| `sector_stock_mapping.csv` | 板块 ↔ 个股映射 |
-| `stock_turnover_latest.csv` | 个股成交额 + 主买/主卖 + 主行业 |
-| `sector_turnover_daily.csv` | 一级行业成交额汇总 |
-| `sector_fund_flow_daily.csv` | 一级行业主买/主卖汇总 |
-| `market_summary_daily.csv` | 全 A 成交 + 买卖汇总 |
-| `etf_turnover_latest.csv` | ETF 成交额（暂无买卖拆分） |
-| `unmapped_stocks.csv` | 全 A 中不在映射里的股票 |
-
-### 套餐说明
-
-| 套餐 | 全市场成交额 | 每日调用 |
-|------|-------------|----------|
-| 免费版 | ❌ 需 `ssjy_more` 分批 | 200 次（不够跑全市场） |
-| 包年版 ¥688/年 | ✅ `ssjy/all` 一次拉全 | 不限 |
-
-## 快速开始（BigQuant）
+## Web 看板
 
 ```bash
-cd ~/Trend_Analysis
-python3.11 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt -i https://pypi.bigquant.com/simple/
+# 若 DB 为旧 L1 数据，先迁移（无需重打 API）
+python3 scripts/migrate_sectors_to_l2.py
 
-# 认证（任选其一）
-export BIGQUANT_APIKEY=你的AK.你的SK
-# 或：bq auth --apikey 你的AK.你的SK
-
-# 最近交易日（默认自动探测）
-python scripts/fetch_bq_daily.py
-
-# 指定历史交易日
-python scripts/fetch_bq_daily.py --date 2024-06-12
-
-# 切换行业标准：sw2021（默认）/ sw2014 / cs（中信）
-python scripts/fetch_bq_daily.py --industry sw2021
-
-ls data/
+python3 scripts/serve_dashboard.py
+# http://127.0.0.1:8080
 ```
 
-### 输出文件
+生产部署：`bash deploy/install.sh`
+
+| 页面 | 路径 |
+|------|------|
+| 全 A 概览 | `/` |
+| 申万二级表格/图表 | `/sectors-table.html` `/sectors-charts.html` |
+| ETF | `/etf-table.html` `/etf-charts.html` |
+| 管理 | `/admin.html` |
+
+## 板块层级
+
+| 层级 | 板块数 | 默认 |
+|------|--------|------|
+| 申万一级 | 31 | 否 |
+| **申万二级** | **131** | **是** |
+| 申万三级 | — | 必盈无 |
+
+配置：`scripts/sector_config.py` → `DEFAULT_SECTOR_LEVEL = "l2"`
+
+## 输出文件
 
 | 文件 | 说明 |
 |------|------|
-| `sectors.csv` | 全量行业分类明细（`cn_stock_industry`） |
-| `sector_stock_mapping.csv` | 板块 ↔ 个股映射（`cn_stock_industry_component`，逐日） |
-| `stock_turnover_latest.csv` | 个股成交额 + 行业归属（`cn_stock_bar1d`） |
-| `sector_turnover_daily.csv` | 一级行业成交额汇总 |
-| `unmapped_stocks.csv` | 有成交额但无行业归属（遗漏检查） |
-
-### 数据源
-
-| 用途 | BigQuant 表 |
-|------|-------------|
-| 行业分类明细 | [cn_stock_industry](https://bigquant.com/data/datasources/cn_stock_industry) |
-| 板块 ↔ 个股（逐日） | [cn_stock_industry_component](https://bigquant.com/data/datasources/cn_stock_industry_component) |
-| 个股成交额 | [cn_stock_bar1d](https://bigquant.com/data/datasources/cn_stock_bar1d) 字段 `amount` |
+| `data/history.db` | SQLite 历史库（看板数据源） |
+| `stock_turnover_latest.csv` | 个股成交 + 买卖 + **L2** 归属 |
+| `sector_turnover_daily.csv` | **二级**行业成交额汇总 |
+| `etf_turnover_latest.csv` | ETF 成交额 |
+| `data/cache/sector_mapping_l2.json` | L2 映射缓存 |
 
 ## 常见问题
 
-**`请先申请SDK使用权限`**
-
-AK/SK 已配置但仍报错时，需到 [BigQuant](https://bigquant.com) 个人中心申请开通 **SDK 本地使用权限**。
-
-**`No matching distribution found for bigquant`**
-
-必须从官方源安装：
+**已有 L1 数据，如何切 L2？**
 
 ```bash
-pip install bigquant -i https://pypi.bigquant.com/simple/
+# 确保有 L2 映射缓存（首次需拉取 mapping）
+python3 scripts/fetch_by_daily.py --level l2 --refresh-mapping --turnover-only
+python3 scripts/migrate_sectors_to_l2.py
 ```
 
-**Python 3.10 无法安装**
+**手动补数选了周末？** 管理页会拒绝非交易日；运行中任务可点 **取消**。
 
-BigQuant SDK 要求 Python **3.11+**。腾讯云上可安装 `python3.11` 后重建 venv。
+## 其他方案（归档）
 
-**检查未归类股票**
-
-```bash
-python scripts/list_unmapped_stocks.py
-```
-
-## 其他方案（旧）
-
-- TickFlow 申万标的池：`scripts/fetch_daily_data.py`
-- StockAPI 东财 BK 板块：`scripts/fetch_sector_data.py`
+- BigQuant：`scripts/fetch_bq_daily.py`（含 L1/L2/L3）
+- TickFlow：`scripts/fetch_daily_data.py`

@@ -9,7 +9,7 @@
 <body>
   <nav></nav>
   <main>
-    <h1>申万一级板块 — 近 5 日成交额</h1>
+    <h1>申万二级板块 — 近 5 日成交额</h1>
     <div class="toolbar">
       <label>排序
         <select id="sort">
@@ -38,7 +38,7 @@
       hdr += '</tr>';
       thead.innerHTML = hdr;
       tbody.innerHTML = (data.rows || []).map(row => {
-        let tr = `<tr><td><a href="/sector-stocks.html?sector=${encodeURIComponent(row.sector_code)}">${row.sector_name}</a></td>`;
+        let tr = `<tr><td><a href="/sector-stocks.html?sector=${encodeURIComponent(row.sector_code)}">${formatSectorName(row.sector_name)}</a></td>`;
         (row.cells || []).forEach(c => {
           tr += `<td>${formatAmount(c.turnover).text}</td><td>${formatPct(c.turnover_pct)}</td>`;
         });

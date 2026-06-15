@@ -16,18 +16,16 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from by_common import (
-    TYPE2_SW_L1,
     ensure_stock_codes,
     fetch_etf_list,
     fetch_etf_turnover_batch,
     fetch_fund_flow_history,
     fetch_stock_kline_daily,
     fetch_stock_list,
-    fetch_turnover,
     get_licence,
-    infer_snapshot_time,
     pick_primary_sector,
 )
+from sector_config import DEFAULT_SECTOR_LEVEL, mapping_cache_name, primary_type2_for_level
 from fetch_by_daily import (
     DATA_DIR,
     DB_PATH,
@@ -55,7 +53,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--no-all-turnover", action="store_true")
     p.add_argument("--no-etf", action="store_true")
     p.add_argument("--job-id", help="关联 fetch_jobs")
-    p.add_argument("--level", choices=["l1", "l2"], default="l1")
+    p.add_argument("--level", choices=["l1", "l2"], default=DEFAULT_SECTOR_LEVEL)
     return p.parse_args()
 
 
@@ -69,13 +67,13 @@ def _update_job(job_id: str | None, **fields) -> None:
 def fetch_historical_day(licence: str, trade_date: str, args: argparse.Namespace) -> int:
     """历史日：K 线成交额 + transaction(st/et) 买卖。"""
     store = HistoryStore(DB_PATH)
-    cache_name = f"sector_mapping_{args.level}.json"
+    cache_name = mapping_cache_name(args.level)
     tree_cache = DATA_DIR / "cache" / "sector_tree.json"
     tree_df = load_or_build_tree(licence, tree_cache, refresh=False)
     sectors_df = sectors_for_level(tree_df, args.level)
     mapping_df = load_or_build_mapping(licence, sectors_df, refresh=False, cache_name=cache_name)
     stocks_df = ensure_stock_codes(fetch_stock_list(licence))
-    primary_df = pick_primary_sector(mapping_df, type2=TYPE2_SW_L1)
+    primary_df = pick_primary_sector(mapping_df, type2=primary_type2_for_level(args.level))
     name_map = dict(zip(stocks_df["stock_code"], stocks_df["stock_name"]))
     sector_map = primary_df.set_index("stock_code")[["sector_code", "sector_name"]].to_dict("index")
 
@@ -181,7 +179,7 @@ def main() -> int:
             _update_job(job_id, progress="fetch_by_daily")
             from fetch_by_daily import main as daily_main
 
-            sys.argv = ["fetch_by_daily.py", "--no-all-turnover"]
+            sys.argv = ["fetch_by_daily.py", "--no-all-turnover", "--level", DEFAULT_SECTOR_LEVEL]
             if args.no_etf:
                 sys.argv.append("--no-etf")
             rc = daily_main()

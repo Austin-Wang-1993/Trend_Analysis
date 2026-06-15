@@ -1,6 +1,6 @@
 # 必盈 API 接入归档
 
-> 版本：v1.0  
+> 版本：v1.1  
 > 更新：2026-06-15  
 > 主脚本：`scripts/fetch_by_daily.py`  
 > 共享模块：`scripts/by_common.py`
@@ -67,7 +67,7 @@ GET https://api.biyingapi.com/hszg/list/{licence}
 |------|------|
 | `code` | 板块代码（如 `sw_mt`） |
 | `name` | 板块名称 |
-| `type2` | `0`=申万一级，`1`=申万二级 |
+| `type2` | `0`=申万一级（31），`1`=**申万二级（131，默认）** |
 | `isleaf` | `1`=叶子节点，可作为 `hszg/gg` 参数 |
 | `level`, `pcode`, `pname` | 层级与父节点 |
 
@@ -163,8 +163,8 @@ GET https://api.biyingapi.com/fd/real/time/{code}/{licence}
 
 ```
 hslt/list          → 全 A 5208 只（对照 / 未归类检查）
-hszg/list          → 筛 type2=0 & isleaf=1 → 31 个申万一级
-hszg/gg × 31       → sector_stock_mapping.csv
+hszg/list          → 筛 type2=1 & isleaf=1 → **131 个申万二级**（看板默认）
+hszg/gg × 131      → sector_stock_mapping.csv
 hsrl/ssjy_more     → stock_turnover_latest.csv（cje）
 history/transaction → 主买/主卖 merge 进 stock_turnover_latest.csv
 本地聚合            → sector_turnover_daily.csv + sector_fund_flow_daily.csv
@@ -182,14 +182,15 @@ fd/list/etf        → etf_turnover_latest.csv（仅成交额）
 | `data/sectors.csv` | `hszg/list` 全树或目标层级 |
 | `data/sector_stock_mapping.csv` | `hszg/gg` 汇总 |
 | `data/stock_turnover_latest.csv` | `ssjy_more` + `transaction` + 映射 merge |
-| `data/sector_turnover_daily.csv` | 本地按一级行业 SUM(cje) |
-| `data/sector_fund_flow_daily.csv` | 本地按一级行业 SUM(主买/主卖) |
+| `data/sector_turnover_daily.csv` | 本地按**申万二级** SUM(cje) |
+| `data/sector_fund_flow_daily.csv` | 本地按**申万二级** SUM(主买/主卖) |
 | `data/market_summary_daily.csv` | 全 A 成交 + 买卖汇总（单行） |
 | `data/etf_turnover_latest.csv` | ETF 成交额（无买卖拆分） |
 | `data/unmapped_stocks.csv` | 全 A − 映射覆盖 |
 | `data/README.md` | 本次采集元数据 |
 | `data/cache/sector_tree.json` | 行业树缓存 |
-| `data/cache/sector_mapping_l1.json` | 映射缓存 |
+| `data/cache/sector_mapping_l1.json` | 一级映射缓存（可选） |
+| `data/cache/sector_mapping_l2.json` | **二级映射缓存（默认）** |
 
 ---
 
@@ -203,8 +204,17 @@ pip install -r requirements.txt
 cp .env.example .env   # 填入 BIYING_LICENCE
 set -a && source .env && set +a
 
-# 日常更新（交易日 16:20 后）
+# 日常更新（默认申万二级）
 python3 scripts/fetch_by_daily.py --no-all-turnover
+
+# 若 history.db 为旧 L1 数据，迁移为 L2（无需重打 API）
+python3 scripts/migrate_sectors_to_l2.py
+
+# 申万一级（仅当需要 L1 时）
+python3 scripts/fetch_by_daily.py --level l1 --no-all-turnover
+
+# 申万二级（显式，与默认相同）
+python3 scripts/fetch_by_daily.py --level l2 --no-all-turnover
 
 # 清空 CSV + cache 后全量重拉
 python3 scripts/fetch_by_daily.py --fresh --no-all-turnover
@@ -221,7 +231,7 @@ python3 scripts/fetch_by_daily.py --no-all-turnover --no-fund-flow
 # 跳过 ETF（约 1500 次请求）
 python3 scripts/fetch_by_daily.py --no-all-turnover --no-etf
 
-# 申万二级映射
+# 申万二级映射（默认）
 python3 scripts/fetch_by_daily.py --level l2 --no-all-turnover
 ```
 
@@ -236,6 +246,9 @@ python3 scripts/fetch_by_daily.py --level l2 --no-all-turnover
 | trade_date | 2026-06-15 |
 | 全 A 股票 | 5208 |
 | 申万一级行业 | 31 |
+| **申万二级行业** | **131（看板默认）** |
+| 映射覆盖股票 | 5510 / 5208（99.81%） |
+| 未归类（L1/L2 相同） | 10（多为新股，待周六 hszg 更新） |
 | 映射记录 | 5510（含跨板块重复） |
 | 未归类 | **10** |
 | 大盘成交额 | 2.03 万亿元 |
