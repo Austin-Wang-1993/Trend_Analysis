@@ -1,32 +1,71 @@
 /* 板块表格页：每日卡片列（依赖 style.css 变量） */
+:root {
+  --sector-nav-height: 3rem;
+  --sector-col-width: 240px;
+}
+
+.sector-board-hint {
+  margin-bottom: 0.75rem;
+}
+
+/* 冻结日期栏：纵向 sticky，横向随下方滚动区同步 translate */
+.sector-dates-sticky {
+  position: sticky;
+  top: var(--sector-nav-height);
+  z-index: 9;
+  overflow: hidden;
+  background: var(--bg, #0f1419);
+  box-shadow: 0 8px 16px var(--bg, #0f1419);
+  margin-bottom: 0.65rem;
+}
+
+.sector-dates-inner {
+  display: flex;
+  flex-flow: row nowrap;
+  align-items: stretch;
+  gap: 0.85rem;
+  width: max-content;
+  min-width: 100%;
+  padding: 0.45rem 0.25rem 0.55rem;
+  will-change: transform;
+}
+
+.sector-date-cell {
+  flex: 0 0 var(--sector-col-width);
+  width: var(--sector-col-width);
+  min-width: var(--sector-col-width);
+  max-width: var(--sector-col-width);
+  text-align: center;
+  border-bottom: 2px solid var(--accent, #3b82f6);
+  padding-bottom: 0.45rem;
+}
+
+/* 仅横向滚动；卡片区纵向随页面滚动 */
+.sector-board-outer {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 1.25rem;
+}
+
 .sector-board {
   display: flex;
   flex-flow: row nowrap;
   align-items: flex-start;
   gap: 0.85rem;
-  overflow-x: auto;
-  overflow-y: visible;
-  width: 100%;
-  padding: 0.25rem 0 1.25rem;
-  -webkit-overflow-scrolling: touch;
+  width: max-content;
+  min-width: 100%;
+  padding: 0 0.25rem;
 }
 
 .sector-column {
-  flex: 0 0 240px;
-  width: 240px;
-  min-width: 240px;
-  max-width: 240px;
-}
-
-.sector-column-head {
-  position: sticky;
-  top: 3.25rem;
-  z-index: 3;
-  background: var(--bg, #0f1419);
-  padding: 0.55rem 0.35rem 0.7rem;
-  margin-bottom: 0.55rem;
-  border-bottom: 2px solid var(--accent, #3b82f6);
-  text-align: center;
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 var(--sector-col-width);
+  width: var(--sector-col-width);
+  min-width: var(--sector-col-width);
+  max-width: var(--sector-col-width);
 }
 
 .sector-column-date {
@@ -34,14 +73,16 @@
   font-weight: 700;
   font-size: 1rem;
   letter-spacing: 0.02em;
+  line-height: 1.2;
 }
 
 .sector-column-sub {
   display: block;
-  margin-top: 0.15rem;
+  margin-top: 0.2rem;
   font-weight: 400;
   font-size: 0.72rem;
   color: var(--muted, #8b9cb3);
+  line-height: 1.2;
 }
 
 .sector-column-cards {

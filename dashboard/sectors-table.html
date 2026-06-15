@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>板块表格 — Trend Analysis</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=20260616" />
-  <link rel="stylesheet" href="/static/css/sectors-table.css?v=20260616" />
+  <link rel="stylesheet" href="/static/css/style.css?v=20260617" />
+  <link rel="stylesheet" href="/static/css/sectors-table.css?v=20260617" />
 </head>
 <body>
   <nav></nav>
@@ -30,8 +30,13 @@
         </select>
       </label>
     </div>
-    <p class="footnote">左新右旧；点击卡片高亮同板块各列；点击板块名称查看成份股。</p>
-    <div id="board" class="sector-board"></div>
+    <p class="footnote sector-board-hint">左新右旧；点击卡片高亮同板块各列；点击板块名称查看成份股。</p>
+    <div class="sector-dates-sticky" id="stickyDates">
+      <div class="sector-dates-inner" id="stickyDatesInner"></div>
+    </div>
+    <div class="sector-board-outer" id="boardOuter">
+      <div id="board" class="sector-board"></div>
+    </div>
   </main>
   <script src="/static/js/format.js"></script>
   <script src="/static/js/api.js"></script>
