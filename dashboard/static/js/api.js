@@ -17,7 +17,16 @@ async function apiPut(path, body) {
 async function apiPost(path, body) {
   const headers = { 'Content-Type': 'application/json', ...adminHeaders() };
   const res = await fetch(path, { method: 'POST', headers, body: JSON.stringify(body) });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) {
+    const text = await res.text();
+    try {
+      const j = JSON.parse(text);
+      throw new Error(j.detail || text);
+    } catch (e) {
+      if (e instanceof Error && e.message !== text) throw e;
+      throw new Error(text || res.statusText);
+    }
+  }
   return res.json();
 }
 

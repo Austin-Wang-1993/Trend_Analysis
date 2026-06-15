@@ -37,9 +37,16 @@ from fetch_by_daily import (
     sectors_for_level,
 )
 from history_store import HistoryStore
-from trading_calendar import today_cst
+from trading_calendar import is_trading_day, normalize_date, today_cst
 
 CST = ZoneInfo("Asia/Shanghai")
+
+
+def _job_cancelled(job_id: str | None) -> bool:
+    if not job_id:
+        return False
+    job = HistoryStore(DB_PATH).get_job(job_id)
+    return bool(job and job.get("status") == "cancelled")
 
 
 def parse_args() -> argparse.Namespace:
@@ -78,6 +85,9 @@ def fetch_historical_day(licence: str, trade_date: str, args: argparse.Namespace
     td_compact = trade_date.replace("-", "")
 
     for idx, code in enumerate(codes, start=1):
+        if _job_cancelled(job_id):
+            print("  任务已取消，停止补数", flush=True)
+            return 1
         if idx == 1 or idx % 200 == 0 or idx == total:
             print(f"  历史补数 {idx}/{total}...", flush=True)
         sec = sector_map.get(code, {})
@@ -142,10 +152,22 @@ def fetch_historical_day(licence: str, trade_date: str, args: argparse.Namespace
 
 def main() -> int:
     args = parse_args()
-    trade_date = args.date
+    trade_date = normalize_date(args.date)
     job_id = args.job_id
     started = datetime.now(CST).isoformat()
     _update_job(job_id, status="running", started_at=started, progress="starting")
+
+    if not is_trading_day(trade_date):
+        msg = f"{trade_date} 不是 A 股交易日（休市），已拒绝执行"
+        _update_job(
+            job_id,
+            status="failed",
+            error_message=msg,
+            finished_at=datetime.now(CST).isoformat(),
+            progress="rejected_non_trading_day",
+        )
+        print(f"错误: {msg}", file=sys.stderr)
+        return 1
 
     try:
         licence = get_licence()
@@ -168,12 +190,16 @@ def main() -> int:
             rc = fetch_historical_day(licence, trade_date, args)
 
         finished = datetime.now(CST).isoformat()
+        if _job_cancelled(job_id):
+            return 1
         if rc == 0:
             _update_job(job_id, status="success", finished_at=finished, progress="done")
         else:
             _update_job(job_id, status="failed", finished_at=finished, progress="failed")
         return rc
     except Exception as exc:
+        if _job_cancelled(job_id):
+            return 1
         _update_job(
             job_id,
             status="failed",

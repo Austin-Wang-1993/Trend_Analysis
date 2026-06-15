@@ -17,6 +17,19 @@ async function loadSettings() {
     `下次: ${s.next_run_at || '—'} | 将执行: ${s.next_run_will_execute !== false ? '是' : '否'}`;
 }
 
+async function refreshFetchDateHint() {
+  const d = document.getElementById('fetchDate').value;
+  const hint = document.getElementById('fetchDateHint');
+  if (!d) { hint.textContent = ''; return; }
+  try {
+    const r = await apiGet(`/api/admin/trading-day?date=${encodeURIComponent(d)}`);
+    hint.textContent = r.is_trading_day ? '✓ 交易日' : '✗ 休市（不可补数，除非勾选强制）';
+    hint.className = r.is_trading_day ? 'footnote status-ok' : 'footnote status-fail';
+  } catch {
+    hint.textContent = '';
+  }
+}
+
 document.getElementById('saveSettings').onclick = async () => {
   const time = document.getElementById('schedule_time').value;
   await apiPut('/api/admin/settings', {
@@ -32,11 +45,14 @@ document.getElementById('saveSettings').onclick = async () => {
 document.getElementById('startFetch').onclick = async () => {
   const d = document.getElementById('fetchDate').value;
   if (!d) return alert('请选择日期');
+  const force = document.getElementById('fetchForce').checked;
   try {
-    const r = await apiPost('/api/admin/fetch', { trade_date: d });
+    const r = await apiPost('/api/admin/fetch', { trade_date: d, force });
     alert(`任务已创建: ${r.job_id}`);
     pollJobs();
-  } catch (e) { alert(e.message); }
+  } catch (e) {
+    alert(typeof e.message === 'string' ? e.message : '创建任务失败');
+  }
 };
 
 document.getElementById('exportZip').onclick = () => {
@@ -58,6 +74,13 @@ async function loadCalendar() {
   ).join('') || '暂无数据';
 }
 
+function jobStatusClass(status) {
+  if (status === 'success') return 'status-ok';
+  if (status === 'failed') return 'status-fail';
+  if (status === 'cancelled') return 'footnote';
+  return 'status-warn';
+}
+
 async function pollJobs() {
   const jobs = await apiGet('/api/admin/jobs?limit=20');
   const tbody = document.querySelector('#jobs tbody');
@@ -66,15 +89,28 @@ async function pollJobs() {
       <td style="text-align:left;font-size:0.7rem">${j.job_id.slice(0,8)}…</td>
       <td>${j.trade_date}</td>
       <td>${j.trigger_type}</td>
-      <td class="${j.status==='success'?'status-ok':j.status==='failed'?'status-fail':'status-warn'}">${j.status}</td>
+      <td class="${jobStatusClass(j.status)}">${j.status}</td>
       <td>${j.duration_sec ? j.duration_sec.toFixed(0)+'s' : '—'}</td>
-      <td><button data-id="${j.job_id}" class="logBtn secondary">日志</button>
-          ${j.status==='failed'?`<button data-retry="${j.job_id}" class="secondary">重试</button>`:''}</td>
+      <td>
+        <button data-id="${j.job_id}" class="logBtn secondary">日志</button>
+        ${j.status === 'running' || j.status === 'pending'
+          ? `<button data-cancel="${j.job_id}" class="secondary">取消</button>` : ''}
+        ${j.status === 'failed' ? `<button data-retry="${j.job_id}" class="secondary">重试</button>` : ''}
+      </td>
     </tr>`).join('');
   tbody.querySelectorAll('.logBtn').forEach(btn => {
     btn.onclick = async () => {
       const log = await apiGet(`/api/admin/jobs/${btn.dataset.id}/log?tail=200`);
       document.getElementById('logTail').textContent = (log.lines || []).join('\n');
+    };
+  });
+  tbody.querySelectorAll('[data-cancel]').forEach(btn => {
+    btn.onclick = async () => {
+      if (!confirm('确定取消该任务？')) return;
+      try {
+        await apiPost(`/api/admin/jobs/${btn.dataset.cancel}/cancel`, {});
+        pollJobs();
+      } catch (e) { alert(e.message); }
     };
   });
   tbody.querySelectorAll('[data-retry]').forEach(btn => {
@@ -88,8 +124,10 @@ async function pollJobs() {
 const today = new Date().toISOString().slice(0, 10);
 document.getElementById('fetchDate').value = today;
 document.getElementById('exportDate').value = today;
+document.getElementById('fetchDate').addEventListener('change', () => refreshFetchDateHint().catch(console.error));
 
 loadSettings().catch(console.error);
 loadCalendar().catch(console.error);
+refreshFetchDateHint().catch(console.error);
 pollJobs().catch(console.error);
 setInterval(pollJobs, 5000);
