@@ -66,18 +66,15 @@ class SettingsUpdate(BaseModel):
 
 class FetchRequest(BaseModel):
     trade_date: str
-    force: bool = False
 
 
-def _validate_fetch_trade_date(trade_date: str, *, force: bool = False) -> str:
-    """校验补数日期为 A 股交易日；force=True 时跳过。"""
+def _validate_fetch_trade_date(trade_date: str) -> str:
+    """校验补数日期为 A 股交易日。"""
     d = normalize_date(trade_date)
-    if force:
-        return d
     if not is_trading_day(d):
         raise HTTPException(
             status_code=400,
-            detail=f"{d} 不是 A 股交易日（休市），请选择交易日，或勾选「强制补数」",
+            detail=f"{d} 不是 A 股交易日（休市），休市日无数据，请选择交易日",
         )
     return d
 
@@ -181,7 +178,7 @@ def admin_put_settings(body: SettingsUpdate, _: None = Depends(verify_admin)) ->
 def admin_fetch(body: FetchRequest, _: None = Depends(verify_admin)) -> dict[str, str]:
     if is_job_running():
         raise HTTPException(status_code=409, detail="已有任务运行中")
-    trade_date = _validate_fetch_trade_date(body.trade_date, force=body.force)
+    trade_date = _validate_fetch_trade_date(body.trade_date)
     try:
         job_id = enqueue_job(trade_date, trigger_type="manual")
     except RuntimeError as exc:
@@ -220,13 +217,13 @@ def admin_job_log(job_id: str, tail: int = Query(200, ge=1, le=2000), _: None = 
 
 
 @app.post("/api/admin/jobs/{job_id}/retry")
-def admin_retry_job(job_id: str, force: bool = Query(False), _: None = Depends(verify_admin)) -> dict[str, str]:
+def admin_retry_job(job_id: str, _: None = Depends(verify_admin)) -> dict[str, str]:
     job = get_store().get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="任务不存在")
     if is_job_running():
         raise HTTPException(status_code=409, detail="已有任务运行中")
-    trade_date = _validate_fetch_trade_date(job["trade_date"], force=force)
+    trade_date = _validate_fetch_trade_date(job["trade_date"])
     new_id = enqueue_job(trade_date, trigger_type="manual")
     return {"job_id": new_id, "status": "pending", "trade_date": trade_date}
 

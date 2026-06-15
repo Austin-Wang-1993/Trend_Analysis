@@ -23,7 +23,7 @@ async function refreshFetchDateHint() {
   if (!d) { hint.textContent = ''; return; }
   try {
     const r = await apiGet(`/api/admin/trading-day?date=${encodeURIComponent(d)}`);
-    hint.textContent = r.is_trading_day ? '✓ 交易日' : '✗ 休市（不可补数，除非勾选强制）';
+    hint.textContent = r.is_trading_day ? '✓ 交易日' : '✗ 休市（不可补数）';
     hint.className = r.is_trading_day ? 'footnote status-ok' : 'footnote status-fail';
   } catch {
     hint.textContent = '';
@@ -45,9 +45,8 @@ document.getElementById('saveSettings').onclick = async () => {
 document.getElementById('startFetch').onclick = async () => {
   const d = document.getElementById('fetchDate').value;
   if (!d) return alert('请选择日期');
-  const force = document.getElementById('fetchForce').checked;
   try {
-    const r = await apiPost('/api/admin/fetch', { trade_date: d, force });
+    const r = await apiPost('/api/admin/fetch', { trade_date: d });
     alert(`任务已创建: ${r.job_id}`);
     pollJobs();
   } catch (e) {
