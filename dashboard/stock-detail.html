@@ -28,10 +28,10 @@
     <p class="footnote">主买 + 主卖 堆积柱（柱高 = 成交额）；X 轴左新右旧。</p>
     <div id="chart" class="stock-detail-chart"></div>
   </main>
-  <script src="/static/js/format.js?v=20260620"></script>
-  <script src="/static/js/api.js"></script>
-  <script src="/static/js/charts.js"></script>
-  <script src="/static/js/nav.js"></script>
+  <script src="/static/js/format.js?v=20260621"></script>
+  <script src="/static/js/api.js?v=20260621"></script>
+  <script src="/static/js/charts.js?v=20260621"></script>
+  <script src="/static/js/nav.js?v=20260621"></script>
   <script>
     initNav();
     const params = new URLSearchParams(location.search);
@@ -46,6 +46,43 @@
     let chart;
 
     if (params.get('days')) daysEl.value = params.get('days');
+
+    function buildStackedOption(dates, buySeries, sellSeries) {
+      if (typeof stackedBuySellOption === 'function') {
+        return stackedBuySellOption(dates, buySeries, sellSeries);
+      }
+      return {
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: { type: 'shadow' },
+          formatter(params) {
+            const date = params[0]?.axisValue || '';
+            const buy = params.find(p => p.seriesName === '主买')?.value ?? 0;
+            const sell = params.find(p => p.seriesName === '主卖')?.value ?? 0;
+            return [date, `成交额：${formatAmount(buy + sell).text}`, `主买：${formatAmount(buy).text}`, `主卖：${formatAmount(sell).text}`].join('<br/>');
+          },
+        },
+        legend: { data: ['主买', '主卖'], textStyle: { color: '#8b9cb3' }, top: 0 },
+        grid: { left: 8, right: 16, top: 36, bottom: 28, containLabel: true },
+        xAxis: { type: 'category', data: dates.map(shortDate), axisLabel: { color: '#8b9cb3' } },
+        yAxis: {
+          type: 'value',
+          axisLabel: {
+            color: '#8b9cb3',
+            margin: 8,
+            formatter(v) {
+              const f = formatAmount(v);
+              if (f.unit === '元') return String(v);
+              return `${f.value.toFixed(f.value >= 100 ? 0 : 1)}${f.unit}`;
+            },
+          },
+        },
+        series: [
+          { name: '主买', type: 'bar', stack: 'flow', itemStyle: { color: '#ef4444' }, data: buySeries },
+          { name: '主卖', type: 'bar', stack: 'flow', itemStyle: { color: '#22c55e' }, data: sellSeries },
+        ],
+      };
+    }
 
     function stocksUrl(sectorName) {
       const base = `/sector-stocks.html?sector=${encodeURIComponent(sector || '')}&days=${encodeURIComponent(daysEl.value)}&sort=${encodeURIComponent(sort)}`;
@@ -95,7 +132,7 @@
       const buy = series.map(x => x.active_buy || 0);
       const sell = series.map(x => x.active_sell || 0);
       if (chart) disposeChart(chart);
-      chart = renderBar(chartEl, stackedBuySellOption(dates, buy, sell));
+      chart = renderBar(chartEl, buildStackedOption(dates, buy, sell));
     }
 
     daysEl.addEventListener('change', () => load().catch(e => alert(e.message)));
