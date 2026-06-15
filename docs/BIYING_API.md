@@ -273,7 +273,63 @@ python3 scripts/fetch_by_daily.py --level l2 --no-all-turnover
 
 ---
 
-## 8. 套餐与限制
+## 8. 交易日历（间接，无独立 list 接口）
+
+### 8.1 结论
+
+| 探测路径 | 结果 |
+|----------|------|
+| `hslt/jyrl`、`hslt/calendar`、`hsrl/trade-calendar` | ❌ 404 |
+| 文档「交易日历 list」 | **未提供** |
+| **日 K 历史** | ✅ 可间接推导交易日 |
+
+本项目 **不依赖** 必盈独立交易日历 API，而是通过 **日 K 线日期** 同步本地 `trading_calendar` 表。
+
+### 8.2 推荐接口（锚点日 K）
+
+```
+GET https://api.biyingapi.com/hsstock/history/{code}.{market}/d/n/{licence}?st=YYYYMMDD&et=YYYYMMDD
+```
+
+文档章节：[doc_hs — 历史分时交易（日线 d）](https://www.biyingapi.com/doc_hs)
+
+**示例（实测 2026-06-15）**
+
+```
+GET .../hsstock/history/000001.SZ/d/n/{licence}?lt=10
+```
+
+返回每条记录的 `t` 即为 **交易日**（自动跳过周末与法定休市）：
+
+| 字段 | 说明 |
+|------|------|
+| `t` | 交易日期时间 |
+| `sf` | 停牌 1/0 |
+
+**锚点标的建议**：`000001.SZ`（平安银行）或 `510300.SH`（沪深300ETF），选流动性高、长期存续标的。
+
+### 8.3 同步策略（`trading_calendar.py`）
+
+```text
+拉取 st~et 日 K → 提取 t 的日期部分 → UPSERT trading_calendar(is_trading=1)
+区间内自然日 − 交易日 → 可选标记 is_trading=0（或仅存储交易日）
+```
+
+| 触发 | 时机 |
+|------|------|
+| 服务启动 | sync 过去 365 日 + 未来 30 日 |
+| 定时 | 每周日 02:00 |
+| 手动 | 管理页「同步交易日历」 |
+
+### 8.4 用途
+
+- 调度器 `schedule_run_mode=trading_day`：判断今日是否执行
+- 看板「近 5 **交易日**」取日期列表
+- 管理页数据日历：区分交易日 / 休市
+
+---
+
+## 9. 套餐与限制
 
 | 套餐 | ssjy/all 全市场 | ssjy_more 批量 | 备注 |
 |------|-----------------|----------------|------|
@@ -282,7 +338,7 @@ python3 scripts/fetch_by_daily.py --level l2 --no-all-turnover
 
 ---
 
-## 9. 相关脚本
+## 10. 相关脚本
 
 | 脚本 | 说明 |
 |------|------|
@@ -292,7 +348,7 @@ python3 scripts/fetch_by_daily.py --level l2 --no-all-turnover
 
 ---
 
-## 10. 旧方案归档
+## 11. 旧方案归档
 
 | 方案 | 脚本 | 文档 | 状态 |
 |------|------|------|------|
