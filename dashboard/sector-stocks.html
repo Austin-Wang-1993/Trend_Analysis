@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>板块成份股 — Trend Analysis</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=20260619" />
-  <link rel="stylesheet" href="/static/css/sectors-table.css?v=20260619" />
+  <link rel="stylesheet" href="/static/css/style.css?v=20260620" />
+  <link rel="stylesheet" href="/static/css/sectors-table.css?v=20260620" />
 </head>
 <body class="sector-table-page">
   <nav></nav>
@@ -48,7 +48,7 @@
       </div>
     </div>
   </main>
-  <script src="/static/js/format.js"></script>
+  <script src="/static/js/format.js?v=20260620"></script>
   <script src="/static/js/api.js"></script>
   <script src="/static/js/nav.js"></script>
   <script>
@@ -88,8 +88,14 @@
     }
 
     function fmtNet(v) {
-      const n = formatNetValue(v);
-      return `<span class="metric-net ${n.cls}">${n.text}</span>`;
+      if (typeof formatNetValue === 'function') {
+        const n = formatNetValue(v);
+        return `<span class="metric-net ${n.cls}">${n.text}</span>`;
+      }
+      if (v == null || Number.isNaN(v)) return '—';
+      const cls = v > 0 ? 'positive' : v < 0 ? 'negative' : '';
+      const prefix = v > 0 ? '+' : '';
+      return `<span class="metric-net ${cls}">${prefix}${formatAmount(v).text}</span>`;
     }
 
     function stockDetailUrl(code) {
