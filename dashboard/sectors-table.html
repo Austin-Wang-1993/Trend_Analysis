@@ -4,38 +4,42 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>板块表格 — Trend Analysis</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=20260617" />
-  <link rel="stylesheet" href="/static/css/sectors-table.css?v=20260617" />
+  <link rel="stylesheet" href="/static/css/style.css?v=20260618" />
+  <link rel="stylesheet" href="/static/css/sectors-table.css?v=20260618" />
 </head>
-<body>
+<body class="sector-table-page">
   <nav></nav>
-  <main class="main-wide">
-    <h1>申万二级板块 — 每日排行</h1>
-    <div class="toolbar">
-      <label>排序
-        <select id="sort">
-          <option value="turnover_pct_desc">成交占比 ↓</option>
-          <option value="turnover_pct_asc">成交占比 ↑</option>
-          <option value="buy_pct_desc">买入占比 ↓</option>
-          <option value="buy_pct_asc">买入占比 ↑</option>
-          <option value="sell_pct_desc">卖出占比 ↓</option>
-          <option value="sell_pct_asc">卖出占比 ↑</option>
-        </select>
-      </label>
-      <label>天数
-        <select id="days">
-          <option value="5" selected>近 5 日</option>
-          <option value="15">近 15 日</option>
-          <option value="30">近 30 日</option>
-        </select>
-      </label>
+  <main class="main-wide sector-page">
+    <div class="sector-page-fixed">
+      <h1>申万二级板块 — 每日排行</h1>
+      <div class="toolbar">
+        <label>排序
+          <select id="sort">
+            <option value="turnover_pct_desc">成交占比 ↓</option>
+            <option value="turnover_pct_asc">成交占比 ↑</option>
+            <option value="buy_pct_desc">买入占比 ↓</option>
+            <option value="buy_pct_asc">买入占比 ↑</option>
+            <option value="sell_pct_desc">卖出占比 ↓</option>
+            <option value="sell_pct_asc">卖出占比 ↑</option>
+          </select>
+        </label>
+        <label>天数
+          <select id="days">
+            <option value="5" selected>近 5 日</option>
+            <option value="15">近 15 日</option>
+            <option value="30">近 30 日</option>
+          </select>
+        </label>
+      </div>
+      <p class="footnote sector-board-hint">左新右旧；点击卡片高亮同板块各列；点击板块名称查看成份股。</p>
+      <div class="sector-dates-bar" id="stickyDates">
+        <div class="sector-dates-inner" id="stickyDatesInner"></div>
+      </div>
     </div>
-    <p class="footnote sector-board-hint">左新右旧；点击卡片高亮同板块各列；点击板块名称查看成份股。</p>
-    <div class="sector-dates-sticky" id="stickyDates">
-      <div class="sector-dates-inner" id="stickyDatesInner"></div>
-    </div>
-    <div class="sector-board-outer" id="boardOuter">
-      <div id="board" class="sector-board"></div>
+    <div class="sector-cards-viewport" id="cardsViewport">
+      <div class="sector-board-outer" id="boardOuter">
+        <div id="board" class="sector-board"></div>
+      </div>
     </div>
   </main>
   <script src="/static/js/format.js"></script>
@@ -46,6 +50,8 @@
     const sortEl = document.getElementById('sort');
     const daysEl = document.getElementById('days');
     const boardEl = document.getElementById('board');
+    const boardOuter = document.getElementById('boardOuter');
+    const stickyDatesInner = document.getElementById('stickyDatesInner');
     let highlightedCode = null;
 
     function fmtMoney(v) {
@@ -98,20 +104,33 @@
       });
     }
 
+    function renderDateHead(tradeDate) {
+      return `<div class="sector-date-cell" title="${escapeAttr(tradeDate)}">${shortDate(tradeDate)}</div>`;
+    }
+
+    function syncStickyDatesScroll() {
+      stickyDatesInner.style.transform = `translateX(-${boardOuter.scrollLeft}px)`;
+    }
+
+    if (!boardOuter.dataset.scrollBound) {
+      boardOuter.addEventListener('scroll', syncStickyDatesScroll, { passive: true });
+      boardOuter.dataset.scrollBound = '1';
+    }
+
     async function load() {
       boardEl.innerHTML = '<p class="loading">加载中…</p>';
+      stickyDatesInner.innerHTML = '';
       const data = await apiGet(`/api/sectors/table?days=${daysEl.value}&sort=${sortEl.value}`);
       const columns = data.columns || [];
       if (!columns.length) {
         boardEl.innerHTML = '<p class="loading">暂无数据</p>';
         return;
       }
+      stickyDatesInner.innerHTML = columns.map(col => renderDateHead(col.trade_date)).join('');
+      boardOuter.scrollLeft = 0;
+      syncStickyDatesScroll();
       boardEl.innerHTML = columns.map(col => `
         <section class="sector-column">
-          <header class="sector-column-head">
-            <span class="sector-column-date">${shortDate(col.trade_date)}</span>
-            <span class="sector-column-sub">${col.trade_date}</span>
-          </header>
           <div class="sector-column-cards">
             ${(col.sectors || []).map(renderCard).join('')}
           </div>

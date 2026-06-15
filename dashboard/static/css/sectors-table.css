@@ -1,22 +1,48 @@
-/* 板块表格页：每日卡片列（依赖 style.css 变量） */
+/* 板块表格页：固定顶栏 + 卡片区独立滚动 */
 :root {
-  --sector-nav-height: 3rem;
+  --sector-nav-height: 3.1rem;
   --sector-col-width: 240px;
 }
 
-.sector-board-hint {
-  margin-bottom: 0.75rem;
+body.sector-table-page {
+  overflow: hidden;
 }
 
-/* 冻结日期栏：纵向 sticky，横向随下方滚动区同步 translate */
-.sector-dates-sticky {
+body.sector-table-page nav {
   position: sticky;
-  top: var(--sector-nav-height);
-  z-index: 9;
+  top: 0;
+  z-index: 20;
+}
+
+main.sector-page {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - var(--sector-nav-height));
+  max-height: calc(100dvh - var(--sector-nav-height));
+  padding-bottom: 0;
+  overflow: hidden;
+}
+
+.sector-page-fixed {
+  flex: 0 0 auto;
+  background: var(--bg, #0f1419);
+  z-index: 10;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--border, #2d3a4d);
+}
+
+main.sector-page h1 {
+  margin-bottom: 0.65rem;
+}
+
+.sector-board-hint {
+  margin: 0 0 0.55rem;
+}
+
+/* 日期栏（固定区的一部分，横向随卡片区 sync） */
+.sector-dates-bar {
   overflow: hidden;
   background: var(--bg, #0f1419);
-  box-shadow: 0 8px 16px var(--bg, #0f1419);
-  margin-bottom: 0.65rem;
 }
 
 .sector-dates-inner {
@@ -26,7 +52,7 @@
   gap: 0.85rem;
   width: max-content;
   min-width: 100%;
-  padding: 0.45rem 0.25rem 0.55rem;
+  padding: 0.35rem 0.25rem 0.5rem;
   will-change: transform;
 }
 
@@ -36,17 +62,30 @@
   min-width: var(--sector-col-width);
   max-width: var(--sector-col-width);
   text-align: center;
+  font-weight: 700;
+  font-size: 1rem;
+  letter-spacing: 0.02em;
+  line-height: 1.3;
   border-bottom: 2px solid var(--accent, #3b82f6);
-  padding-bottom: 0.45rem;
+  padding-bottom: 0.4rem;
+  color: var(--text, #e7ecf3);
 }
 
-/* 仅横向滚动；卡片区纵向随页面滚动 */
+/* 仅卡片区纵向滚动 */
+.sector-cards-viewport {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
 .sector-board-outer {
   width: 100%;
   overflow-x: auto;
   overflow-y: visible;
   -webkit-overflow-scrolling: touch;
-  padding-bottom: 1.25rem;
+  padding: 0.65rem 0 1.25rem;
 }
 
 .sector-board {
@@ -66,23 +105,6 @@
   width: var(--sector-col-width);
   min-width: var(--sector-col-width);
   max-width: var(--sector-col-width);
-}
-
-.sector-column-date {
-  display: block;
-  font-weight: 700;
-  font-size: 1rem;
-  letter-spacing: 0.02em;
-  line-height: 1.2;
-}
-
-.sector-column-sub {
-  display: block;
-  margin-top: 0.2rem;
-  font-weight: 400;
-  font-size: 0.72rem;
-  color: var(--muted, #8b9cb3);
-  line-height: 1.2;
 }
 
 .sector-column-cards {
