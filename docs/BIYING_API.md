@@ -1,6 +1,6 @@
 # 必盈 API 接入归档
 
-> 版本：v1.1  
+> 版本：v1.2  
 > 更新：2026-06-15  
 > 主脚本：`scripts/fetch_by_daily.py`  
 > 共享模块：`scripts/by_common.py`
@@ -127,9 +127,16 @@ GET https://all.biyingapi.com/hsrl/ssjy/all/{licence}
 
 ```
 GET https://api.biyingapi.com/hsstock/history/transaction/{code}/{licence}?lt=1
+GET https://api.biyingapi.com/hsstock/history/transaction/{code}/{licence}?st=YYYYMMDD&et=YYYYMMDD
 ```
 
 文档章节：[doc_hs — 资金流向数据](https://www.biyingapi.com/doc_hs)
+
+| 参数 | 说明 |
+|------|------|
+| `lt` | 最近 **lt** 条（按 API 返回顺序，通常为降序） |
+| `st` / `et` | 开始/结束日期（`YYYYMMDD`），**区间补数主用** |
+| 互斥 | 日常 `fetch_by_daily` 用 `lt=1`；区间补数用 `st/et` 一次取多日到 `parse_fund_flow_row` |
 
 | 汇总字段 | 来源 |
 |----------|------|
@@ -356,7 +363,9 @@ pandas_market_calendars>=5.4.0
 
 | 脚本 | 说明 |
 |------|------|
-| `scripts/fetch_by_daily.py` | **主入口** |
+| `scripts/fetch_by_daily.py` | **主入口**（定时 / 当日） |
+| `scripts/fetch_by_range.py` | **区间补数**（`transaction` + 日 K 的 `st/et`） |
+| `scripts/fetch_by_date.py` | 指定单日 |
 | `scripts/by_common.py` | 必盈 API 客户端 |
 | `scripts/trading_calendar.py` | **A 股交易日历**（PMC SSE + 必盈校验） |
 

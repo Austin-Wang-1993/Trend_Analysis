@@ -8,8 +8,8 @@ A 股申万 **二级** 行业 **成交额 + 买卖** 分析与 Web 看板。
 
 | 文档 | 说明 |
 |------|------|
-| [**REQUIREMENTS.md**](./REQUIREMENTS.md) | **v3.4** 需求：申万 L2、管理页校验/取消 |
-| [**IMPLEMENTATION_PLAN.md**](./IMPLEMENTATION_PLAN.md) | **v3.4** 方案：迁移脚本、API |
+| [**REQUIREMENTS.md**](./REQUIREMENTS.md) | **v3.5** 需求：区间补数、申万 L2 |
+| [**IMPLEMENTATION_PLAN.md**](./IMPLEMENTATION_PLAN.md) | **v3.5** 方案：`fetch_by_range`、st/et |
 | [BIYING_API.md](./BIYING_API.md) | 必盈 API（L2 默认、覆盖率） |
 
 ---
@@ -40,3 +40,4 @@ python3 scripts/serve_dashboard.py
 |------|------|------|
 | v3.3 | 2026-06-15 | 21:35 定时；PMC 交易日历；Web 看板 + 管理页 |
 | **v3.4** | 2026-06-15 | **申万 L2 默认**；`migrate_sectors_to_l2`；补数 **交易日校验** + **任务取消** |
+| **v3.5** | 2026-06-15 | 管理页 **区间补数**（起止必填、不跳过已有、≤30 交易日） |
