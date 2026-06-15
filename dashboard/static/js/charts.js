@@ -27,15 +27,17 @@ function barChartOption(title, dates, series, color) {
         return `${p.name}<br/>${formatAmount(p.value).text}`;
       },
     },
-    grid: { left: 60, right: 20, top: 40, bottom: 30 },
+    grid: { left: 8, right: 16, top: 40, bottom: 28, containLabel: true },
     xAxis: { type: 'category', data: dates.map(shortDate), axisLabel: { color: '#8b9cb3' } },
     yAxis: {
       type: 'value',
       axisLabel: {
         color: '#8b9cb3',
+        margin: 8,
         formatter(v) {
           const f = formatAmount(v);
-          return f.unit === '元' ? v : `${f.value.toFixed(1)}${f.unit}`;
+          if (f.unit === '元') return String(v);
+          return `${f.value.toFixed(f.value >= 100 ? 0 : 1)}${f.unit}`;
         },
       },
     },

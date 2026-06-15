@@ -1,6 +1,6 @@
 # 需求文档：A 股申万行业成交与买卖分析
 
-> 版本：**v3.4**（申万 **二级** 板块 + 管理页校验/取消）  
+> 版本：**v3.4**（申万 **二级** 板块 + 管理页校验/取消 + sector 一致性）  
 > 状态：Phase 1 ✅ · Phase 2/3/3b ✅（持续迭代）  
 > 必盈接入：[BIYING_API.md](./BIYING_API.md)  
 > 实现方案：[IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md)
@@ -56,8 +56,18 @@
 - 默认采集与看板展示：**申万二级**（`scripts/sector_config.py` → `DEFAULT_SECTOR_LEVEL=l2`）。
 - 全 A 覆盖率：约 **99.81%**（5198/5208）；约 10 只新股/未入库成份无 L2 归属，与 L1 未归类集合相同。
 - 已有 L1 历史库数据：运行 `build_sector_mapping.py --level l2` + `migrate_sectors_to_l2.py` 可**不重打 API** 迁移板块归属并重聚合。
+- **sector / stock 一致**：落库或重聚合后自动 **删除** 当日 `sector_daily` 中无对应 `stock_daily` 成份的僵尸行（如 L1 残留 `sw_ysjs`）；亦可运行 `rebuild_sector_aggregates.py` 一键修复。
 
-### 2.4 当前局限
+### 2.4 数据一致性（sector ↔ stock）
+
+| 规则 | 说明 |
+|------|------|
+| 聚合来源 | `sector_daily` 由 `stock_daily` 按 `sector_code` 汇总 |
+| 下钻条件 | 个股页按 `sector_code` 精确匹配；**两边 code 必须一致** |
+| L1→L2 | L2 无「有色金属」等 L1 code；迁移后须清理 sector 僵尸行 |
+| 修复方式 | 管理页 **成功** 重拉该日；或 `rebuild_sector_aggregates.py` |
+
+### 2.5 当前局限
 
 | 局限 | 影响 |
 |------|------|
@@ -530,6 +540,9 @@
 | 交易日历 | **pandas_market_calendars（SSE）** + 必盈日 K 校验 |
 | 任务状态 | `fetch_jobs` 表 + 日志文件；支持 **cancelled** |
 | 手动补数 | 非交易日 **拒绝**（可 force）；运行中 **可取消** |
+| sector 落库 | 写入后 **删除** 当日不在聚合结果中的 `sector_code`（防 L1 僵尸行） |
+| 导出 CSV | **UTF-8 BOM**，Excel 中文不乱码 |
+| 看板表格 | `.table-wrap` 内 sticky 表头；图表 Y 轴 `containLabel` 防裁切 |
 
 ---
 
