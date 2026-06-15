@@ -16,7 +16,7 @@
 │       └──► history_store.py ──► SQLite data/history.db                   │
 │              ▲                                                            │
 │  scheduler.py（APScheduler，默认 21:35，交易日/自然日可配）                  │
-│  trading_calendar.py（必盈日 K 同步交易日）                                 │
+│  trading_calendar.py（PMC SSE 为主，必盈日 K 校验）                        │
 └──────────────────────────────────────────────────────────────────────────┘
                                      │
                                      ▼
@@ -54,7 +54,7 @@
 |----|------|------|
 | 默认定时 | 05:00 | **21:35** |
 | 执行日 | `schedule_trading_days_only` | **`schedule_run_mode`**：`trading_day` / `calendar_day` |
-| 交易日历 | weekday 简易 | **必盈日 K + `trading_calendar` 表** |
+| 交易日历 | weekday 简易 | **PMC SSE + 可选 SQLite 缓存** |
 
 ---
 
@@ -68,7 +68,7 @@ Trend_Analysis/
 │   ├── backfill_history.py     # --days 5
 │   ├── history_store.py
 │   ├── scheduler.py            # APScheduler，默认 21:35
-│   ├── trading_calendar.py     # 必盈日 K 同步交易日
+│   ├── trading_calendar.py     # PMC SSE + 必盈校验 CLI
 │   └── serve_dashboard.py      # uvicorn + 启动调度器
 ├── api/
 │   ├── server.py
@@ -208,38 +208,42 @@ class HistoryStore:
     def set_settings(self, settings: dict) -> None: ...
 ```
 
-### 3.2 trading_calendar.py（交易日同步）
+### 3.2 trading_calendar.py（PMC 为主）
 
-必盈 **不提供** 独立交易日历 list 接口（`hslt/jyrl`、`hsrl/trade-calendar` 等实测 404）。  
-采用 **日 K 历史间接推导**：仅返回交易日的 K 线日期。
+**主方案**：`pandas_market_calendars.get_calendar("SSE")`（与 `XSHG` 等价，覆盖沪深 A 股休市）。
 
 ```python
-# 锚点标的：000001.SZ（平安银行，流动性高；可配置为 510300 等）
-GET hsstock/history/000001.SZ/d/n/{licence}?st=20250101&et=20261231
-
-# 响应中每条记录的 t 字段 → trade_date 列表 → UPSERT trading_calendar
+from trading_calendar import (
+    is_trading_day,
+    get_recent_trading_days,
+    should_run_scheduled_task,
+    sync_pmc_to_sqlite,
+    compare_with_biying,
+)
 ```
 
 | 函数 | 说明 |
 |------|------|
-| `sync_trading_calendar(licence, st, et)` | 拉日 K，写入 `trading_calendar` |
-| `is_trading_day(date: str) -> bool` | 查本地表；缺失时触发 sync |
-| `get_recent_trading_days(n: int) -> list[str]` | 看板「近 N 日」、调度器共用 |
+| `is_trading_day(date)` | 是否 A 股交易日 |
+| `get_recent_trading_days(n, end=...)` | 看板近 N 日 |
+| `should_run_scheduled_task(run_mode)` | `trading_day` / `calendar_day` |
+| `sync_pmc_to_sqlite(db, st, et)` | 可选写入 `trading_calendar` 表 |
+| `compare_with_biying(licence, st, et)` | 管理页校验 |
+
+**CLI**
+
+```bash
+python3 scripts/trading_calendar.py recent --days 5
+python3 scripts/trading_calendar.py verify --start 2026-06-01 --end 2026-06-15
+python3 scripts/trading_calendar.py sync-db data/history.db --start 2026-01-01 --end 2026-12-31
+```
+
+**必盈日 K**：仅 `verify` / 兜底；日常调度 **不调用** 必盈 API。
 
 **刷新策略**
 
-- `serve_dashboard.py` 启动时 sync 过去 365 日 + 未来 30 日；
-- 每周日凌晨再 sync 一次；
-- 管理页「同步交易日历」按钮手动触发。
-
-**自然日 vs 交易日（调度）**
-
-```python
-def should_run_today(settings) -> bool:
-    if settings["schedule_run_mode"] == "calendar_day":
-        return True
-    return is_trading_day(today_iso())  # trading_day（默认）
-```
+- 无需定时 sync API；PMC 本地计算。
+- 可选 `sync-db` 写入 SQLite 供管理页日历展示；服务启动时 sync 当年范围即可。
 
 ### 3.3 fetch_by_date.py（指定日采集）
 
@@ -338,7 +342,7 @@ python3 scripts/backfill_history.py --days 5 --no-all-turnover
 
 **说明**：ETF 无 `history/transaction`，**5 日 ETF 数据主要靠每日 cron 积累**；A 股买卖可通过 `lt=5` 一次回填。
 
-### 3.9 定时调度（默认 21:35，默认交易日）
+### 3.8 定时调度（默认 21:35，默认交易日）
 
 由 **`scheduler.py` + `app_settings`** 驱动，不再依赖系统 crontab 为唯一入口。
 
@@ -453,13 +457,13 @@ python3 scripts/backfill_history.py --days 5 --no-all-turnover
 
 `next_run_will_execute`：若下次触发日为非交易日且 mode=trading_day，则为 false 并给出 `next_trading_run_at`。
 
-### 4b.2a POST /api/admin/calendar/sync
+### 4b.2a POST /api/admin/calendar/verify
 
-手动同步必盈日 K → `trading_calendar`；返回同步条数。
+对比 PMC 与必盈日 K（调 `compare_with_biying`），返回 diff。
 
-### 4b.2b GET /api/admin/calendar/trading-days
+### 4b.2b POST /api/admin/calendar/sync-db
 
-Query: `st`, `et`；返回区间内交易日列表（读本地表）。
+将 PMC 区间写入 `trading_calendar` 表（调 `sync_pmc_to_sqlite`）。
 
 ### 4b.2 PUT /api/admin/settings
 
@@ -593,7 +597,7 @@ meta.json
 │ 启用 [x]   执行时间 [21:35]   时区 Asia/Shanghai        │
 │ 执行日类型 (•) 交易日  ( ) 自然日          [保存配置]    │
 │ 上次定时：2026-06-13 21:35  成功  trade_date=2026-06-13 │
-│ [同步交易日历]  本地缓存 2025-01-01 ~ 2026-12-31        │
+│ [同步交易日历到 DB]  数据源: pandas_market_calendars SSE │
 └────────────────────────────────────────────────────────┘
 
 ┌─ 手动补数 ─────────────────────────────────────────────┐
@@ -664,7 +668,7 @@ export function formatAmount(yuan) {
 fastapi>=0.110
 uvicorn[standard]>=0.27
 apscheduler>=3.10
-```
+pandas_market_calendars>=5.4.0
 
 ```html
 <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>

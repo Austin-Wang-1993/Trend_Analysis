@@ -423,14 +423,14 @@
 |------|------|
 | `trade_date` | 主键，YYYY-MM-DD |
 | `is_trading` | 1=交易日，0=休市 |
-| `source` | `biying_kline` / `manual` |
+| `source` | `pmc_sse` / `biying_kline` |
 | `updated_at` | 同步时间 |
 
-**交易日判定来源**（见 [BIYING_API.md §交易日历](./BIYING_API.md)）：
+**交易日判定来源**（见 [BIYING_API.md §8](./BIYING_API.md)）：
 
-- 必盈 **无独立「交易日历 list」接口**（`hslt/jyrl` 等路径实测 404）。
-- 通过 **指数/个股日 K** `hsstock/history/{code}.SZ/d/n/{licence}?lt=N` 返回的 `t` 字段提取交易日列表，写入本地 `trading_calendar` 表。
-- 调度器、看板「近 5 日」、管理页数据日历均优先读本地表；每周或每次服务启动时刷新未来 30 日 + 过去 1 年。
+- **主方案**：`pandas_market_calendars` 的 `SSE` 日历（`scripts/trading_calendar.py`），本地毫秒级、无需 API。
+- **校验/兜底**：必盈日 K `hsstock/history/000001.SZ/d/n/...`（`verify` 子命令）。
+- 可选写入 SQLite `trading_calendar` 表（`sync-db`）；调度器、看板「近 5 日」直接调 Python 函数。
 
 ### 5.3 采集策略
 
@@ -514,7 +514,7 @@
 | 图表库 | ECharts 5 |
 | 默认定时 | **21:35** Asia/Shanghai，管理页可改 |
 | 执行日类型 | 默认 **交易日**；可选 **自然日** |
-| 交易日历 | 必盈日 K 间接同步 + 本地 `trading_calendar` |
+| 交易日历 | **pandas_market_calendars（SSE）** + 必盈日 K 校验 |
 | 任务状态 | `fetch_jobs` 表 + 日志文件 |
 
 ---
