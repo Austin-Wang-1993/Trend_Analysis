@@ -208,6 +208,7 @@ set -a && source .env && set +a
 python3 scripts/fetch_by_daily.py --no-all-turnover
 
 # 若 history.db 为旧 L1 数据，迁移为 L2（无需重打 API）
+python3 scripts/build_sector_mapping.py --level l2
 python3 scripts/migrate_sectors_to_l2.py
 
 # 申万一级（仅当需要 L1 时）

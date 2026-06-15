@@ -23,6 +23,7 @@ export BIYING_LICENCE=你的licence
 python3 scripts/fetch_by_daily.py --no-all-turnover
 
 # L1 库 → L2 看板（无需重打 API）
+python3 scripts/build_sector_mapping.py --level l2
 python3 scripts/migrate_sectors_to_l2.py
 
 # 看板

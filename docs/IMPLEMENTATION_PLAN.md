@@ -70,6 +70,7 @@ Trend_Analysis/
 │   ├── fetch_by_daily.py       # 最新可用 trade_date
 │   ├── fetch_by_date.py        # 指定 trade_date（管理页补数）
 │   ├── sector_config.py        # DEFAULT_SECTOR_LEVEL=l2
+│   ├── build_sector_mapping.py # 仅拉 hszg/gg 映射（L2 迁移用）
 │   ├── migrate_sectors_to_l2.py # L1 库 → L2 重聚合（无需重打 API）
 │   ├── history_store.py
 │   ├── scheduler.py            # APScheduler，默认 21:35

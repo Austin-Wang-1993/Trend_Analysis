@@ -26,14 +26,28 @@ DB_PATH = DATA_DIR / "history.db"
 def main() -> int:
     l2_cache = DATA_DIR / "cache" / mapping_cache_name("l2")
     if not l2_cache.exists():
-        print(
-            f"错误: 缺少 {l2_cache}\n"
-            "请先执行: python3 scripts/fetch_by_daily.py --level l2 --turnover-only "
-            "（需已有 sector_tree 缓存，仅拉 L2 映射）\n"
-            "或完整跑: python3 scripts/fetch_by_daily.py --level l2 --no-all-turnover --refresh-mapping",
-            file=sys.stderr,
-        )
-        return 1
+        tree_cache = DATA_DIR / "cache" / "sector_tree.json"
+        if tree_cache.exists():
+            print(f"缺少 {l2_cache.name}，尝试从 sector_tree 缓存自动构建 L2 映射...")
+            import subprocess
+
+            rc = subprocess.run(
+                [sys.executable, str(Path(__file__).resolve().parent / "build_sector_mapping.py"), "--level", "l2"],
+                cwd=str(ROOT),
+            ).returncode
+            if rc != 0 or not l2_cache.exists():
+                print("自动构建失败", file=sys.stderr)
+                return 1
+        else:
+            print(
+                f"错误: 缺少 {l2_cache}\n"
+                "请先执行（约 2–3 分钟，仅拉映射，不拉成交）:\n"
+                "  python3 scripts/build_sector_mapping.py --level l2\n"
+                "若连 sector_tree.json 也没有，加 --refresh-tree\n"
+                "然后: python3 scripts/migrate_sectors_to_l2.py",
+                file=sys.stderr,
+            )
+            return 1
 
     mapping = ensure_stock_codes(pd.DataFrame(json.loads(l2_cache.read_text(encoding="utf-8"))))
     primary = pick_primary_sector(mapping, type2=primary_type2_for_level("l2"))

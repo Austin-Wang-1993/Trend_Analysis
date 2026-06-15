@@ -34,7 +34,8 @@ python3 scripts/fetch_by_daily.py --no-all-turnover
 
 ```bash
 # 若 DB 为旧 L1 数据，先迁移（无需重打 API）
-python3 scripts/migrate_sectors_to_l2.py
+python3 scripts/build_sector_mapping.py --level l2   # 首次约 2–3 分钟
+python3 scripts/migrate_sectors_to_l2.py           # 无 L2 缓存时会自动尝试 build
 
 python3 scripts/serve_dashboard.py
 # http://127.0.0.1:8080
@@ -74,8 +75,8 @@ python3 scripts/serve_dashboard.py
 **已有 L1 数据，如何切 L2？**
 
 ```bash
-# 确保有 L2 映射缓存（首次需拉取 mapping）
-python3 scripts/fetch_by_daily.py --level l2 --refresh-mapping --turnover-only
+# 确保有 L2 映射缓存（首次约 2–3 分钟，仅 hszg/gg，不拉成交）
+python3 scripts/build_sector_mapping.py --level l2
 python3 scripts/migrate_sectors_to_l2.py
 ```
 

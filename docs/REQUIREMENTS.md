@@ -55,7 +55,7 @@
 
 - 默认采集与看板展示：**申万二级**（`scripts/sector_config.py` → `DEFAULT_SECTOR_LEVEL=l2`）。
 - 全 A 覆盖率：约 **99.81%**（5198/5208）；约 10 只新股/未入库成份无 L2 归属，与 L1 未归类集合相同。
-- 已有 L1 历史库数据：运行 `scripts/migrate_sectors_to_l2.py` 可**不重打 API** 迁移板块归属并重聚合。
+- 已有 L1 历史库数据：运行 `build_sector_mapping.py --level l2` + `migrate_sectors_to_l2.py` 可**不重打 API** 迁移板块归属并重聚合。
 
 ### 2.4 当前局限
 
