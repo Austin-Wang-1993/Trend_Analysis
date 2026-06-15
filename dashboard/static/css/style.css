@@ -53,7 +53,20 @@ th, td {
   text-align: right;
 }
 th:first-child, td:first-child { text-align: left; }
-th { background: #243044; position: sticky; top: 48px; }
+th { background: #243044; }
+/* 表格滚动区：sticky 表头仅在此容器内 top:0（勿对 overflow 父级用 top:48px，会压盖首行） */
+.table-wrap {
+  overflow: auto;
+  max-height: calc(100vh - 10rem);
+  -webkit-overflow-scrolling: touch;
+}
+.table-wrap thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #243044;
+  box-shadow: 0 1px 0 var(--border);
+}
 .toolbar {
   display: flex;
   flex-wrap: wrap;

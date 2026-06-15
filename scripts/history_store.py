@@ -656,7 +656,19 @@ class HistoryStore:
         for name, df in tables.items():
             meta[name.replace(".csv", "_rows")] = len(df)
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-            zf.writestr("meta.json", json.dumps(meta, ensure_ascii=False, indent=2))
+            zf.writestr("meta.json", json.dumps(meta, ensure_ascii=False, indent=2).encode("utf-8"))
             for name, df in tables.items():
-                zf.writestr(name, df.to_csv(index=False))
+                zf.writestr(name, self._csv_bytes_for_excel(df))
         return buf.getvalue()
+
+    @staticmethod
+    def _csv_bytes_for_excel(df: pd.DataFrame) -> bytes:
+        """UTF-8 BOM，Excel 双击打开中文不乱码。"""
+        out = df.copy()
+        if "sector_name" in out.columns:
+            out["sector_name"] = (
+                out["sector_name"]
+                .astype(str)
+                .str.replace(r"^A股-申万(?:行业|二级)-", "", regex=True)
+            )
+        return out.to_csv(index=False).encode("utf-8-sig")

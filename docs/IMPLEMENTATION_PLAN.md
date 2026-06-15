@@ -546,7 +546,7 @@ etf_daily.csv
 meta.json
 ```
 
-可选：首次导出后缓存至 `data/exports/{trade_date}.zip`，DB 更新后失效缓存。
+ZIP 内 CSV 使用 **UTF-8 BOM**（`utf-8-sig`），Excel 双击打开中文不乱码。
 
 ---
 
