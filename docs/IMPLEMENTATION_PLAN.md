@@ -1,6 +1,6 @@
-# 实现方案：历史落库 + Web 看板（六页面）
+# 实现方案：历史落库 + Web 看板 + 管理页
 
-> 版本：**v3.1**  
+> 版本：**v3.2**  
 > 前置：[REQUIREMENTS.md](./REQUIREMENTS.md)  
 > 必盈接口：[BIYING_API.md](./BIYING_API.md)
 
@@ -11,23 +11,27 @@
 ```text
 ┌──────────────────────────────────────────────────────────────────────────┐
 │  采集层                                                                    │
-│  fetch_by_daily.py ──► CSV 快照 + history_store.upsert()                 │
-│  backfill_history.py ──► 首次近 5 日回填（可选）                             │
+│  fetch_by_daily.py / fetch_by_date.py                                    │
+│       │                                                                   │
+│       └──► history_store.py ──► SQLite data/history.db                   │
+│              ▲                                                            │
+│  scheduler.py（APScheduler，读 app_settings，默认 05:00）                  │
 └──────────────────────────────────────────────────────────────────────────┘
                                      │
                                      ▼
-                          data/history.db (SQLite)
-                     market / sector / stock / etf_daily
+                          data/history.db
+              market / sector / stock / etf_daily
+              fetch_jobs / app_settings
                                      │
                                      ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
-│  API 层  FastAPI  /api/*                                                 │
+│  API 层  FastAPI  /api/*  +  /api/admin/*                               │
 └──────────────────────────────────────────────────────────────────────────┘
                                      │
                                      ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
-│  展示层  dashboard/*.html + ECharts + format.js                           │
-│  页面1 概览 │ 2 板块表 │ 3 板块图 │ 4 个股 │ 5 ETF表 │ 6 ETF图              │
+│  展示层  dashboard/*.html + ECharts + format.js                             │
+│  页面1–6 看板 │ 页面7 admin.html 管理                                      │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -40,15 +44,17 @@
 | 图表 | ECharts 5（CDN） |
 | 前端 | 多页 MPA + 原生 JS |
 | ETF 大表 | 分页 API + 表格分页 / 虚拟滚动 |
+| 调度 | **APScheduler**（进程内，随 `serve_dashboard.py` 启动） |
+| 任务队列 | 单 worker 线程 + `fetch_jobs` 状态表 |
 
-**相对 v3.0 的变更**
+**版本变更摘要**
 
-| 项 | v3.0 | v3.1 |
+| 项 | v3.1 | v3.2 |
 |----|------|------|
-| 页面 1 买卖图 | 30 日 | **5 日**（与成交一致） |
-| 历史深度 | 5 + 30 日 | **统一 5 日** |
-| ETF 看板 | 不做 | **页面 5、6** |
-| 回填脚本 | `--days 30` | **`--days 5`** |
+| 管理页 | 无 | **页面 7**：定时 / 补数 / 导出 / 日历 |
+| 默认定时 | 文档写 21:35 cron | **05:00**，管理页可配置 |
+| 指定日采集 | 无 | `fetch_by_date.py` |
+| 任务日志 | 无 | `fetch_jobs` + `logs/jobs/` |
 
 ---
 
@@ -57,26 +63,25 @@
 ```text
 Trend_Analysis/
 ├── scripts/
-│   ├── fetch_by_daily.py       # 扩展：写入 history.db（含 etf_daily）
+│   ├── fetch_by_daily.py       # 最新可用 trade_date
+│   ├── fetch_by_date.py        # 指定 trade_date（管理页补数）
 │   ├── backfill_history.py     # --days 5
 │   ├── history_store.py
-│   └── serve_dashboard.py
+│   ├── scheduler.py            # APScheduler，默认 05:00
+│   └── serve_dashboard.py      # uvicorn + 启动调度器
 ├── api/
 │   ├── server.py
 │   ├── queries.py
-│   └── schemas.py
+│   ├── schemas.py
+│   └── admin.py                # 管理 API
 ├── dashboard/
-│   ├── index.html              # 页面 1
-│   ├── sectors-table.html      # 页面 2
-│   ├── sectors-charts.html     # 页面 3
-│   ├── sector-stocks.html      # 页面 4
-│   ├── etf-table.html          # 页面 5
-│   ├── etf-charts.html         # 页面 6
-│   └── static/
-│       ├── css/dashboard.css
-│       └── js/{format,charts,api,nav,table}.js
+│   ├── index.html … etf-charts.html
+│   ├── admin.html              # 页面 7
+│   └── static/js/… admin.js
 ├── data/
-│   └── history.db
+│   ├── history.db
+│   └── exports/                # 按日 ZIP（gitignore）
+├── logs/jobs/                  # 任务日志（gitignore）
 └── docs/
 ```
 
@@ -136,6 +141,30 @@ CREATE INDEX IF NOT EXISTS idx_sector_daily_date ON sector_daily(trade_date);
 CREATE INDEX IF NOT EXISTS idx_stock_daily_sector ON stock_daily(trade_date, sector_code);
 CREATE INDEX IF NOT EXISTS idx_etf_daily_date ON etf_daily(trade_date);
 CREATE INDEX IF NOT EXISTS idx_etf_daily_code ON etf_daily(etf_code, trade_date);
+
+-- 采集任务（管理页状态 / 报错）
+CREATE TABLE IF NOT EXISTS fetch_jobs (
+    job_id         TEXT PRIMARY KEY,
+    trade_date     TEXT NOT NULL,
+    trigger_type   TEXT NOT NULL,          -- scheduled | manual
+    status         TEXT NOT NULL,          -- pending | running | success | failed | cancelled
+    started_at     TEXT,
+    finished_at    TEXT,
+    duration_sec   REAL,
+    progress       TEXT,
+    error_message  TEXT,
+    log_path       TEXT,
+    created_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_fetch_jobs_date ON fetch_jobs(trade_date);
+CREATE INDEX IF NOT EXISTS idx_fetch_jobs_status ON fetch_jobs(status);
+
+-- 应用配置（定时等）
+CREATE TABLE IF NOT EXISTS app_settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+-- 初始 INSERT: schedule_time=05:00, schedule_enabled=true, ...
 ```
 
 ### 3.1 history_store.py 接口
@@ -157,9 +186,80 @@ class HistoryStore:
                       q: str = "") -> dict: ...              # 新增，分页+搜索
     def get_etf_charts(self, days: int = 5, sort: str = "pct_desc",
                        top: int | None = None, q: str = "") -> list[dict]: ...
+
+    def get_data_calendar(self) -> list[dict]: ...           # 各日完整度
+    def export_date_zip(self, trade_date: str) -> Path: ...   # 生成 ZIP
+
+    def create_job(self, trade_date: str, trigger: str) -> str: ...
+    def update_job(self, job_id: str, **fields) -> None: ...
+    def list_jobs(self, limit: int = 50) -> list[dict]: ...
+    def get_job(self, job_id: str) -> dict: ...
+
+    def get_settings(self) -> dict: ...
+    def set_settings(self, settings: dict) -> None: ...
 ```
 
-### 3.2 fetch_by_daily.py 扩展
+### 3.2 fetch_by_date.py（指定日采集）
+
+```bash
+python3 scripts/fetch_by_date.py --date 2026-06-12 --no-all-turnover --job-id <uuid>
+```
+
+| 参数 | 说明 |
+|------|------|
+| `--date` | 目标 `trade_date`（YYYY-MM-DD） |
+| `--job-id` | 关联 `fetch_jobs`，更新 progress / log |
+
+逻辑差异：
+
+```text
+买卖：history/transaction/{code}?st=YYYYMMDD&et=YYYYMMDD
+成交：若 ssjy 仅当日，则尝试必盈日 K 接口（待接）或标记 turnover 缺失
+ETF：fd/real/time 仅当日 → 历史日 ETF 无法通过 API 补数时 skip 并写 job 警告
+聚合 → UPSERT 四表（与 fetch_by_daily 相同结构）
+```
+
+### 3.3 scheduler.py
+
+```python
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+
+def start_scheduler(store: HistoryStore):
+    settings = store.get_settings()
+    if not settings["schedule_enabled"]:
+        return
+    hour, minute = settings["schedule_time"].split(":")
+    scheduler.add_job(
+        run_scheduled_fetch,
+        CronTrigger(hour=int(hour), minute=int(minute), timezone="Asia/Shanghai"),
+        id="daily_fetch",
+        replace_existing=True,
+    )
+```
+
+- `serve_dashboard.py` 启动时 `start_scheduler()`。
+- 管理页修改 `schedule_time` 后调用 `POST /api/admin/schedule` → 持久化 + **热重载** cron。
+- `schedule_trading_days_only=true` 时，触发回调内判断当日是否 A 股交易日（简易：周一–五且非本地 holidays 表；MVP 可先仅 weekday）。
+
+### 3.4 任务执行模型
+
+```text
+POST /api/admin/fetch  ──► 创建 fetch_jobs(pending)
+         │
+         ▼
+BackgroundTasks / 线程池 worker（max_workers=1）
+         │
+         ├─ status=running, log → logs/jobs/{job_id}.log
+         ├─ subprocess 或 import fetch_by_date.main()
+         ├─ 成功 → status=success
+         └─ 异常 → status=failed, error_message=str(exc)
+```
+
+- 前端每 **2s** 轮询 `GET /api/admin/jobs?limit=20` 或 `GET /api/admin/jobs/{id}`。
+- 日志区：`GET /api/admin/jobs/{id}/log?tail=200` 返回末尾 N 行。
+
+### 3.5 fetch_by_daily.py 扩展
 
 采集完成后：
 
@@ -178,7 +278,7 @@ etf_rows = etf_df.assign(
 store.upsert_etfs(etf_rows)
 ```
 
-### 3.3 backfill_history.py（近 5 日）
+### 3.6 backfill_history.py（近 5 日）
 
 ```bash
 python3 scripts/backfill_history.py --days 5 --no-all-turnover
@@ -195,14 +295,26 @@ python3 scripts/backfill_history.py --days 5 --no-all-turnover
 
 **说明**：ETF 无 `history/transaction`，**5 日 ETF 数据主要靠每日 cron 积累**；A 股买卖可通过 `lt=5` 一次回填。
 
-### 3.4 定时任务
+### 3.7 定时调度（默认 05:00）
+
+由 **`scheduler.py` + `app_settings`** 驱动，不再依赖系统 crontab 为唯一入口。
+
+| 键 | 默认值 |
+|----|--------|
+| `schedule_time` | `05:00` |
+| `schedule_timezone` | `Asia/Shanghai` |
+| `schedule_enabled` | `true` |
+| `schedule_trading_days_only` | `true` |
+
+管理页修改时刻 → `PUT /api/admin/settings` → 热重载 APScheduler。
+
+可选：系统 cron 仅负责 **开机自启服务**：
 
 ```cron
-35 21 * * 1-5 cd ~/Trend_Analysis && set -a && source .env && set +a && \
-  .venv/bin/python scripts/fetch_by_daily.py --no-all-turnover >> logs/fetch.log 2>&1
+@reboot cd ~/Trend_Analysis && .venv/bin/python scripts/serve_dashboard.py
 ```
 
-连续 **5 个交易日** 后，六页面数据齐全。
+连续 **5 个交易日** 采集后，看板六页数据齐全。
 
 ---
 
@@ -274,6 +386,102 @@ python3 scripts/backfill_history.py --days 5 --no-all-turnover
 ]
 ```
 
+]
+
+---
+
+## 4b. Phase 3b：管理 API
+
+前缀 `/api/admin`，需 **Admin 鉴权**（Header `X-Admin-Token` 或 Basic Auth）。
+
+### 4b.1 GET /api/admin/settings
+
+返回定时配置 + 下次预计执行时间。
+
+```json
+{
+  "schedule_enabled": true,
+  "schedule_time": "05:00",
+  "schedule_timezone": "Asia/Shanghai",
+  "schedule_trading_days_only": true,
+  "next_run_at": "2026-06-16T05:00:00+08:00"
+}
+```
+
+### 4b.2 PUT /api/admin/settings
+
+更新定时配置；body 同 GET 字段子集；返回 200 并重载 scheduler。
+
+### 4b.3 POST /api/admin/fetch
+
+手动触发指定日采集。
+
+```json
+{ "trade_date": "2026-06-12" }
+```
+
+响应：
+
+```json
+{ "job_id": "uuid", "status": "pending" }
+```
+
+若已有 `running` 任务 → `409 Conflict`。
+
+### 4b.4 GET /api/admin/jobs
+
+Query: `limit`, `status`, `trade_date`。
+
+### 4b.5 GET /api/admin/jobs/{job_id}
+
+含 `error_message`、`progress`、`log_tail`（最后 200 行）。
+
+### 4b.6 GET /api/admin/jobs/{job_id}/log
+
+Query: `tail=500`；返回纯文本或 JSON `{ "lines": [...] }`。
+
+### 4b.7 POST /api/admin/jobs/{job_id}/retry
+
+失败任务重试（新建 job，同 trade_date）。
+
+### 4b.8 GET /api/admin/calendar
+
+数据日历：已落库日期 + 完整度。
+
+```json
+{
+  "dates": [
+    {
+      "trade_date": "2026-06-12",
+      "completeness": "full",
+      "market": true,
+      "sector_count": 31,
+      "stock_count": 5198,
+      "etf_count": 1475,
+      "last_updated": "2026-06-13T05:12:00+08:00"
+    }
+  ]
+}
+```
+
+`completeness`: `full` | `partial` | `missing_etf` | `missing_flow`
+
+### 4b.9 GET /api/admin/export/{trade_date}
+
+响应 `application/zip`，文件名 `trend_analysis_{trade_date}.zip`。
+
+ZIP 内容：
+
+```text
+market_daily.csv
+sector_daily.csv
+stock_daily.csv
+etf_daily.csv
+meta.json
+```
+
+可选：首次导出后缓存至 `data/exports/{trade_date}.zip`，DB 更新后失效缓存。
+
 ---
 
 ## 5. Phase 3：前端设计
@@ -287,6 +495,7 @@ python3 scripts/backfill_history.py --days 5 --no-all-turnover
   <a href="/sectors-charts.html">板块图表</a>
   <a href="/etf-table.html">ETF 表格</a>
   <a href="/etf-charts.html">ETF 图表</a>
+  <a href="/admin.html">管理</a>
 </nav>
 ```
 
@@ -320,6 +529,48 @@ python3 scripts/backfill_history.py --days 5 --no-all-turnover
     └─ 近 5 日成交额 [柱图]
 ▶ 159915 创业板ETF
 ```
+
+▶ 159915 创业板ETF
+```
+
+#### 页面 7 — 管理
+
+```text
+┌─ 定时更新 ─────────────────────────────────────────────┐
+│ 启用 [x]   执行时间 [05:00]   时区 Asia/Shanghai        │
+│ 仅交易日 [x]                          [保存配置]        │
+│ 上次定时：2026-06-13 05:00  成功  trade_date=2026-06-12 │
+└────────────────────────────────────────────────────────┘
+
+┌─ 手动补数 ─────────────────────────────────────────────┐
+│ 交易日期 [2026-06-12 📅]              [开始更新]        │
+└────────────────────────────────────────────────────────┘
+
+┌─ 数据日历 ─────────────────────────────────────────────┐
+│ [日历视图 | 列表视图]                                   │
+│  6月: 10✅ 11✅ 12⚠ 13✅ ...                           │
+│  点击日期 → 下载 | 重新采集                              │
+└────────────────────────────────────────────────────────┘
+
+┌─ 按日下载 ─────────────────────────────────────────────┐
+│ 日期 [2026-06-12 ▼]                   [下载 ZIP]        │
+└────────────────────────────────────────────────────────┘
+
+┌─ 任务记录 ─────────────────────────────────────────────┐
+│ ID       日期        触发   状态    耗时   操作          │
+│ abc…    06-12    手动   失败   12m  [日志][重试]        │
+│ def…    06-13    定时   成功   18m  [日志]              │
+│ ▼ 错误：HTTP 429 …                                     │
+│ ▼ 日志尾部：…                                          │
+└────────────────────────────────────────────────────────┘
+```
+
+**admin.js 要点**
+
+- 保存配置 → `PUT /api/admin/settings`
+- 手动补数 → `POST /api/admin/fetch` → 轮询 jobs
+- 日历 → `GET /api/admin/calendar`；列表按 `trade_date` 降序
+- 下载 → `window.location = /api/admin/export/{date}`
 
 ### 5.3 format.js（万 / 千万 / 亿）
 
@@ -358,6 +609,7 @@ export function formatAmount(yuan) {
 # requirements.txt 追加
 fastapi>=0.110
 uvicorn[standard]>=0.27
+apscheduler>=3.10
 ```
 
 ```html
@@ -395,8 +647,11 @@ python3 scripts/serve_dashboard.py
 | 6 | `format.js` + `charts.js` | 前端基础 |
 | 7 | 页面 1 | 全 A 三图 |
 | 8 | 页面 2、3、4 | 板块链路 |
-| 9 | 页面 5、6 | ETF 表格 + 图（分页/Top N） |
-| 10 | 导航、样式、空态、验收 | 交付 |
+| 9 | 页面 5、6 | ETF 表格 + 图 |
+| 10 | `fetch_jobs` + `scheduler.py` + `fetch_by_date.py` | 任务基础设施 |
+| 11 | 管理 API `/api/admin/*` | 后端 |
+| 12 | 页面 7 `admin.html` | 管理 UI |
+| 13 | 导航、样式、空态、验收 | 交付 |
 
 ---
 
@@ -410,6 +665,10 @@ python3 scripts/serve_dashboard.py
 | 买卖 vs 成交 trade_date 偏移 | 21:35 后采集；DB 分字段存储 |
 | ETF 占 A 股比极小 | 表格占比保留 4 位小数或科学显示；Tooltip 展示精确值 |
 | 板块占比之和 < 100% | 未归类股票；脚注说明 |
+| 05:00 买卖未更新 | 管理页提示改到 21:35 后；calendar 标 ⚠ partial |
+| 长任务浏览器超时 | 异步 job + 轮询，不阻塞 HTTP |
+| 指定日 ETF 无法补 | job 警告 + calendar partial；文档说明 |
+| Admin 误暴露 | 独立 token；/api/admin 中间件校验 |
 
 ---
 
@@ -423,6 +682,10 @@ python3 scripts/serve_dashboard.py
 | ETF charts top=50 | 仅 50 个 Accordion |
 | formatAmount(2.5e8) | `2.50 亿` |
 | 空库 | 全页「暂无数据，请先运行采集」 |
+| PUT schedule_time=06:30 | 下次 next_run_at 更新 |
+| POST fetch 重复 running | 409 |
+| export 无数据日期 | 404 |
+| admin 无 token | 401 |
 
 ---
 

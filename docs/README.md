@@ -8,8 +8,8 @@ A 股申万行业 **成交额 + 买卖** 分析与 Web 看板。
 
 | 文档 | 说明 |
 |------|------|
-| [**REQUIREMENTS.md**](./REQUIREMENTS.md) | **v3.1** 需求：看板 **6 页面**、统一近 5 日、ETF 表格/图表 |
-| [**IMPLEMENTATION_PLAN.md**](./IMPLEMENTATION_PLAN.md) | **v3.1** 方案：SQLite（含 etf_daily）、FastAPI、ECharts |
+| [**REQUIREMENTS.md**](./REQUIREMENTS.md) | **v3.2** 需求：看板 6 页 + **管理页 7**（定时/补数/导出/日历） |
+| [**IMPLEMENTATION_PLAN.md**](./IMPLEMENTATION_PLAN.md) | **v3.2** 方案：SQLite、FastAPI、APScheduler、管理 API |
 | [BIYING_API.md](./BIYING_API.md) | 必盈 API 接入归档 |
 
 ---
@@ -49,4 +49,5 @@ python3 scripts/serve_dashboard.py
 | v2.0 | 2026-06-15 | 必盈 hszg + 成交额 Phase 1 |
 | v2.1 | 2026-06-15 | 必盈 买卖 + ETF 单日 CSV |
 | **v3.0** | 2026-06-15 | 看板四页面 + 30 日买卖（已 supersede） |
-| **v3.1** | 2026-06-15 | **六页面**：统一近 5 日；新增 ETF 表格 + ETF 图表 |
+| **v3.1** | 2026-06-15 | 六页面看板；统一近 5 日；ETF 表格/图表 |
+| **v3.2** | 2026-06-15 | **管理页 7**：默认定时 05:00、指定日补数、ZIP 导出、数据日历 |
