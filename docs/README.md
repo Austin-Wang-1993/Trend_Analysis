@@ -8,8 +8,8 @@ A 股申万行业 **成交额 + 买卖** 分析与 Web 看板。
 
 | 文档 | 说明 |
 |------|------|
-| [**REQUIREMENTS.md**](./REQUIREMENTS.md) | **v3.0** 需求：看板页面 1–4、历史序列、单位规则、验收标准 |
-| [**IMPLEMENTATION_PLAN.md**](./IMPLEMENTATION_PLAN.md) | **v3.0** 方案：SQLite、FastAPI、ECharts、目录与实施顺序 |
+| [**REQUIREMENTS.md**](./REQUIREMENTS.md) | **v3.1** 需求：看板 **6 页面**、统一近 5 日、ETF 表格/图表 |
+| [**IMPLEMENTATION_PLAN.md**](./IMPLEMENTATION_PLAN.md) | **v3.1** 方案：SQLite（含 etf_daily）、FastAPI、ECharts |
 | [BIYING_API.md](./BIYING_API.md) | 必盈 API 接入归档 |
 
 ---
@@ -48,4 +48,5 @@ python3 scripts/serve_dashboard.py
 | v1.1 | — | TickFlow 申万池 |
 | v2.0 | 2026-06-15 | 必盈 hszg + 成交额 Phase 1 |
 | v2.1 | 2026-06-15 | 必盈 买卖 + ETF 单日 CSV |
-| **v3.0** | 2026-06-15 | **看板需求 + 历史落库 + 四页面前端方案** |
+| **v3.0** | 2026-06-15 | 看板四页面 + 30 日买卖（已 supersede） |
+| **v3.1** | 2026-06-15 | **六页面**：统一近 5 日；新增 ETF 表格 + ETF 图表 |

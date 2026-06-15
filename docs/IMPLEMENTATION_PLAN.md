@@ -1,6 +1,6 @@
-# 实现方案：历史落库 + Web 看板
+# 实现方案：历史落库 + Web 看板（六页面）
 
-> 版本：**v3.0**  
+> 版本：**v3.1**  
 > 前置：[REQUIREMENTS.md](./REQUIREMENTS.md)  
 > 必盈接口：[BIYING_API.md](./BIYING_API.md)
 
@@ -9,95 +9,82 @@
 ## 1. 总体架构
 
 ```text
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         数据采集层（已有 + 扩展）                          │
-│  fetch_by_daily.py  ──►  CSV 快照（latest）                               │
-│       │                                                                   │
-│       └──► history_store.py ──► SQLite data/history.db                    │
-│              ▲                                                            │
-│  backfill_history.py（一次性 30 日回填）                                    │
-└─────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         服务层（新增）                                    │
-│  api/server.py（FastAPI）                                                 │
-│    GET /api/market?days=5|30                                            │
-│    GET /api/sectors/table?days=5&sort=pct_desc                          │
-│    GET /api/sectors/charts?days=5                                       │
-│    GET /api/sectors/{code}/stocks?days=5                                │
-│    GET /api/meta/trading-days?days=5                                    │
-└─────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         展示层（新增）                                    │
-│  dashboard/                                                               │
-│    index.html          → 页面 1 全 A 概览                                │
-│    sectors-table.html  → 页面 2 板块表格                                  │
-│    sectors-charts.html → 页面 3 板块图表                                  │
-│    sector-stocks.html  → 页面 4 个股图表                                  │
-│    static/js/format.js → 万/千万/亿格式化                                 │
-│    static/js/charts.js → ECharts 封装                                    │
-│    static/js/api.js    → 请求 API                                        │
-└─────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│  采集层                                                                    │
+│  fetch_by_daily.py ──► CSV 快照 + history_store.upsert()                 │
+│  backfill_history.py ──► 首次近 5 日回填（可选）                             │
+└──────────────────────────────────────────────────────────────────────────┘
+                                     │
+                                     ▼
+                          data/history.db (SQLite)
+                     market / sector / stock / etf_daily
+                                     │
+                                     ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│  API 层  FastAPI  /api/*                                                 │
+└──────────────────────────────────────────────────────────────────────────┘
+                                     │
+                                     ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│  展示层  dashboard/*.html + ECharts + format.js                           │
+│  页面1 概览 │ 2 板块表 │ 3 板块图 │ 4 个股 │ 5 ETF表 │ 6 ETF图              │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
 **技术选型**
 
-| 层 | 选型 | 理由 |
+| 层 | 选型 |
+|----|------|
+| 存储 | SQLite `data/history.db` |
+| API | FastAPI + uvicorn |
+| 图表 | ECharts 5（CDN） |
+| 前端 | 多页 MPA + 原生 JS |
+| ETF 大表 | 分页 API + 表格分页 / 虚拟滚动 |
+
+**相对 v3.0 的变更**
+
+| 项 | v3.0 | v3.1 |
 |----|------|------|
-| 历史存储 | **SQLite** | 单机部署简单，SQL 聚合方便，无额外服务 |
-| API | **FastAPI** | 轻量、自动 OpenAPI、与 Python 采集同栈 |
-| 图表 | **Apache ECharts 5** | 柱状图成熟、Tooltip 自定义友好 |
-| 前端 | **原生 JS + 多页 MPA** | 无构建链，腾讯云上一键部署；后续可迁 Vue |
-| 静态服务 | FastAPI `StaticFiles` | 单进程同时提供 API + 页面 |
+| 页面 1 买卖图 | 30 日 | **5 日**（与成交一致） |
+| 历史深度 | 5 + 30 日 | **统一 5 日** |
+| ETF 看板 | 不做 | **页面 5、6** |
+| 回填脚本 | `--days 30` | **`--days 5`** |
 
 ---
 
-## 2. 目录结构（规划）
+## 2. 目录结构
 
 ```text
 Trend_Analysis/
 ├── scripts/
-│   ├── fetch_by_daily.py      # 扩展：采集后写入 history.db
-│   ├── backfill_history.py    # 新增：30 日历史回填
-│   ├── history_store.py       # 新增：SQLite CRUD / UPSERT
-│   └── serve_dashboard.py     # 新增：启动看板（uvicorn）
+│   ├── fetch_by_daily.py       # 扩展：写入 history.db（含 etf_daily）
+│   ├── backfill_history.py     # --days 5
+│   ├── history_store.py
+│   └── serve_dashboard.py
 ├── api/
-│   ├── server.py              # FastAPI 路由
-│   ├── queries.py             # SQL 查询
-│   └── schemas.py             # Pydantic 响应模型
+│   ├── server.py
+│   ├── queries.py
+│   └── schemas.py
 ├── dashboard/
-│   ├── index.html
-│   ├── sectors-table.html
-│   ├── sectors-charts.html
-│   ├── sector-stocks.html
+│   ├── index.html              # 页面 1
+│   ├── sectors-table.html      # 页面 2
+│   ├── sectors-charts.html     # 页面 3
+│   ├── sector-stocks.html      # 页面 4
+│   ├── etf-table.html          # 页面 5
+│   ├── etf-charts.html         # 页面 6
 │   └── static/
 │       ├── css/dashboard.css
-│       └── js/{format,charts,api,nav}.js
+│       └── js/{format,charts,api,nav,table}.js
 ├── data/
-│   ├── history.db             # gitignore
-│   └── …（现有 CSV）
+│   └── history.db
 └── docs/
-    ├── REQUIREMENTS.md        # v3.0
-    └── IMPLEMENTATION_PLAN.md # 本文档
 ```
 
 ---
 
-## 3. Phase 2：历史落库
-
-### 3.1 数据库 Schema
+## 3. Phase 2：SQLite Schema
 
 ```sql
--- 交易日历（可选，用于对齐「近 N 交易日」）
-CREATE TABLE IF NOT EXISTS trading_calendar (
-    trade_date TEXT PRIMARY KEY,
-    is_trading  INTEGER NOT NULL DEFAULT 1
-);
-
--- 全 A 日汇总
 CREATE TABLE IF NOT EXISTS market_daily (
     trade_date    TEXT PRIMARY KEY,
     turnover      REAL NOT NULL,
@@ -108,7 +95,6 @@ CREATE TABLE IF NOT EXISTS market_daily (
     snapshot_time TEXT
 );
 
--- 板块日汇总
 CREATE TABLE IF NOT EXISTS sector_daily (
     trade_date     TEXT NOT NULL,
     sector_code    TEXT NOT NULL,
@@ -122,7 +108,6 @@ CREATE TABLE IF NOT EXISTS sector_daily (
     PRIMARY KEY (trade_date, sector_code)
 );
 
--- 个股日明细
 CREATE TABLE IF NOT EXISTS stock_daily (
     trade_date    TEXT NOT NULL,
     stock_code    TEXT NOT NULL,
@@ -136,225 +121,244 @@ CREATE TABLE IF NOT EXISTS stock_daily (
     PRIMARY KEY (trade_date, stock_code)
 );
 
+-- 新增：ETF 日明细
+CREATE TABLE IF NOT EXISTS etf_daily (
+    trade_date     TEXT NOT NULL,
+    etf_code       TEXT NOT NULL,
+    etf_name       TEXT,
+    exchange       TEXT,
+    turnover       REAL NOT NULL,
+    turnover_pct   REAL,          -- etf.turnover / market.turnover
+    PRIMARY KEY (trade_date, etf_code)
+);
+
 CREATE INDEX IF NOT EXISTS idx_sector_daily_date ON sector_daily(trade_date);
 CREATE INDEX IF NOT EXISTS idx_stock_daily_sector ON stock_daily(trade_date, sector_code);
-CREATE INDEX IF NOT EXISTS idx_stock_daily_code ON stock_daily(stock_code, trade_date);
+CREATE INDEX IF NOT EXISTS idx_etf_daily_date ON etf_daily(trade_date);
+CREATE INDEX IF NOT EXISTS idx_etf_daily_code ON etf_daily(etf_code, trade_date);
 ```
 
-### 3.2 history_store.py 核心接口
+### 3.1 history_store.py 接口
 
 ```python
-def upsert_market_day(row: dict) -> None: ...
-def upsert_sector_day(rows: list[dict]) -> None: ...
-def upsert_stock_day(rows: list[dict]) -> None: ...
+class HistoryStore:
+    def upsert_market(self, row: dict) -> None: ...
+    def upsert_sectors(self, rows: list[dict]) -> None: ...
+    def upsert_stocks(self, rows: list[dict]) -> None: ...
+    def upsert_etfs(self, rows: list[dict]) -> None: ...      # 新增
 
-def get_recent_trading_days(n: int) -> list[str]: ...
-def get_market_series(days: int, fields: list[str]) -> list[dict]: ...
-def get_sector_table(days: int, sort: str) -> dict: ...
-def get_sector_charts(days: int) -> list[dict]: ...
-def get_sector_stocks(sector_code: str, days: int) -> dict: ...
+    def get_trading_days(self, n: int = 5) -> list[str]: ...
+    def get_market_series(self, days: int = 5) -> dict: ...
+    def get_sector_table(self, days: int = 5, sort: str = "pct_desc") -> dict: ...
+    def get_sector_charts(self, days: int = 5) -> list[dict]: ...
+    def get_sector_stocks(self, sector_code: str, days: int = 5) -> dict: ...
+    def get_etf_table(self, days: int = 5, sort: str = "pct_desc",
+                      page: int = 1, page_size: int = 50,
+                      q: str = "") -> dict: ...              # 新增，分页+搜索
+    def get_etf_charts(self, days: int = 5, sort: str = "pct_desc",
+                       top: int | None = None, q: str = "") -> list[dict]: ...
 ```
 
-### 3.3 fetch_by_daily.py 扩展
+### 3.2 fetch_by_daily.py 扩展
 
-采集成功写 CSV 后，追加：
+采集完成后：
 
 ```python
-from history_store import HistoryStore
-
 store = HistoryStore(DATA_DIR / "history.db")
-store.upsert_from_snapshot(
-    market_df=market_df,
-    sector_turnover_df=sector_df,
-    sector_flow_df=sector_ff_df,
-    stock_df=stock_df,
+
+# 已有
+store.upsert_market(market_row)
+store.upsert_sectors(sector_ff_df)   # 含 turnover + 买卖
+store.upsert_stocks(stock_df)
+
+# 新增：ETF
+etf_rows = etf_df.assign(
+    turnover_pct=etf_df["turnover"] / market_row["turnover"]
 )
+store.upsert_etfs(etf_rows)
 ```
 
-- **幂等**：同一 `trade_date` 重复跑覆盖更新。
-- **turnover_pct**：写入时计算 `sector.turnover / market.turnover`。
-
-### 3.4 backfill_history.py（30 日回填）
+### 3.3 backfill_history.py（近 5 日）
 
 ```bash
-# 一次性：拉取每只股票最近 30 条 transaction，写入 stock_daily，再聚合 sector/market
-python3 scripts/backfill_history.py --days 30 --no-all-turnover
+python3 scripts/backfill_history.py --days 5 --no-all-turnover
 ```
-
-流程：
 
 ```text
-hslt/list → 5208 codes
-for each code:
-    GET history/transaction/{code}?lt=30
-    → parse → stock_daily rows（含 active_buy/sell）
-    sleep 0.21s（频率控制）
-
-按 trade_date 聚合 → sector_daily, market_daily
-成交额回填策略：
-  - 优先：若 stock_daily 已有 turnover（来自每日 cron 积累），不覆盖
-  - 否则：backfill 仅写买卖，turnover 留空；或二次调用日 K 接口（若后续接入）
+① 逐股 history/transaction?lt=5  → stock_daily（买卖；成交若当日 cron 已有则保留）
+② 按日聚合 → sector_daily, market_daily
+③ ETF：必盈 fd/real/time 仅当日；5 日 ETF 历史依赖：
+     - 方案 A（推荐）：连续 5 天 cron 自然积累 etf_daily
+     - 方案 B：若必盈后续提供 ETF 日 K，再扩展 backfill
+④ 不足 5 日时 backfill 写已有天数，看板显示提示
 ```
 
-**说明**：30 日 **买卖** 可一次回填；**成交额** 5 日图依赖至少 5 次每日 cron 或额外历史 K 线接口。MVP 可先保证买卖 30 日 + 成交 5 日（5 天 cron 后自然满足）。
+**说明**：ETF 无 `history/transaction`，**5 日 ETF 数据主要靠每日 cron 积累**；A 股买卖可通过 `lt=5` 一次回填。
 
-### 3.5 定时任务
+### 3.4 定时任务
 
 ```cron
-# 交易日 21:35（买卖 21:30 更新后再跑）
 35 21 * * 1-5 cd ~/Trend_Analysis && set -a && source .env && set +a && \
   .venv/bin/python scripts/fetch_by_daily.py --no-all-turnover >> logs/fetch.log 2>&1
 ```
+
+连续 **5 个交易日** 后，六页面数据齐全。
 
 ---
 
 ## 4. Phase 3：API 设计
 
-### 4.1 通用响应
+所有接口默认 `days=5`，金额单位 **元**。
+
+### 4.1 GET /api/meta/trading-days
 
 ```json
-{
-  "meta": {
-    "days_requested": 5,
-    "days_actual": 5,
-    "trade_dates": ["2026-06-09", "2026-06-10", "2026-06-11", "2026-06-12", "2026-06-13"],
-    "unit_hint": "display uses 万/千万/亿; values in yuan"
-  },
-  "data": { ... }
-}
+{ "days_requested": 5, "days_actual": 5, "trade_dates": ["2026-06-09", "..."] }
 ```
 
-所有金额字段 API 返回 **元（number）**，格式化仅在前端。
+### 4.2 GET /api/market?days=5
 
-### 4.2 GET /api/market
-
-| 参数 | 默认 | 说明 |
-|------|------|------|
-| `turnover_days` | 5 | 成交额序列长度 |
-| `flow_days` | 30 | 买卖序列长度 |
-
-响应 `data`：
+页面 1 用。
 
 ```json
 {
   "turnover_series": [{"trade_date": "2026-06-13", "value": 2.03e12}],
-  "active_buy_series": [{"trade_date": "...", "value": ...}],
-  "active_sell_series": [{"trade_date": "...", "value": ...}]
+  "active_buy_series": [...],
+  "active_sell_series": [...]
 }
 ```
 
-### 4.3 GET /api/sectors/table
+### 4.3 GET /api/sectors/table?days=5&sort=pct_desc
 
-| 参数 | 默认 | 说明 |
-|------|------|------|
-| `days` | 5 | |
-| `sort` | `pct_desc` | `pct_asc` \| `pct_desc` \| `amount_desc` \| `name_asc` |
+页面 2 用。`sort`: `pct_desc` | `pct_asc` | `amount_desc` | `name_asc`。
 
-响应：板块列表 + 每板块 `days` 长度的 `{date, turnover, turnover_pct}` 数组。
+### 4.4 GET /api/sectors/charts?days=5&sort=pct_desc
 
-### 4.4 GET /api/sectors/charts
+页面 3 用。返回 31 板块 × 三序列。
 
-返回全部板块的近 N 日三序列（成交额 / 主买 / 主卖），供页面 3 批量渲染（折叠懒加载）。
+### 4.5 GET /api/sectors/{sector_code}/stocks?days=5
 
-### 4.5 GET /api/sectors/{sector_code}/stocks
+页面 4 用。
 
-返回板块元信息 + 成份股列表，每股含近 N 日三序列。
+### 4.6 GET /api/etf/table?days=5&sort=pct_desc&page=1&page_size=50&q=
+
+页面 5 用。**必须分页**。
+
+```json
+{
+  "meta": { "total": 1480, "page": 1, "page_size": 50 },
+  "columns": ["2026-06-09", "2026-06-10", "..."],
+  "rows": [
+    {
+      "etf_code": "510300",
+      "etf_name": "沪深300ETF",
+      "cells": [
+        {"trade_date": "2026-06-13", "turnover": 4.68e9, "turnover_pct": 0.0023}
+      ]
+    }
+  ]
+}
+```
+
+### 4.7 GET /api/etf/charts?days=5&sort=pct_desc&top=50&q=
+
+页面 6 用。默认 `top=50` 仅返回成交额 Top 50（可改 `top=` 或全量）。
+
+```json
+[
+  {
+    "etf_code": "510300",
+    "etf_name": "沪深300ETF",
+    "turnover_series": [{"trade_date": "...", "value": ...}]
+  }
+]
+```
 
 ---
 
 ## 5. Phase 3：前端设计
 
-### 5.1 页面线框
+### 5.1 导航栏（共用 nav.js）
 
-#### 页面 1 `/` — 全 A 概览
-
-```text
-┌──────────────────────────────────────────────────────────────┐
-│  Trend Analysis    [概览] [板块表格] [板块图表]                  │
-├──────────────────────────────────────────────────────────────┤
-│  近 5 日 A 股成交额                                            │
-│  ████████████████████  ECharts 柱状图                         │
-├──────────────────────────────────────────────────────────────┤
-│  近 30 日 A 股主买额                                           │
-│  ████████████████████                                         │
-├──────────────────────────────────────────────────────────────┤
-│  近 30 日 A 股主卖额                                           │
-│  ████████████████████                                         │
-└──────────────────────────────────────────────────────────────┘
+```html
+<nav>
+  <a href="/">概览</a>
+  <a href="/sectors-table.html">板块表格</a>
+  <a href="/sectors-charts.html">板块图表</a>
+  <a href="/etf-table.html">ETF 表格</a>
+  <a href="/etf-charts.html">ETF 图表</a>
+</nav>
 ```
 
-#### 页面 2 `/sectors-table.html`
+### 5.2 页面线框
+
+#### 页面 1 — 全 A 概览
 
 ```text
-排序: [占比↓] [占比↑] [成交额↓] [名称A-Z]
-
-| 板块 | 06-09 额 | 06-09 % | 06-10 额 | 06-10 % | … |
-|------|----------|---------|----------|---------|---|
-| 银行 | 1234 亿  | 12.34%  | …        | …       |   |
+┌────────────────────────────────────────────┐
+│ 近 5 日 A 股成交额    [ECharts 柱图]         │
+│ 近 5 日 A 股买入额    [ECharts 柱图]         │
+│ 近 5 日 A 股卖出额    [ECharts 柱图]         │
+│ 脚注：当前展示 N 个交易日                    │
+└────────────────────────────────────────────┘
 ```
 
-#### 页面 3 `/sectors-charts.html`
+#### 页面 5 — ETF 表格
 
-Accordion + 每卡片右侧 `[查看个股]` 按钮。
+```text
+搜索: [________]  排序: [占比↓▼]   第 1/30 页 [上一页][下一页]
 
-#### 页面 4 `/sector-stocks.html?sector=sw_bank`
+| 代码 | 名称 | 06-09 额 | 06-09 % | … | 06-13 额 | 06-13 % |
+```
 
-面包屑 + KPI 条 + 个股 Accordion。
+#### 页面 6 — ETF 图表
 
-### 5.2 单位格式化（format.js）
+```text
+筛选: [Top 50▼] [Top 100] [全部]   搜索: [________]
+
+▼ 510300 沪深300ETF
+    └─ 近 5 日成交额 [柱图]
+▶ 159915 创业板ETF
+```
+
+### 5.3 format.js（万 / 千万 / 亿）
 
 ```javascript
-/**
- * @param {number} yuan 金额（元）
- * @returns {{ value: number, unit: string, text: string }}
- */
 export function formatAmount(yuan) {
   const abs = Math.abs(yuan);
-  if (abs >= 1e8)  return fmt(yuan / 1e8,  '亿');
-  if (abs >= 1e7)  return fmt(yuan / 1e7,  '千万');
-  if (abs >= 1e4)  return fmt(yuan / 1e4,  '万');
-  return fmt(yuan, '元');
-}
-
-// ECharts axisLabel / tooltip 共用
-export function axisFormatter(value) {
-  return formatAmount(value).text;
+  if (abs >= 1e8) return { value: yuan / 1e8, unit: '亿', text: `${(yuan/1e8).toFixed(2)} 亿` };
+  if (abs >= 1e7) return { value: yuan / 1e7, unit: '千万', text: `${(yuan/1e7).toFixed(2)} 千万` };
+  if (abs >= 1e4) return { value: yuan / 1e4, unit: '万', text: `${(yuan/1e4).toFixed(2)} 万` };
+  return { value: yuan, unit: '元', text: `${yuan.toFixed(0)} 元` };
 }
 ```
 
-规则与 [REQUIREMENTS.md §3.1.1](./REQUIREMENTS.md) 一致。
+### 5.4 懒加载策略
 
-### 5.3 图表配置要点
+| 页面 | 策略 |
+|------|------|
+| 3 板块图 | Accordion 展开时 `echarts.init`；收起 `dispose` |
+| 4 个股图 | 同页面 3；成份股 ~50–200，可接受 |
+| 6 ETF 图 | **默认 Top 50**；选「全部」时分批渲染或滚动进入视口再 init |
 
-| 项 | 配置 |
-|----|------|
-| 类型 | `bar`，单系列 |
-| X 轴 | `trade_dates`，`axisLabel: { rotate: 30 }` |
-| Y 轴 | `axisLabel: { formatter: axisFormatter }` |
-| Tooltip | `formatter` 展示：日期 + 格式化金额 + 原始元（可选） |
-| 懒加载 | Accordion `展开` 事件里 `echarts.init` + `setOption`，避免一次 31×3 实例 |
+### 5.5 页面跳转参数
 
-### 5.4 页面路由与参数
-
-| 页面 | 文件 | URL 参数 |
-|------|------|----------|
-| 1 | `index.html` | — |
-| 2 | `sectors-table.html` | `sort=pct_desc` |
-| 3 | `sectors-charts.html` | `sort=`, `expand=sector_code` |
-| 4 | `sector-stocks.html` | `sector=sector_code`（必填） |
+| 页面 | URL 示例 |
+|------|----------|
+| 3 | `sectors-charts.html?sector=sw1_bank&sort=pct_desc` |
+| 4 | `sector-stocks.html?sector=sw1_bank` |
+| 5 | `etf-table.html?sort=pct_desc&page=2&q=300` |
+| 6 | `etf-charts.html?etf=510300&top=50` |
 
 ---
 
-## 6. 依赖变更
-
-### requirements.txt 新增
+## 6. 依赖
 
 ```text
+# requirements.txt 追加
 fastapi>=0.110
 uvicorn[standard]>=0.27
 ```
-
-前端 ECharts 使用 CDN：
 
 ```html
 <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
@@ -362,65 +366,37 @@ uvicorn[standard]>=0.27
 
 ---
 
-## 7. 启动与部署
-
-### 7.1 本地开发
+## 7. 启动
 
 ```bash
-cd ~/Trend_Analysis
 source .venv/bin/activate
-pip install -r requirements.txt
+set -a && source .env && set +a
 
-# 确保 history.db 有数据（至少跑 5 天 cron 或 backfill）
-python3 scripts/backfill_history.py --days 30 --no-all-turnover
+# 确保 history.db 有近 5 日数据
+python3 scripts/fetch_by_daily.py --no-all-turnover   # 每日
+# 或
+python3 scripts/backfill_history.py --days 5 --no-all-turnover
 
-# 启动看板
 python3 scripts/serve_dashboard.py
-# 默认 http://127.0.0.1:8080
-```
-
-### 7.2 腾讯云生产
-
-```text
-方案 A（推荐）：systemd 守护 uvicorn + Nginx 反代
-  - Nginx :80 → 127.0.0.1:8080
-  - Basic Auth 或 IP 白名单
-
-方案 B：cron 生成静态 JSON + nginx 纯静态
-  - 适合只读、无实时 API 需求
-  - 每交易日 22:00 跑 build_dashboard_json.py
-```
-
-### 7.3 serve_dashboard.py 骨架
-
-```python
-from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
-from api.server import router
-
-app = FastAPI(title="Trend Analysis Dashboard")
-app.include_router(router, prefix="/api")
-app.mount("/", StaticFiles(directory="dashboard", html=True), name="dashboard")
-# uvicorn api.server:app --host 0.0.0.0 --port 8080
+# http://127.0.0.1:8080
 ```
 
 ---
 
 ## 8. 实施顺序
 
-| 步骤 | 任务 | 产出 | 依赖 |
-|------|------|------|------|
-| 1 | `history_store.py` + Schema | SQLite 读写 | — |
-| 2 | `fetch_by_daily.py` 接入 UPSERT | 每日增量 | 1 |
-| 3 | `backfill_history.py` | 30 日买卖 | 1 |
-| 4 | cron 配置 + 跑满 5 个交易日 | 5 日成交序列 | 2 |
-| 5 | FastAPI `/api/*` | JSON API | 1 |
-| 6 | `format.js` + ECharts 封装 | 图表组件 | — |
-| 7 | 页面 1 | 全 A 三图 | 5, 6 |
-| 8 | 页面 2 | 表格 + 排序 | 5, 6 |
-| 9 | 页面 3 | 板块 Accordion | 5, 6 |
-| 10 | 页面 4 | 个股下钻 | 5, 6 |
-| 11 | 样式 / 导航 / 验收 | 可交付看板 | 7–10 |
+| 步 | 任务 | 产出 |
+|----|------|------|
+| 1 | Schema + `history_store.py`（含 etf_daily） | DB 层 |
+| 2 | `fetch_by_daily.py` UPSERT 四表 | 每日增量 |
+| 3 | `backfill_history.py --days 5` | 买卖 5 日回填 |
+| 4 | cron × 5 交易日 | ETF + 成交 5 日齐全 |
+| 5 | API `/api/market` … `/api/etf/*` | 后端 |
+| 6 | `format.js` + `charts.js` | 前端基础 |
+| 7 | 页面 1 | 全 A 三图 |
+| 8 | 页面 2、3、4 | 板块链路 |
+| 9 | 页面 5、6 | ETF 表格 + 图（分页/Top N） |
+| 10 | 导航、样式、空态、验收 | 交付 |
 
 ---
 
@@ -428,12 +404,12 @@ app.mount("/", StaticFiles(directory="dashboard", html=True), name="dashboard")
 
 | 风险 | 对策 |
 |------|------|
-| 历史不足 30 日 | API 返回 `days_actual`；前端显示提示条 |
-| 页面 3 同时渲染 93 个图表卡顿 | Accordion 懒加载；同时最多保留 3–5 个 ECharts 实例 |
-| 买卖与成交 trade_date 不一致 | DB 分字段存储；展示层按各自最新日期对齐，README 说明 |
-| 未归类股票导致占比 < 100% | 表格增加 footnote；可选「其他/未归类」行 |
-| 必盈 API 限频 | backfill 分批次；sleep + 断点续传 |
-| ETF 无买卖 | 本期不做 ETF 页；REQUIREMENTS 已排除 |
+| ETF 无历史接口，5 日靠 cron | 文档说明；backfill 只填 A 股；ETF 满 5 天 cron 后可用 |
+| 页面 5 1480 行卡顿 | 分页 API + 前端分页；禁止一次渲染全表 |
+| 页面 6 1480 图内存爆炸 | 默认 Top 50 + 懒加载 |
+| 买卖 vs 成交 trade_date 偏移 | 21:35 后采集；DB 分字段存储 |
+| ETF 占 A 股比极小 | 表格占比保留 4 位小数或科学显示；Tooltip 展示精确值 |
+| 板块占比之和 < 100% | 未归类股票；脚注说明 |
 
 ---
 
@@ -441,26 +417,19 @@ app.mount("/", StaticFiles(directory="dashboard", html=True), name="dashboard")
 
 | 用例 | 预期 |
 |------|------|
-| `formatAmount(1.23e10)` | `123.00 亿` |
-| `formatAmount(5.6e7)` | `5,600 万` 或 `5600 万`（千分位可选） |
-| market API days=5 | 返回 5 个 trade_date |
-| sector table sort=pct_asc | 占比升序 |
-| sector-stocks 非法 code | 404 + 友好页 |
-| 空数据库 | 各页展示「暂无历史数据，请先运行采集」 |
+| 页面 1 三图 | 均为 5 个柱子 |
+| ETF table page=2 | 返回第 51–100 条 |
+| ETF table q=300 | 过滤代码/名称含 300 |
+| ETF charts top=50 | 仅 50 个 Accordion |
+| formatAmount(2.5e8) | `2.50 亿` |
+| 空库 | 全页「暂无数据，请先运行采集」 |
 
 ---
 
-## 11. 与 Phase 1 脚本关系
+## 11. 与 Phase 1 关系
 
 | 现有 | 变更 |
 |------|------|
-| `fetch_by_daily.py` | 保留 CSV 输出；**追加** history.db UPSERT |
-| `by_common.py` | 不变；backfill 复用 `fetch_fund_flow_single` |
-| CSV latest 文件 | 继续作为 cron 失败时的降级可读快照 |
-| `etf_turnover_latest.csv` | 不看板展示；Phase 4 可选 |
-
----
-
-## 12. 归档脚本
-
-不变，见 v2.0 说明。
+| CSV latest 文件 | 保留，作降级快照 |
+| `etf_turnover_latest.csv` | 继续生成，并写入 `etf_daily` |
+| `by_common.py` | 复用，不破坏现有 CLI |
