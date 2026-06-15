@@ -1,5 +1,5 @@
 async function apiGet(path) {
-  const res = await fetch(path);
+  const res = await fetch(path, { headers: adminHeaders() });
   if (!res.ok) {
     const err = await res.text();
     throw new Error(err || res.statusText);

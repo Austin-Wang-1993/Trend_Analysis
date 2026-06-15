@@ -7,8 +7,23 @@ document.getElementById('saveToken').onclick = () => {
   loadSettings();
 };
 
-async function loadSettings() {
-  const s = await apiGet('/api/admin/settings');
+document.getElementById('saveSettings').onclick = async () => {
+  const time = document.getElementById('schedule_time').value;
+  try {
+    const s = await apiPut('/api/admin/settings', {
+      schedule_enabled: document.getElementById('schedule_enabled').checked,
+      schedule_time: time || '21:35',
+      schedule_run_mode: document.getElementById('schedule_run_mode').value,
+      schedule_timezone: 'Asia/Shanghai',
+    });
+    applySettings(s);
+    alert('配置已保存');
+  } catch (e) {
+    alert(typeof e.message === 'string' ? e.message : '保存失败');
+  }
+};
+
+function applySettings(s) {
   document.getElementById('schedule_enabled').checked = s.schedule_enabled === 'true' || s.schedule_enabled === true;
   const t = (s.schedule_time || '21:35').split(':');
   document.getElementById('schedule_time').value = `${t[0].padStart(2,'0')}:${(t[1]||'0').padStart(2,'0')}`;
@@ -17,7 +32,14 @@ async function loadSettings() {
     `下次: ${s.next_run_at || '—'} | 将执行: ${s.next_run_will_execute !== false ? '是' : '否'}`;
 }
 
-let previewTimer = null;
+async function loadSettings() {
+  try {
+    applySettings(await apiGet('/api/admin/settings'));
+  } catch (e) {
+    document.getElementById('nextRun').textContent = '加载配置失败，请检查管理员令牌';
+    console.error(e);
+  }
+}
 
 async function refreshFetchPreview() {
   const start = document.getElementById('fetchStart').value;
@@ -49,18 +71,6 @@ function scheduleFetchPreview() {
   clearTimeout(previewTimer);
   previewTimer = setTimeout(() => refreshFetchPreview().catch(console.error), 300);
 }
-
-document.getElementById('saveSettings').onclick = async () => {
-  const time = document.getElementById('schedule_time').value;
-  await apiPut('/api/admin/settings', {
-    schedule_enabled: document.getElementById('schedule_enabled').checked,
-    schedule_time: time || '21:35',
-    schedule_run_mode: document.getElementById('schedule_run_mode').value,
-    schedule_timezone: 'Asia/Shanghai',
-  });
-  await loadSettings();
-  alert('配置已保存');
-};
 
 document.getElementById('startFetch').onclick = async () => {
   const start = document.getElementById('fetchStart').value;

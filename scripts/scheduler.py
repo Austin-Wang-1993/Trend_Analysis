@@ -59,7 +59,6 @@ def compute_next_run(settings: dict[str, str]) -> dict:
         "next_run_at": next_at.isoformat(),
         "next_run_will_execute": will_execute,
         "next_trading_run_at": next_trading_at,
-        "schedule_enabled": enabled,
     }
 
 
