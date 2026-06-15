@@ -26,7 +26,6 @@ pip install -r requirements.txt
 export BIYING_LICENCE=你的licence
 
 # 交易日收盘后（数据约 16:20 后更新）
-# 无包年/白金证书时必须加 --no-all-turnover
 python3 scripts/fetch_by_daily.py --no-all-turnover
 
 # 清空后全量重拉
@@ -35,23 +34,20 @@ python3 scripts/fetch_by_daily.py --fresh --no-all-turnover
 ls data/
 ```
 
-### 必盈接口（hslt 路由）
+### 必盈接口
 
 | 步骤 | 接口 | 输出 |
 |------|------|------|
-| 全 A 股列表 | `hslt/list/{licence}` | 对照用 |
-| 申万一级行业清单 | `hslt/primarylist/{licence}` → 筛 `1000SW1*` | `sectors.csv` |
-| 板块成份映射 | `hslt/sectors/{板块名称}/{licence}` | `sector_stock_mapping.csv` |
+| 全 A 股列表 | `hslt/list/{licence}` | 对照 / 未归类检查 |
+| 行业/概念树 | `hszg/list/{licence}` | `sectors.csv` |
+| 板块成份映射 | `hszg/gg/{code}/{licence}` | `sector_stock_mapping.csv` |
 | 个股成交额 | `hsrl/ssjy_more/{licence}?stock_codes=` | `stock_turnover_latest.csv` |
-| 未归类检查 | 全 A − 映射覆盖 | `unmapped_stocks.csv` |
-
-> **注意**：`1000SW1` 行业成份来自中证1000指数池，约覆盖 1000 只股票，非全市场申万归类。全 A 约 5200 只，未归类约 4000+ 属预期现象。
 
 ### 输出文件
 
 | 文件 | 说明 |
 |------|------|
-| `sectors.csv` | 申万一级行业列表（31 个） |
+| `sectors.csv` | 申万行业/概念分类树 |
 | `sector_stock_mapping.csv` | 板块 ↔ 个股映射 |
 | `stock_turnover_latest.csv` | 个股成交额 + 主行业 |
 | `sector_turnover_daily.csv` | 一级行业成交额汇总 |
