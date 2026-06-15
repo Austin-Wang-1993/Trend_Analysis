@@ -48,8 +48,11 @@ from by_common import (
     pick_primary_sector,
 )
 
+from history_store import HistoryStore
+
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
+DB_PATH = DATA_DIR / "history.db"
 
 
 def parse_args() -> argparse.Namespace:
@@ -94,6 +97,11 @@ def parse_args() -> argparse.Namespace:
         "--keep-cache",
         action="store_true",
         help="与 --fresh 联用：仅清 CSV，保留 data/cache/ 行业树与映射缓存",
+    )
+    parser.add_argument(
+        "--no-db",
+        action="store_true",
+        help="跳过写入 SQLite history.db",
     )
     return parser.parse_args()
 
@@ -407,6 +415,23 @@ def main() -> int:
             print(f"全 A 主买-主卖:   {net:,.0f} 元")
         if include_etf and not etf_df.empty:
             print(f"ETF 成交额合计:   {float(etf_df['turnover'].sum()):,.0f} 元 ({len(etf_df)} 只)")
+
+        if not args.no_db:
+            print("\n写入 SQLite history.db ...")
+            store = HistoryStore(DB_PATH)
+            market_row = None
+            if include_fund_flow and not market_df.empty:
+                market_row = market_df.iloc[0].to_dict()
+            store.upsert_snapshot(
+                trade_date=trade_date,
+                stock_df=stock_df,
+                sector_df=sector_df,
+                sector_ff_df=sector_ff_df if include_fund_flow else None,
+                market_row=market_row,
+                etf_df=etf_df if include_etf else None,
+                snapshot_time=snapshot_time.isoformat(),
+            )
+            print(f"     已落库 trade_date={trade_date}")
 
         print(f"\n数据已写入: {DATA_DIR}")
         return 0

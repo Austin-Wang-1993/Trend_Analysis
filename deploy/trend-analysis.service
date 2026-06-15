@@ -1,0 +1,18 @@
+[Unit]
+Description=Trend Analysis Dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/Trend_Analysis
+EnvironmentFile=/home/ubuntu/Trend_Analysis/.env
+Environment=HOST=0.0.0.0
+Environment=PORT=8080
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/ubuntu/Trend_Analysis/.venv/bin/python /home/ubuntu/Trend_Analysis/scripts/serve_dashboard.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

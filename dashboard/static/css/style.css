@@ -1,0 +1,89 @@
+:root {
+  --bg: #0f1419;
+  --card: #1a2332;
+  --border: #2d3a4d;
+  --text: #e7ecf3;
+  --muted: #8b9cb3;
+  --accent: #3b82f6;
+  --green: #22c55e;
+  --red: #ef4444;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  padding: 0.75rem 1.25rem;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+nav a { color: var(--muted); font-size: 0.9rem; }
+nav a.active, nav a:hover { color: var(--text); }
+main { padding: 1.25rem; max-width: 1400px; margin: 0 auto; }
+h1 { font-size: 1.35rem; margin: 0 0 1rem; }
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+.chart { width: 100%; height: 280px; }
+.footnote { color: var(--muted); font-size: 0.85rem; margin-top: 0.5rem; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+th, td {
+  border: 1px solid var(--border);
+  padding: 0.4rem 0.5rem;
+  text-align: right;
+}
+th:first-child, td:first-child { text-align: left; }
+th { background: #243044; position: sticky; top: 48px; }
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+input, select, button {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.35rem 0.6rem;
+}
+button {
+  cursor: pointer;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+button.secondary { background: transparent; }
+.status-ok { color: var(--green); }
+.status-warn { color: #eab308; }
+.status-fail { color: var(--red); }
+.accordion-item { border-bottom: 1px solid var(--border); }
+.accordion-head {
+  padding: 0.6rem 0;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+}
+.accordion-body { display: none; padding-bottom: 0.75rem; }
+.accordion-item.open .accordion-body { display: block; }
+.loading { color: var(--muted); padding: 2rem; text-align: center; }

@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>板块表格 — Trend Analysis</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <nav></nav>
+  <main>
+    <h1>申万一级板块 — 近 5 日成交额</h1>
+    <div class="toolbar">
+      <label>排序
+        <select id="sort">
+          <option value="pct_desc">占比 ↓</option>
+          <option value="pct_asc">占比 ↑</option>
+          <option value="amount_desc">成交额 ↓</option>
+          <option value="name_asc">名称</option>
+        </select>
+      </label>
+    </div>
+    <div class="card" style="overflow-x:auto"><table id="tbl"><thead></thead><tbody></tbody></table></div>
+  </main>
+  <script src="/static/js/format.js"></script>
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/nav.js"></script>
+  <script>
+    initNav();
+    const sortEl = document.getElementById('sort');
+    async function load() {
+      const data = await apiGet(`/api/sectors/table?days=5&sort=${sortEl.value}`);
+      const dates = data.trade_dates || [];
+      const thead = document.querySelector('#tbl thead');
+      const tbody = document.querySelector('#tbl tbody');
+      let hdr = '<tr><th>板块</th>';
+      dates.forEach(d => { hdr += `<th>${shortDate(d)} 额</th><th>${shortDate(d)} %</th>`; });
+      hdr += '</tr>';
+      thead.innerHTML = hdr;
+      tbody.innerHTML = (data.rows || []).map(row => {
+        let tr = `<tr><td><a href="/sector-stocks.html?sector=${encodeURIComponent(row.sector_code)}">${row.sector_name}</a></td>`;
+        (row.cells || []).forEach(c => {
+          tr += `<td>${formatAmount(c.turnover).text}</td><td>${formatPct(c.turnover_pct)}</td>`;
+        });
+        return tr + '</tr>';
+      }).join('');
+    }
+    sortEl.addEventListener('change', () => load().catch(e => alert(e.message)));
+    load().catch(e => { document.querySelector('main').innerHTML = `<p class="loading">${e.message}</p>`; });
+  </script>
+</body>
+</html>

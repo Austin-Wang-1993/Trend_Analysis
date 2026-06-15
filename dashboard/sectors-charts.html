@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>板块图表 — Trend Analysis</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+</head>
+<body>
+  <nav></nav>
+  <main>
+    <h1>申万一级板块 — 近 5 日图表</h1>
+    <p class="footnote">点击展开查看成交额 / 主买 / 主卖</p>
+    <div id="list"></div>
+  </main>
+  <script src="/static/js/format.js"></script>
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/charts.js"></script>
+  <script src="/static/js/nav.js"></script>
+  <script>
+    initNav();
+    const charts = {};
+    (async () => {
+      const items = await apiGet('/api/sectors/charts?days=5');
+      const list = document.getElementById('list');
+      if (!items.length) { list.innerHTML = '<p class="loading">暂无数据</p>'; return; }
+      items.forEach((item, i) => {
+        const dates = item.turnover_series.map(x => x.trade_date);
+        const div = document.createElement('div');
+        div.className = 'card accordion-item';
+        div.innerHTML = `
+          <div class="accordion-head"><span>${item.sector_name}</span><span>▶</span></div>
+          <div class="accordion-body">
+            <div id="c-t-${i}" class="chart"></div>
+            <div id="c-b-${i}" class="chart"></div>
+            <div id="c-s-${i}" class="chart"></div>
+          </div>`;
+        list.appendChild(div);
+        div.querySelector('.accordion-head').addEventListener('click', () => {
+          div.classList.toggle('open');
+          if (div.classList.contains('open') && !charts[i]) {
+            charts[i] = [
+              renderBar(document.getElementById(`c-t-${i}`), barChartOption('成交额', dates, item.turnover_series.map(x => x.value))),
+              renderBar(document.getElementById(`c-b-${i}`), barChartOption('主买', dates, item.active_buy_series.map(x => x.value), '#22c55e')),
+              renderBar(document.getElementById(`c-s-${i}`), barChartOption('主卖', dates, item.active_sell_series.map(x => x.value), '#ef4444')),
+            ];
+          }
+        });
+      });
+    })().catch(e => { document.querySelector('main').innerHTML = `<p class="loading">${e.message}</p>`; });
+  </script>
+</body>
+</html>

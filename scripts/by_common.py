@@ -397,16 +397,64 @@ def parse_fund_flow_row(row: dict[str, Any], stock_code: str) -> dict[str, Any]:
     }
 
 
+def _exchange_suffix(stock_code: str) -> str:
+    code = normalize_code6(stock_code)
+    return "SH" if code.startswith(("5", "6", "9")) else "SZ"
+
+
 def fetch_fund_flow_single(licence: str, stock_code: str, lt: int = 1) -> dict[str, Any] | None:
-    """单股日级资金流向 hsstock/history/transaction。"""
+    """单股日级资金流向 hsstock/history/transaction（lt=1 返回最近一条）。"""
+    rows = fetch_fund_flow_history(licence, stock_code, lt=lt)
+    return rows[0] if rows else None
+
+
+def fetch_fund_flow_history(licence: str, stock_code: str, *, lt: int = 1) -> list[dict[str, Any]]:
+    """单股近 lt 日资金流向，按 trade_date 降序（API 返回顺序）。"""
     code = normalize_code6(stock_code)
     rows = _get(
         f"{API_BASE}/hsstock/history/transaction/{code}/{licence}",
         params={"lt": lt},
     )
     if not isinstance(rows, list) or not rows:
-        return None
-    return parse_fund_flow_row(rows[0], code)
+        return []
+    return [parse_fund_flow_row(row, code) for row in rows if isinstance(row, dict)]
+
+
+def fetch_stock_kline_daily(
+    licence: str,
+    stock_code: str,
+    start: str,
+    end: str,
+) -> list[dict[str, Any]]:
+    """日 K 线成交额 hsstock/history/{code}.SZ/d/n。"""
+    code = normalize_code6(stock_code)
+    suffix = _exchange_suffix(code)
+    st = start.replace("-", "")
+    et = end.replace("-", "")
+    rows = _get(
+        f"{API_BASE}/hsstock/history/{code}.{suffix}/d/n/{licence}",
+        params={"st": st, "et": et},
+    )
+    if not isinstance(rows, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        trade_time = str(row.get("t", ""))
+        trade_date = trade_time[:10] if trade_time else ""
+        if not trade_date:
+            continue
+        out.append(
+            {
+                "stock_code": code,
+                "trade_date": trade_date,
+                "turnover": float(row.get("cje", row.get("a", 0)) or 0),
+                "volume": int(float(row.get("v", 0) or 0)),
+                "close": float(row.get("c", row.get("pc", 0)) or 0),
+            }
+        )
+    return out
 
 
 def fetch_fund_flow_batch(

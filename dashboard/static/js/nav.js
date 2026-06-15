@@ -1,0 +1,19 @@
+function initNav(active) {
+  const path = location.pathname.replace(/\/$/, '') || '/';
+  const links = [
+    ['/', '概览'],
+    ['/sectors-table.html', '板块表格'],
+    ['/sectors-charts.html', '板块图表'],
+    ['/etf-table.html', 'ETF 表格'],
+    ['/etf-charts.html', 'ETF 图表'],
+    ['/admin.html', '管理'],
+  ];
+  const nav = document.querySelector('nav');
+  if (!nav) return;
+  nav.innerHTML = links
+    .map(([href, label]) => {
+      const isActive = path === href || (path.endsWith('index.html') && href === '/');
+      return `<a href="${href}"${isActive ? ' class="active"' : ''}>${label}</a>`;
+    })
+    .join('');
+}

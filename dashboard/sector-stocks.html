@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>板块成份股 — Trend Analysis</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+</head>
+<body>
+  <nav></nav>
+  <main>
+    <h1 id="title">板块成份股</h1>
+    <div id="list"></div>
+  </main>
+  <script src="/static/js/format.js"></script>
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/charts.js"></script>
+  <script src="/static/js/nav.js"></script>
+  <script>
+    initNav();
+    const sector = new URLSearchParams(location.search).get('sector');
+    if (!sector) { document.querySelector('main').innerHTML = '<p class="loading">请从板块表格选择板块</p>'; }
+    else {
+      (async () => {
+        const data = await apiGet(`/api/sectors/${encodeURIComponent(sector)}/stocks?days=5`);
+        document.getElementById('title').textContent = `${data.sector_name} — 成份股（近 5 日）`;
+        const list = document.getElementById('list');
+        const top = (data.stocks || []).slice(0, 30);
+        top.forEach((s, i) => {
+          const dates = s.turnover_series.map(x => x.trade_date);
+          const div = document.createElement('div');
+          div.className = 'card accordion-item';
+          div.innerHTML = `
+            <div class="accordion-head"><span>${s.stock_code} ${s.stock_name || ''}</span><span>▶</span></div>
+            <div class="accordion-body"><div id="sc-${i}" class="chart"></div></div>`;
+          list.appendChild(div);
+          div.querySelector('.accordion-head').addEventListener('click', () => {
+            div.classList.toggle('open');
+            if (div.classList.contains('open') && !div._chart) {
+              div._chart = renderBar(document.getElementById(`sc-${i}`),
+                barChartOption('成交额', dates, s.turnover_series.map(x => x.value)));
+            }
+          });
+        });
+      })().catch(e => { document.querySelector('main').innerHTML = `<p class="loading">${e.message}</p>`; });
+    }
+  </script>
+</body>
+</html>

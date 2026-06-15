@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>管理 — Trend Analysis</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <nav></nav>
+  <main>
+    <h1>数据管理</h1>
+
+    <div class="card">
+      <h2 style="font-size:1rem;margin:0 0 0.75rem">管理员令牌（可选）</h2>
+      <input id="adminToken" placeholder="X-Admin-Token" style="width:280px" />
+      <button id="saveToken">保存</button>
+    </div>
+
+    <div class="card">
+      <h2 style="font-size:1rem;margin:0 0 0.75rem">定时更新</h2>
+      <div class="toolbar">
+        <label><input type="checkbox" id="schedule_enabled" /> 启用</label>
+        <label>时间 <input id="schedule_time" type="time" /></label>
+        <label>执行日
+          <select id="schedule_run_mode">
+            <option value="trading_day">交易日</option>
+            <option value="calendar_day">自然日</option>
+          </select>
+        </label>
+        <button id="saveSettings">保存配置</button>
+      </div>
+      <p class="footnote" id="nextRun"></p>
+    </div>
+
+    <div class="card">
+      <h2 style="font-size:1rem;margin:0 0 0.75rem">手动补数</h2>
+      <div class="toolbar">
+        <input id="fetchDate" type="date" />
+        <button id="startFetch">开始更新</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 style="font-size:1rem;margin:0 0 0.75rem">按日下载</h2>
+      <div class="toolbar">
+        <input id="exportDate" type="date" />
+        <button id="exportZip">下载 ZIP</button>
+        <button id="syncCal" class="secondary">同步交易日历</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 style="font-size:1rem;margin:0 0 0.75rem">数据日历</h2>
+      <div id="calendar" class="footnote"></div>
+    </div>
+
+    <div class="card">
+      <h2 style="font-size:1rem;margin:0 0 0.75rem">任务记录</h2>
+      <table id="jobs"><thead><tr><th>ID</th><th>日期</th><th>触发</th><th>状态</th><th>耗时</th><th>操作</th></tr></thead><tbody></tbody></table>
+      <pre id="logTail" style="font-size:0.75rem;max-height:200px;overflow:auto;margin-top:0.75rem"></pre>
+    </div>
+  </main>
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/nav.js"></script>
+  <script src="/static/js/admin.js"></script>
+</body>
+</html>

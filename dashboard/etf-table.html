@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ETF 表格 — Trend Analysis</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <nav></nav>
+  <main>
+    <h1>ETF — 近 5 日成交额</h1>
+    <div class="toolbar">
+      <input id="q" placeholder="搜索代码/名称" />
+      <select id="sort">
+        <option value="pct_desc">占比 ↓</option>
+        <option value="pct_asc">占比 ↑</option>
+        <option value="name_asc">名称</option>
+      </select>
+      <button id="prev" class="secondary">上一页</button>
+      <span id="pager"></span>
+      <button id="next" class="secondary">下一页</button>
+    </div>
+    <div class="card" style="overflow-x:auto"><table id="tbl"><thead></thead><tbody></tbody></table></div>
+  </main>
+  <script src="/static/js/format.js"></script>
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/nav.js"></script>
+  <script>
+    initNav();
+    let page = 1;
+    const pageSize = 50;
+    async function load() {
+      const q = document.getElementById('q').value;
+      const sort = document.getElementById('sort').value;
+      const data = await apiGet(`/api/etf/table?days=5&sort=${sort}&page=${page}&page_size=${pageSize}&q=${encodeURIComponent(q)}`);
+      const dates = data.trade_dates || [];
+      const meta = data.meta || {};
+      document.getElementById('pager').textContent = `第 ${meta.page}/${Math.ceil((meta.total||1)/pageSize)} 页，共 ${meta.total} 条`;
+      const thead = document.querySelector('#tbl thead');
+      let hdr = '<tr><th>代码</th><th>名称</th>';
+      dates.forEach(d => { hdr += `<th>${shortDate(d)} 额</th><th>${shortDate(d)} %</th>`; });
+      thead.innerHTML = hdr + '</tr>';
+      document.querySelector('#tbl tbody').innerHTML = (data.rows || []).map(row => {
+        let tr = `<tr><td>${row.etf_code}</td><td>${row.etf_name || ''}</td>`;
+        (row.cells || []).forEach(c => {
+          tr += `<td>${formatAmount(c.turnover).text}</td><td>${formatPct(c.turnover_pct)}</td>`;
+        });
+        return tr + '</tr>';
+      }).join('');
+    }
+    document.getElementById('prev').onclick = () => { if (page > 1) { page--; load(); } };
+    document.getElementById('next').onclick = () => { page++; load(); };
+    document.getElementById('sort').onchange = () => { page = 1; load(); };
+    document.getElementById('q').onkeydown = e => { if (e.key === 'Enter') { page = 1; load(); } };
+    load().catch(e => { document.querySelector('main').innerHTML = `<p class="loading">${e.message}</p>`; });
+  </script>
+</body>
+</html>
