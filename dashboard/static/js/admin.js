@@ -118,7 +118,7 @@ async function pollJobs() {
       <td style="text-align:left;font-size:0.7rem">${j.job_id.slice(0,8)}…</td>
       <td>${formatJobDates(j)}</td>
       <td>${j.trigger_type}</td>
-      <td class="${jobStatusClass(j.status)}">${j.status}${j.progress ? ` (${j.progress})` : ''}</td>
+      <td class="${jobStatusClass(j.status)}">${j.status}${j.progress ? ` (${j.progress})` : ''}${j.error_message ? `<br/><span class="footnote status-fail">${j.error_message}</span>` : ''}</td>
       <td>${j.duration_sec ? j.duration_sec.toFixed(0)+'s' : '—'}</td>
       <td>
         <button data-id="${j.job_id}" class="logBtn secondary">日志</button>

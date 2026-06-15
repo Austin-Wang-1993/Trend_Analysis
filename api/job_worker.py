@@ -110,12 +110,16 @@ def run_job(
                 )
                 lf.write(f"[{datetime.now(CST).isoformat()}] exit=0 duration={duration:.1f}s\n")
             elif job.get("status") != "cancelled":
+                err = None
+                if returncode == -15 or returncode == -9:
+                    err = "采集进程被终止（常见于部署时 systemctl restart 或系统杀进程），请重新点击「重试」"
                 store.update_job(
                     job_id,
                     status="failed",
                     finished_at=datetime.now(CST).isoformat(),
                     duration_sec=duration,
                     progress="failed",
+                    error_message=err,
                 )
                 lf.write(f"[{datetime.now(CST).isoformat()}] exit={returncode} duration={duration:.1f}s\n")
         except Exception as exc:
