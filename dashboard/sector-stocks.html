@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>板块成份股 — Trend Analysis</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=20260620" />
-  <link rel="stylesheet" href="/static/css/sectors-table.css?v=20260620" />
+  <link rel="stylesheet" href="/static/css/style.css?v=20260622" />
+  <link rel="stylesheet" href="/static/css/sectors-table.css?v=20260622" />
 </head>
 <body class="sector-table-page">
   <nav></nav>
@@ -17,6 +17,16 @@
       </div>
       <h1 id="title">板块成份股</h1>
       <div class="toolbar">
+        <div class="card-search-toolbar">
+          <label>搜索
+            <input type="search" id="searchInput" class="card-search-input" placeholder="代码或名称" autocomplete="off" />
+          </label>
+          <p class="card-search-count" id="searchCount"></p>
+          <div class="card-search-nav">
+            <button type="button" id="searchPrev">上一个</button>
+            <button type="button" id="searchNext">下一个</button>
+          </div>
+        </div>
         <label>排序
           <select id="sort">
             <option value="turnover_pct_desc">成交占比 ↓</option>
@@ -48,9 +58,10 @@
       </div>
     </div>
   </main>
-  <script src="/static/js/format.js?v=20260621"></script>
-  <script src="/static/js/api.js?v=20260621"></script>
-  <script src="/static/js/nav.js?v=20260621"></script>
+  <script src="/static/js/format.js?v=20260622"></script>
+  <script src="/static/js/api.js?v=20260622"></script>
+  <script src="/static/js/nav.js?v=20260622"></script>
+  <script src="/static/js/card-search.js?v=20260622"></script>
   <script>
     initNav();
     const params = new URLSearchParams(location.search);
@@ -60,9 +71,28 @@
     const boardEl = document.getElementById('board');
     const boardOuter = document.getElementById('boardOuter');
     const stickyDatesInner = document.getElementById('stickyDatesInner');
+    const cardsViewport = document.getElementById('cardsViewport');
     const backTable = document.getElementById('backTable');
     const breadcrumbEl = document.getElementById('breadcrumb');
     let highlightedCode = null;
+
+    function clearCrossHighlight() {
+      highlightedCode = null;
+      boardEl.querySelectorAll('.sector-card.highlighted').forEach(c => c.classList.remove('highlighted'));
+    }
+
+    const cardSearch = createCardSearch({
+      inputEl: document.getElementById('searchInput'),
+      countEl: document.getElementById('searchCount'),
+      prevBtn: document.getElementById('searchPrev'),
+      nextBtn: document.getElementById('searchNext'),
+      boardEl,
+      boardOuter,
+      viewportEl: cardsViewport,
+      syncHorizontalScroll: () => syncStickyDatesScroll(),
+      getMatchText: card => card.dataset.searchText || '',
+      onClearCrossHighlight: clearCrossHighlight,
+    });
 
     if (params.get('sort')) sortEl.value = params.get('sort');
     if (params.get('days')) daysEl.value = params.get('days');
@@ -106,8 +136,9 @@
       const code = stock.stock_code;
       const cls = highlightedCode === code ? 'sector-card highlighted' : 'sector-card';
       const label = escapeHtml(`${code} ${stock.stock_name || ''}`.trim());
+      const searchText = `${code} ${stock.stock_name || ''}`.trim();
       return `
-        <article class="${cls}" data-stock-code="${escapeAttr(code)}" tabindex="0">
+        <article class="${cls}" data-stock-code="${escapeAttr(code)}" data-search-text="${escapeAttr(searchText)}" tabindex="0">
           <div class="sector-card-head">
             <span class="sector-rank">#${stock.rank}</span>
             <a class="sector-name" href="${stockDetailUrl(code)}">${label}</a>
@@ -133,6 +164,7 @@
       boardEl.querySelectorAll('.sector-card').forEach(card => {
         card.onclick = (e) => {
           if (e.target.closest('.sector-name')) return;
+          if (cardSearch.isActive()) return;
           const code = card.dataset.stockCode;
           highlightedCode = highlightedCode === code ? null : code;
           boardEl.querySelectorAll('.sector-card').forEach(c => {
@@ -181,11 +213,12 @@
         </section>
       `).join('');
       bindCardEvents();
-      if (highlightedCode) {
+      if (highlightedCode && !cardSearch.isActive()) {
         boardEl.querySelectorAll('.sector-card').forEach(c => {
           c.classList.toggle('highlighted', c.dataset.stockCode === highlightedCode);
         });
       }
+      cardSearch.onBoardRendered();
     }
 
     sortEl.addEventListener('change', () => load().catch(e => alert(e.message)));

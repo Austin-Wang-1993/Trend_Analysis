@@ -499,6 +499,8 @@ python3 scripts/backfill_history.py --days 5 --no-all-turnover
 
 排序 `sort` 支持：`turnover_pct_desc|asc`、`buy_pct_desc|asc`、`sell_pct_desc|asc`、**`net_desc|asc`**。
 
+页面 2 / 4 卡片搜索：`dashboard/static/js/card-search.js`（纯前端，按日期今→远定位）。
+
 ### 4.5 GET /api/sectors/{sector_code}/stocks?days=5&sort=turnover_pct_desc
 
 页面 4 用。结构与 4.3 对称，对象为成份股；`columns[].stocks[]` 含 `rank`、`stock_code`、`stock_name`、成交/买卖/净值及占比（分母为 **板块内** 当日合计）。

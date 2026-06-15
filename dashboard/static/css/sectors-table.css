@@ -247,3 +247,79 @@ main.sector-page h1 {
   min-height: 420px;
   height: calc(100dvh - 14rem);
 }
+
+/* 卡片搜索 */
+.card-search-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.85rem;
+  margin-bottom: 0.55rem;
+}
+
+.card-search-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.88rem;
+}
+
+.card-search-input {
+  min-width: 9rem;
+  width: 12rem;
+  max-width: 100%;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--border, #2d3a4d);
+  border-radius: 6px;
+  background: var(--card, #1a2332);
+  color: var(--text, #e7ecf3);
+  font-size: 0.88rem;
+}
+
+.card-search-count {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted, #8b9cb3);
+  min-width: 5rem;
+}
+
+.card-search-nav {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.card-search-nav button {
+  padding: 0.3rem 0.65rem;
+  font-size: 0.82rem;
+  border: 1px solid var(--border, #2d3a4d);
+  border-radius: 6px;
+  background: var(--card, #1a2332);
+  color: var(--text, #e7ecf3);
+  cursor: pointer;
+}
+
+.card-search-nav button:hover:not(:disabled) {
+  border-color: var(--accent, #3b82f6);
+}
+
+.card-search-nav button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.search-mark {
+  background: rgba(234, 179, 8, 0.5);
+  color: inherit;
+  padding: 0 0.08em;
+  border-radius: 2px;
+}
+
+.sector-card.search-match {
+  border-color: rgba(234, 179, 8, 0.5);
+}
+
+.sector-card.search-current {
+  border-color: #eab308;
+  box-shadow: 0 0 0 2px rgba(234, 179, 8, 0.45);
+  background: #242818;
+}

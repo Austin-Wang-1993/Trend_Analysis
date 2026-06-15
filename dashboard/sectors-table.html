@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>板块表格 — Trend Analysis</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=20260620" />
-  <link rel="stylesheet" href="/static/css/sectors-table.css?v=20260620" />
+  <link rel="stylesheet" href="/static/css/style.css?v=20260622" />
+  <link rel="stylesheet" href="/static/css/sectors-table.css?v=20260622" />
 </head>
 <body class="sector-table-page">
   <nav></nav>
@@ -13,6 +13,16 @@
     <div class="sector-page-fixed">
       <h1>申万二级板块 — 每日排行</h1>
       <div class="toolbar">
+        <div class="card-search-toolbar">
+          <label>搜索
+            <input type="search" id="searchInput" class="card-search-input" placeholder="板块名称" autocomplete="off" />
+          </label>
+          <p class="card-search-count" id="searchCount"></p>
+          <div class="card-search-nav">
+            <button type="button" id="searchPrev">上一个</button>
+            <button type="button" id="searchNext">下一个</button>
+          </div>
+        </div>
         <label>排序
           <select id="sort">
             <option value="turnover_pct_desc">成交占比 ↓</option>
@@ -44,9 +54,10 @@
       </div>
     </div>
   </main>
-  <script src="/static/js/format.js?v=20260621"></script>
-  <script src="/static/js/api.js?v=20260621"></script>
-  <script src="/static/js/nav.js?v=20260621"></script>
+  <script src="/static/js/format.js?v=20260622"></script>
+  <script src="/static/js/api.js?v=20260622"></script>
+  <script src="/static/js/nav.js?v=20260622"></script>
+  <script src="/static/js/card-search.js?v=20260622"></script>
   <script>
     initNav();
     const sortEl = document.getElementById('sort');
@@ -54,7 +65,26 @@
     const boardEl = document.getElementById('board');
     const boardOuter = document.getElementById('boardOuter');
     const stickyDatesInner = document.getElementById('stickyDatesInner');
+    const cardsViewport = document.getElementById('cardsViewport');
     let highlightedCode = null;
+
+    function clearCrossHighlight() {
+      highlightedCode = null;
+      boardEl.querySelectorAll('.sector-card.highlighted').forEach(c => c.classList.remove('highlighted'));
+    }
+
+    const cardSearch = createCardSearch({
+      inputEl: document.getElementById('searchInput'),
+      countEl: document.getElementById('searchCount'),
+      prevBtn: document.getElementById('searchPrev'),
+      nextBtn: document.getElementById('searchNext'),
+      boardEl,
+      boardOuter,
+      viewportEl: cardsViewport,
+      syncHorizontalScroll: () => syncStickyDatesScroll(),
+      getMatchText: card => card.dataset.searchText || '',
+      onClearCrossHighlight: clearCrossHighlight,
+    });
 
     function fmtMoney(v) {
       if (v == null || Number.isNaN(v)) return '—';
@@ -82,8 +112,9 @@
       const cls = highlightedCode === code ? 'sector-card highlighted' : 'sector-card';
       const name = escapeHtml(formatSectorName(sector.sector_name));
       const stocksUrl = `/sector-stocks.html?sector=${encodeURIComponent(code)}&days=${encodeURIComponent(daysEl.value)}&sort=${encodeURIComponent(sortEl.value)}`;
+      const searchText = formatSectorName(sector.sector_name);
       return `
-        <article class="${cls}" data-sector-code="${escapeAttr(code)}" tabindex="0">
+        <article class="${cls}" data-sector-code="${escapeAttr(code)}" data-search-text="${escapeAttr(searchText)}" tabindex="0">
           <div class="sector-card-head">
             <span class="sector-rank">#${sector.rank}</span>
             <a class="sector-name" href="${stocksUrl}">${name}</a>
@@ -109,6 +140,7 @@
       boardEl.querySelectorAll('.sector-card').forEach(card => {
         card.onclick = (e) => {
           if (e.target.closest('.sector-name')) return;
+          if (cardSearch.isActive()) return;
           const code = card.dataset.sectorCode;
           highlightedCode = highlightedCode === code ? null : code;
           boardEl.querySelectorAll('.sector-card').forEach(c => {
@@ -151,11 +183,12 @@
         </section>
       `).join('');
       bindCardEvents();
-      if (highlightedCode) {
+      if (highlightedCode && !cardSearch.isActive()) {
         boardEl.querySelectorAll('.sector-card').forEach(c => {
           c.classList.toggle('highlighted', c.dataset.sectorCode === highlightedCode);
         });
       }
+      cardSearch.onBoardRendered();
     }
 
     sortEl.addEventListener('change', () => load().catch(e => alert(e.message)));
