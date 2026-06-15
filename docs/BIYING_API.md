@@ -30,6 +30,9 @@
 | ③ | 板块成份股 | `GET /hszg/gg/{code}/{licence}` | `fetch_sector_constituents()` |
 | ④ | 个股成交额（常规） | `GET /hsrl/ssjy_more/{licence}?stock_codes=` | `fetch_turnover_batch()` |
 | ④' | 全市场成交额（包年/白金） | `GET all.biyingapi.com/hsrl/ssjy/all/{licence}` | `fetch_turnover_all()` |
+| ⑤ | 个股买卖/资金流（日级） | `GET /hsstock/history/transaction/{code}/{licence}?lt=` | `fetch_fund_flow_batch()` |
+| ⑥ | ETF 列表 | `GET /fd/list/etf/{licence}` | `fetch_etf_list()` |
+| ⑥' | ETF 成交额 | `GET /fd/real/time/{code}/{licence}` | `fetch_etf_turnover_batch()` |
 
 **域名**
 
@@ -120,6 +123,40 @@ GET https://all.biyingapi.com/hsrl/ssjy/all/{licence}
 
 非包年证书会报错，需加 `--no-all-turnover` 改用 `ssjy_more`。
 
+#### 个股资金流向（日级主买/主卖）
+
+```
+GET https://api.biyingapi.com/hsstock/history/transaction/{code}/{licence}?lt=1
+```
+
+文档章节：[doc_hs — 资金流向数据](https://www.biyingapi.com/doc_hs)
+
+| 汇总字段 | 来源 |
+|----------|------|
+| `active_buy` | `zmbtdcje + zmbddcje + zmbzdcje + zmbxdcje`（主买） |
+| `active_sell` | `zmstdcje + zmsddcje + zmszdcje + zmsxdcje`（主卖） |
+| `net_active` | 主买 − 主卖 |
+| `passive_buy` / `passive_sell` | `bdmb*` / `bdms*` |
+| `large_buy` / `large_sell` | 特大单 + 大单 |
+
+**更新频率**：每日 21:30。**无批量接口**，全 A 约 5208 次/日（体验版约 17 分钟）。
+
+**限制**：仅适用于 A 股个股；ETF 调用返回空数组。
+
+#### ETF 列表与成交额
+
+```
+GET https://api.biyingapi.com/fd/list/etf/{licence}
+GET https://api.biyingapi.com/fd/real/time/{code}/{licence}
+```
+
+| 字段 | 说明 |
+|------|------|
+| `cje` | ETF 成交额 |
+| `v` | 成交量 |
+
+**限制**：必盈暂无 ETF 资金流向/买卖拆分接口；`hsstock/history/transaction` 对 ETF 代码返回 `[]`。
+
 ---
 
 ## 3. 采集流程
@@ -129,7 +166,10 @@ hslt/list          → 全 A 5208 只（对照 / 未归类检查）
 hszg/list          → 筛 type2=0 & isleaf=1 → 31 个申万一级
 hszg/gg × 31       → sector_stock_mapping.csv
 hsrl/ssjy_more     → stock_turnover_latest.csv（cje）
-本地聚合            → sector_turnover_daily.csv
+history/transaction → 主买/主卖 merge 进 stock_turnover_latest.csv
+本地聚合            → sector_turnover_daily.csv + sector_fund_flow_daily.csv
+全 A 汇总           → market_summary_daily.csv
+fd/list/etf        → etf_turnover_latest.csv（仅成交额）
 全 A − 映射         → unmapped_stocks.csv
 ```
 
@@ -141,8 +181,11 @@ hsrl/ssjy_more     → stock_turnover_latest.csv（cje）
 |------|------|
 | `data/sectors.csv` | `hszg/list` 全树或目标层级 |
 | `data/sector_stock_mapping.csv` | `hszg/gg` 汇总 |
-| `data/stock_turnover_latest.csv` | `ssjy_more` + 映射 merge |
+| `data/stock_turnover_latest.csv` | `ssjy_more` + `transaction` + 映射 merge |
 | `data/sector_turnover_daily.csv` | 本地按一级行业 SUM(cje) |
+| `data/sector_fund_flow_daily.csv` | 本地按一级行业 SUM(主买/主卖) |
+| `data/market_summary_daily.csv` | 全 A 成交 + 买卖汇总（单行） |
+| `data/etf_turnover_latest.csv` | ETF 成交额（无买卖拆分） |
 | `data/unmapped_stocks.csv` | 全 A − 映射覆盖 |
 | `data/README.md` | 本次采集元数据 |
 | `data/cache/sector_tree.json` | 行业树缓存 |
@@ -169,8 +212,14 @@ python3 scripts/fetch_by_daily.py --fresh --no-all-turnover
 # 只清 CSV、保留 cache
 python3 scripts/fetch_by_daily.py --fresh --keep-cache --no-all-turnover
 
-# 仅更新成交额（需已有 cache 映射）
+# 仅更新成交额（需已有 cache 映射，跳过资金流与 ETF）
 python3 scripts/fetch_by_daily.py --no-all-turnover --turnover-only
+
+# 跳过资金流（约 5200 次请求 / ~17 分钟）
+python3 scripts/fetch_by_daily.py --no-all-turnover --no-fund-flow
+
+# 跳过 ETF（约 1500 次请求）
+python3 scripts/fetch_by_daily.py --no-all-turnover --no-etf
 
 # 申万二级映射
 python3 scripts/fetch_by_daily.py --level l2 --no-all-turnover

@@ -48,6 +48,10 @@ ls data/
 | 行业/概念树 | `hszg/list/{licence}` | `sectors.csv` |
 | 板块成份映射 | `hszg/gg/{code}/{licence}` | `sector_stock_mapping.csv` |
 | 个股成交额 | `hsrl/ssjy_more/{licence}?stock_codes=` | `stock_turnover_latest.csv` |
+| 个股买卖 | `hsstock/history/transaction/{code}/{licence}` | 合并进 `stock_turnover_latest.csv` |
+| 板块买卖 | 本地聚合 | `sector_fund_flow_daily.csv` |
+| 全 A 汇总 | 本地聚合 | `market_summary_daily.csv` |
+| ETF 成交 | `fd/list/etf` + `fd/real/time` | `etf_turnover_latest.csv` |
 
 ### 输出文件
 
@@ -55,8 +59,11 @@ ls data/
 |------|------|
 | `sectors.csv` | 申万行业/概念分类树 |
 | `sector_stock_mapping.csv` | 板块 ↔ 个股映射 |
-| `stock_turnover_latest.csv` | 个股成交额 + 主行业 |
+| `stock_turnover_latest.csv` | 个股成交额 + 主买/主卖 + 主行业 |
 | `sector_turnover_daily.csv` | 一级行业成交额汇总 |
+| `sector_fund_flow_daily.csv` | 一级行业主买/主卖汇总 |
+| `market_summary_daily.csv` | 全 A 成交 + 买卖汇总 |
+| `etf_turnover_latest.csv` | ETF 成交额（暂无买卖拆分） |
 | `unmapped_stocks.csv` | 全 A 中不在映射里的股票 |
 
 ### 套餐说明

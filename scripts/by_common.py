@@ -1,4 +1,4 @@
-"""必盈 API 共享工具：行业分类树、板块成份、实时成交额。"""
+"""必盈 API 共享工具：行业分类树、板块成份、实时成交额、资金流向、ETF。"""
 
 from __future__ import annotations
 
@@ -37,6 +37,15 @@ def try_normalize_code6(code: str) -> str | None:
         return normalize_code6(code)
     except ValueError:
         return None
+
+
+def ensure_stock_codes(df: pd.DataFrame, column: str = "stock_code") -> pd.DataFrame:
+    """统一代码列为 6 位字符串，避免 merge 时 int/str 冲突。"""
+    if column not in df.columns:
+        return df
+    out = df.copy()
+    out[column] = out[column].map(lambda x: try_normalize_code6(x) or str(x).strip())
+    return out
 
 
 def get_licence() -> str:
@@ -342,3 +351,204 @@ def pick_primary_sector(mapping_df: pd.DataFrame, type2: int = TYPE2_SW_L1) -> p
 
 def infer_snapshot_time() -> datetime:
     return datetime.now(CST)
+
+
+# --- 资金流向（日级主买/主卖）---
+
+FUND_FLOW_BUY_FIELDS = ("zmbtdcje", "zmbddcje", "zmbzdcje", "zmbxdcje")
+FUND_FLOW_SELL_FIELDS = ("zmstdcje", "zmsddcje", "zmszdcje", "zmsxdcje")
+FUND_FLOW_PASSIVE_BUY_FIELDS = ("bdmbtdcje", "bdmbddcje", "bdmbzdcje", "bdmbxdcje")
+FUND_FLOW_PASSIVE_SELL_FIELDS = ("bdmstdcje", "bdmsddcje", "bdmszdcje", "bdmsxdcje")
+FUND_FLOW_LARGE_BUY_FIELDS = ("zmbtdcje", "zmbddcje")
+FUND_FLOW_LARGE_SELL_FIELDS = ("zmstdcje", "zmsddcje")
+
+
+def _sum_fields(row: dict[str, Any], fields: tuple[str, ...]) -> float:
+    total = 0.0
+    for key in fields:
+        total += float(row.get(key, 0) or 0)
+    return total
+
+
+def parse_fund_flow_row(row: dict[str, Any], stock_code: str) -> dict[str, Any]:
+    """将 history/transaction 单条记录解析为买卖汇总字段。"""
+    trade_time = str(row.get("t", ""))
+    trade_date = trade_time[:10] if trade_time else datetime.now(CST).date().isoformat()
+    active_buy = _sum_fields(row, FUND_FLOW_BUY_FIELDS)
+    active_sell = _sum_fields(row, FUND_FLOW_SELL_FIELDS)
+    passive_buy = _sum_fields(row, FUND_FLOW_PASSIVE_BUY_FIELDS)
+    passive_sell = _sum_fields(row, FUND_FLOW_PASSIVE_SELL_FIELDS)
+    large_buy = _sum_fields(row, FUND_FLOW_LARGE_BUY_FIELDS)
+    large_sell = _sum_fields(row, FUND_FLOW_LARGE_SELL_FIELDS)
+    return {
+        "stock_code": stock_code,
+        "trade_date": trade_date,
+        "active_buy": active_buy,
+        "active_sell": active_sell,
+        "net_active": active_buy - active_sell,
+        "passive_buy": passive_buy,
+        "passive_sell": passive_sell,
+        "large_buy": large_buy,
+        "large_sell": large_sell,
+        "net_large": large_buy - large_sell,
+        "dddx": float(row.get("dddx", 0) or 0),
+        "zddy": float(row.get("zddy", 0) or 0),
+        "ddcf": float(row.get("ddcf", 0) or 0),
+    }
+
+
+def fetch_fund_flow_single(licence: str, stock_code: str, lt: int = 1) -> dict[str, Any] | None:
+    """单股日级资金流向 hsstock/history/transaction。"""
+    code = normalize_code6(stock_code)
+    rows = _get(
+        f"{API_BASE}/hsstock/history/transaction/{code}/{licence}",
+        params={"lt": lt},
+    )
+    if not isinstance(rows, list) or not rows:
+        return None
+    return parse_fund_flow_row(rows[0], code)
+
+
+def fetch_fund_flow_batch(
+    licence: str,
+    stock_codes: list[str],
+    *,
+    lt: int = 1,
+    sleep_sec: float = 0.21,
+    progress_every: int = 100,
+) -> pd.DataFrame:
+    """逐股拉取资金流向（无批量接口）。"""
+    codes = [c for c in {try_normalize_code6(x) for x in stock_codes} if c]
+    if not codes:
+        raise RuntimeError("无有效股票代码用于资金流向查询")
+
+    records: list[dict[str, Any]] = []
+    missing = 0
+    total = len(codes)
+    for idx, code in enumerate(codes, start=1):
+        if idx == 1 or idx % progress_every == 0 or idx == total:
+            print(f"     资金流 {idx}/{total}...", flush=True)
+        try:
+            row = fetch_fund_flow_single(licence, code, lt=lt)
+            if row:
+                records.append(row)
+            else:
+                missing += 1
+        except Exception as exc:
+            missing += 1
+            if idx <= 3:
+                print(f"         警告 [{code}]: {exc}")
+        time.sleep(sleep_sec)
+
+    if not records:
+        raise RuntimeError(f"资金流向为空（请求 {total} 只，无数据 {missing} 只）")
+    if missing:
+        print(f"     资金流无数据: {missing}/{total} 只")
+    return pd.DataFrame(records)
+
+
+def aggregate_sector_fund_flow(stock_df: pd.DataFrame) -> pd.DataFrame:
+    """按板块汇总买卖字段（与 aggregate_sector_turnover 同口径）。"""
+    metrics = [
+        "turnover",
+        "active_buy",
+        "active_sell",
+        "net_active",
+        "passive_buy",
+        "passive_sell",
+        "large_buy",
+        "large_sell",
+        "net_large",
+    ]
+    present = [m for m in metrics if m in stock_df.columns]
+    grouped = stock_df.groupby(["sector_code", "sector_name"], dropna=False)
+    out = grouped[present].sum().reset_index()
+    if "stock_code" in stock_df.columns:
+        out["stock_count"] = grouped["stock_code"].count().values
+    out = out[out["sector_code"].astype(str).str.len() > 0]
+    sort_col = "turnover" if "turnover" in out.columns else "net_active"
+    return out.sort_values(sort_col, ascending=False).reset_index(drop=True)
+
+
+def aggregate_market_summary(stock_df: pd.DataFrame) -> dict[str, Any]:
+    """全 A 汇总（单行指标）。"""
+    metrics = [
+        "turnover",
+        "active_buy",
+        "active_sell",
+        "net_active",
+        "passive_buy",
+        "passive_sell",
+        "large_buy",
+        "large_sell",
+        "net_large",
+    ]
+    summary: dict[str, Any] = {"market_type": "a_share", "stock_count": len(stock_df)}
+    if "trade_date" in stock_df.columns and len(stock_df):
+        summary["trade_date"] = str(stock_df["trade_date"].iloc[0])
+    for metric in metrics:
+        if metric in stock_df.columns:
+            summary[metric] = float(stock_df[metric].sum())
+    return summary
+
+
+# --- ETF ---
+
+def fetch_etf_list(licence: str) -> pd.DataFrame:
+    """ETF 列表 fd/list/etf。"""
+    rows = _get(f"{API_BASE}/fd/list/etf/{licence}")
+    if not isinstance(rows, list) or not rows:
+        raise RuntimeError("ETF 列表为空")
+    df = pd.DataFrame(rows)
+    df = df.rename(columns={"dm": "etf_code_raw", "mc": "etf_name", "jys": "exchange"})
+    df["etf_code"] = df["etf_code_raw"].map(normalize_code6)
+    return df.drop_duplicates("etf_code").reset_index(drop=True)
+
+
+def fetch_etf_turnover_batch(
+    licence: str,
+    etf_codes: list[str],
+    *,
+    sleep_sec: float = 0.05,
+    progress_every: int = 50,
+) -> pd.DataFrame:
+    """逐只 ETF 实时成交 fd/real/time（无批量接口、无买卖拆分）。"""
+    codes = [c for c in {try_normalize_code6(x) for x in etf_codes} if c]
+    if not codes:
+        raise RuntimeError("无有效 ETF 代码")
+
+    records: list[dict[str, Any]] = []
+    missing = 0
+    total = len(codes)
+    for idx, code in enumerate(codes, start=1):
+        if idx == 1 or idx % progress_every == 0 or idx == total:
+            print(f"     ETF 成交 {idx}/{total}...")
+        try:
+            row = _get(f"{API_BASE}/fd/real/time/{code}/{licence}")
+            if not isinstance(row, dict) or "cje" not in row:
+                missing += 1
+                continue
+            trade_time = str(row.get("t", ""))
+            records.append(
+                {
+                    "etf_code": code,
+                    "trade_time": trade_time,
+                    "trade_date": trade_time[:10] if trade_time else datetime.now(CST).date().isoformat(),
+                    "turnover": float(row.get("cje", 0) or 0),
+                    "volume": int(float(row.get("v", 0) or 0)),
+                    "close": float(row.get("p", 0) or 0),
+                    "change_pct": float(row.get("pc", 0) or 0),
+                }
+            )
+        except Exception as exc:
+            missing += 1
+            if idx <= 3:
+                print(f"         警告 [ETF {code}]: {exc}")
+        time.sleep(sleep_sec)
+
+    if not records:
+        raise RuntimeError(f"ETF 成交额为空（请求 {total} 只，失败 {missing} 只）")
+    if missing:
+        print(f"     ETF 无行情: {missing}/{total} 只")
+    return pd.DataFrame(records)
+
