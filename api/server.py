@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import os
 import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -47,14 +46,6 @@ def get_store() -> HistoryStore:
     if _store is None:
         _store = HistoryStore(DB_PATH)
     return _store
-
-
-def verify_admin(x_admin_token: str | None = Header(default=None)) -> None:
-    expected = os.environ.get("ADMIN_TOKEN", "").strip()
-    if not expected:
-        return
-    if x_admin_token != expected:
-        raise HTTPException(status_code=401, detail="无效的管理员令牌")
 
 
 class SettingsUpdate(BaseModel):
@@ -210,7 +201,7 @@ def api_etf_charts(
 # --- 管理 API ---
 
 @app.get("/api/admin/settings")
-def admin_get_settings(_: None = Depends(verify_admin)) -> dict[str, Any]:
+def admin_get_settings() -> dict[str, Any]:
     store = get_store()
     settings = store.get_settings()
     meta = compute_next_run(settings)
@@ -218,7 +209,7 @@ def admin_get_settings(_: None = Depends(verify_admin)) -> dict[str, Any]:
 
 
 @app.put("/api/admin/settings")
-def admin_put_settings(body: SettingsUpdate, _: None = Depends(verify_admin)) -> dict[str, Any]:
+def admin_put_settings(body: SettingsUpdate) -> dict[str, Any]:
     store = get_store()
     updates = {k: str(v).lower() if isinstance(v, bool) else v for k, v in body.model_dump(exclude_none=True).items()}
     if "schedule_enabled" in updates:
@@ -229,7 +220,7 @@ def admin_put_settings(body: SettingsUpdate, _: None = Depends(verify_admin)) ->
 
 
 @app.post("/api/admin/fetch")
-def admin_fetch(body: FetchRequest, _: None = Depends(verify_admin)) -> dict[str, Any]:
+def admin_fetch(body: FetchRequest) -> dict[str, Any]:
     if is_job_running():
         raise HTTPException(status_code=409, detail="已有任务运行中")
     start_d, end_d, days = _validate_fetch_range(body.start_date, body.end_date)
@@ -250,13 +241,12 @@ def admin_fetch(body: FetchRequest, _: None = Depends(verify_admin)) -> dict[str
 def admin_fetch_preview(
     start: str = Query(..., description="YYYY-MM-DD"),
     end: str = Query(..., description="YYYY-MM-DD"),
-    _: None = Depends(verify_admin),
 ) -> dict[str, Any]:
     return _preview_fetch_range(start, end)
 
 
 @app.get("/api/admin/trading-day")
-def admin_trading_day(date: str = Query(..., description="YYYY-MM-DD"), _: None = Depends(verify_admin)) -> dict[str, Any]:
+def admin_trading_day(date: str = Query(..., description="YYYY-MM-DD")) -> dict[str, Any]:
     d = normalize_date(date)
     return {"trade_date": d, "is_trading_day": is_trading_day(d)}
 
@@ -265,13 +255,12 @@ def admin_trading_day(date: str = Query(..., description="YYYY-MM-DD"), _: None 
 def admin_list_jobs(
     limit: int = Query(20, ge=1, le=100),
     status: str | None = None,
-    _: None = Depends(verify_admin),
 ) -> list[dict[str, Any]]:
     return get_store().list_jobs(limit=limit, status=status)
 
 
 @app.get("/api/admin/jobs/{job_id}")
-def admin_get_job(job_id: str, _: None = Depends(verify_admin)) -> dict[str, Any]:
+def admin_get_job(job_id: str) -> dict[str, Any]:
     job = get_store().get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="任务不存在")
@@ -281,12 +270,12 @@ def admin_get_job(job_id: str, _: None = Depends(verify_admin)) -> dict[str, Any
 
 
 @app.get("/api/admin/jobs/{job_id}/log")
-def admin_job_log(job_id: str, tail: int = Query(200, ge=1, le=2000), _: None = Depends(verify_admin)) -> dict[str, Any]:
+def admin_job_log(job_id: str, tail: int = Query(200, ge=1, le=2000)) -> dict[str, Any]:
     return {"lines": read_log_tail(job_id, tail=tail)}
 
 
 @app.post("/api/admin/jobs/{job_id}/retry")
-def admin_retry_job(job_id: str, _: None = Depends(verify_admin)) -> dict[str, str]:
+def admin_retry_job(job_id: str) -> dict[str, str]:
     job = get_store().get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="任务不存在")
@@ -300,7 +289,7 @@ def admin_retry_job(job_id: str, _: None = Depends(verify_admin)) -> dict[str, s
 
 
 @app.post("/api/admin/jobs/{job_id}/cancel")
-def admin_cancel_job(job_id: str, _: None = Depends(verify_admin)) -> dict[str, str]:
+def admin_cancel_job(job_id: str) -> dict[str, str]:
     try:
         cancel_job(job_id)
     except RuntimeError as exc:
@@ -309,12 +298,12 @@ def admin_cancel_job(job_id: str, _: None = Depends(verify_admin)) -> dict[str, 
 
 
 @app.get("/api/admin/calendar")
-def admin_calendar(_: None = Depends(verify_admin)) -> dict[str, Any]:
+def admin_calendar() -> dict[str, Any]:
     return {"dates": get_store().get_data_calendar()}
 
 
 @app.get("/api/admin/export/{trade_date}")
-def admin_export(trade_date: str, _: None = Depends(verify_admin)) -> Response:
+def admin_export(trade_date: str) -> Response:
     data = get_store().export_zip(trade_date)
     filename = f"trend_analysis_{trade_date}.zip"
     return Response(
@@ -325,13 +314,13 @@ def admin_export(trade_date: str, _: None = Depends(verify_admin)) -> Response:
 
 
 @app.post("/api/admin/calendar/sync-db")
-def admin_calendar_sync(body: CalendarSyncRequest, _: None = Depends(verify_admin)) -> dict[str, Any]:
+def admin_calendar_sync(body: CalendarSyncRequest) -> dict[str, Any]:
     n = sync_pmc_to_sqlite(DB_PATH, body.start, body.end)
     return {"updated": n}
 
 
 @app.post("/api/admin/calendar/verify")
-def admin_calendar_verify(body: CalendarVerifyRequest, _: None = Depends(verify_admin)) -> dict[str, Any]:
+def admin_calendar_verify(body: CalendarVerifyRequest) -> dict[str, Any]:
     from by_common import get_licence
 
     try:

@@ -507,7 +507,7 @@ python3 scripts/backfill_history.py --days 5 --no-all-turnover
 
 ## 4b. Phase 3b：管理 API
 
-前缀 `/api/admin`，需 **Admin 鉴权**（Header `X-Admin-Token` 或 Basic Auth）。
+前缀 `/api/admin`，当前 **无鉴权**（个人自用）。
 
 ### 4b.1 GET /api/admin/settings
 

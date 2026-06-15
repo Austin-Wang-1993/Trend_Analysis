@@ -1,5 +1,5 @@
 async function apiGet(path) {
-  const res = await fetch(path, { headers: adminHeaders() });
+  const res = await fetch(path);
   if (!res.ok) {
     const err = await res.text();
     throw new Error(err || res.statusText);
@@ -8,15 +8,21 @@ async function apiGet(path) {
 }
 
 async function apiPut(path, body) {
-  const headers = { 'Content-Type': 'application/json', ...adminHeaders() };
-  const res = await fetch(path, { method: 'PUT', headers, body: JSON.stringify(body) });
+  const res = await fetch(path, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
 async function apiPost(path, body) {
-  const headers = { 'Content-Type': 'application/json', ...adminHeaders() };
-  const res = await fetch(path, { method: 'POST', headers, body: JSON.stringify(body) });
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
   if (!res.ok) {
     const text = await res.text();
     try {
@@ -28,14 +34,4 @@ async function apiPost(path, body) {
     }
   }
   return res.json();
-}
-
-function adminHeaders() {
-  const token = localStorage.getItem('adminToken') || '';
-  return token ? { 'X-Admin-Token': token } : {};
-}
-
-function setAdminToken(token) {
-  if (token) localStorage.setItem('adminToken', token);
-  else localStorage.removeItem('adminToken');
 }

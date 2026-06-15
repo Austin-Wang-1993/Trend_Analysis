@@ -1,12 +1,5 @@
 initNav();
 
-document.getElementById('adminToken').value = localStorage.getItem('adminToken') || '';
-document.getElementById('saveToken').onclick = () => {
-  setAdminToken(document.getElementById('adminToken').value.trim());
-  alert('已保存');
-  loadSettings();
-};
-
 document.getElementById('saveSettings').onclick = async () => {
   const time = document.getElementById('schedule_time').value;
   try {
@@ -36,7 +29,7 @@ async function loadSettings() {
   try {
     applySettings(await apiGet('/api/admin/settings'));
   } catch (e) {
-    document.getElementById('nextRun').textContent = '加载配置失败，请检查管理员令牌';
+    document.getElementById('nextRun').textContent = '加载配置失败';
     console.error(e);
   }
 }
