@@ -200,7 +200,7 @@ class HistoryStore:
 
     def get_trading_days(self, n: int = 5) -> list[str]: ...
     def get_market_series(self, days: int = 5) -> dict: ...
-    def get_sector_table(self, days: int = 5, sort: str = "pct_desc") -> dict: ...
+    def get_sector_table(self, days: int = 5, sort: str = "turnover_pct_desc") -> dict: ...
     def get_sector_charts(self, days: int = 5) -> list[dict]: ...
     def get_sector_stocks(self, sector_code: str, days: int = 5) -> dict: ...
     def get_etf_table(self, days: int = 5, sort: str = "pct_desc",
@@ -455,9 +455,45 @@ python3 scripts/backfill_history.py --days 5 --no-all-turnover
 }
 ```
 
-### 4.3 GET /api/sectors/table?days=5&sort=pct_desc
+### 4.3 GET /api/sectors/table?days=5&sort=turnover_pct_desc
 
-页面 2 用。`sort`: `pct_desc` | `pct_asc` | `amount_desc` | `name_asc`。
+页面 2。**days**：1–30，默认 5。**trade_dates** 与 **columns** 均为 **新→旧**。
+
+`sort`（各列独立排序）：
+
+| 值 | 说明 |
+|----|------|
+| `turnover_pct_desc` / `turnover_pct_asc` | 成交占比（默认 desc；兼容 `pct_desc` / `pct_asc`） |
+| `buy_pct_desc` / `buy_pct_asc` | 买入占比 |
+| `sell_pct_desc` / `sell_pct_asc` | 卖出占比 |
+
+```json
+{
+  "days": 5,
+  "sort": "turnover_pct_desc",
+  "trade_dates": ["2026-06-15", "2026-06-12", "..."],
+  "columns": [
+    {
+      "trade_date": "2026-06-15",
+      "sectors": [
+        {
+          "rank": 1,
+          "sector_code": "sw2_...",
+          "sector_name": "电子",
+          "turnover": 857105000000,
+          "turnover_pct": 0.2828,
+          "active_buy": 123,
+          "buy_pct": 0.15,
+          "active_sell": 456,
+          "sell_pct": 0.14
+        }
+      ]
+    }
+  ]
+}
+```
+
+`buy_pct` / `sell_pct` 分母为当日 `market_daily.active_buy` / `active_sell`。
 
 ### 4.4 GET /api/sectors/charts?days=5&sort=pct_desc
 

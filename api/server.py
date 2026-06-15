@@ -163,7 +163,7 @@ def api_market(days: int = Query(5, ge=1, le=30)) -> dict[str, Any]:
 @app.get("/api/sectors/table")
 def api_sectors_table(
     days: int = Query(5, ge=1, le=30),
-    sort: str = Query("pct_desc"),
+    sort: str = Query("turnover_pct_desc"),
 ) -> dict[str, Any]:
     return get_store().get_sector_table(days, sort=sort)
 

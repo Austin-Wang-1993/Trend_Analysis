@@ -440,48 +440,112 @@ class HistoryStore:
             "active_sell_series": [{"trade_date": r["trade_date"], "value": r["active_sell"] or 0} for r in rows],
         }
 
-    def get_sector_table(self, days: int = 5, sort: str = "pct_desc") -> dict[str, Any]:
+    def get_sector_table(self, days: int = 5, sort: str = "turnover_pct_desc") -> dict[str, Any]:
         trade_dates = self.list_trading_days(days)
         if not trade_dates:
-            return {"trade_dates": [], "rows": []}
-        latest = trade_dates[-1]
+            return {"days": days, "sort": sort, "trade_dates": [], "columns": []}
+
+        sort = self._normalize_sector_table_sort(sort)
         placeholders = ",".join("?" * len(trade_dates))
         with self._connect() as conn:
-            df = pd.read_sql_query(
+            sector_df = pd.read_sql_query(
                 f"""
-                SELECT trade_date, sector_code, sector_name, turnover, turnover_pct
+                SELECT trade_date, sector_code, sector_name, turnover, turnover_pct,
+                       active_buy, active_sell
                 FROM sector_daily WHERE trade_date IN ({placeholders})
                 """,
                 conn,
                 params=trade_dates,
             )
-        if df.empty:
-            return {"trade_dates": trade_dates, "rows": []}
-        sectors = df.groupby(["sector_code", "sector_name"])
-        rows_out: list[dict[str, Any]] = []
-        for (code, name), grp in sectors:
-            cells = []
-            for d in trade_dates:
-                sub = grp[grp["trade_date"] == d]
-                if len(sub):
-                    r = sub.iloc[0]
-                    cells.append({"trade_date": d, "turnover": float(r["turnover"]), "turnover_pct": float(r["turnover_pct"] or 0)})
-                else:
-                    cells.append({"trade_date": d, "turnover": 0, "turnover_pct": 0})
-            latest_pct = next((c["turnover_pct"] for c in cells if c["trade_date"] == latest), 0)
-            rows_out.append({"sector_code": code, "sector_name": name, "cells": cells, "_sort_pct": latest_pct, "_sort_turnover": cells[-1]["turnover"]})
-        if sort == "pct_asc":
-            rows_out.sort(key=lambda x: x["_sort_pct"])
-        elif sort == "amount_desc":
-            rows_out.sort(key=lambda x: x["_sort_turnover"], reverse=True)
-        elif sort == "name_asc":
-            rows_out.sort(key=lambda x: x["sector_name"])
-        else:
-            rows_out.sort(key=lambda x: x["_sort_pct"], reverse=True)
-        for r in rows_out:
-            r.pop("_sort_pct", None)
-            r.pop("_sort_turnover", None)
-        return {"trade_dates": trade_dates, "rows": rows_out}
+            market_df = pd.read_sql_query(
+                f"""
+                SELECT trade_date, turnover, active_buy, active_sell
+                FROM market_daily WHERE trade_date IN ({placeholders})
+                """,
+                conn,
+                params=trade_dates,
+            )
+
+        market_by_date = {
+            str(r["trade_date"]): {
+                "turnover": float(r["turnover"] or 0),
+                "active_buy": float(r["active_buy"] or 0) if r["active_buy"] is not None else 0.0,
+                "active_sell": float(r["active_sell"] or 0) if r["active_sell"] is not None else 0.0,
+            }
+            for _, r in market_df.iterrows()
+        }
+
+        columns: list[dict[str, Any]] = []
+        dates_new_to_old = list(reversed(trade_dates))
+        for d in dates_new_to_old:
+            day_sectors: list[dict[str, Any]] = []
+            sub = sector_df[sector_df["trade_date"] == d]
+            mkt = market_by_date.get(d, {"turnover": 0, "active_buy": 0, "active_sell": 0})
+            for _, r in sub.iterrows():
+                buy = float(r["active_buy"]) if pd.notna(r["active_buy"]) else None
+                sell = float(r["active_sell"]) if pd.notna(r["active_sell"]) else None
+                day_sectors.append(
+                    {
+                        "sector_code": str(r["sector_code"]),
+                        "sector_name": str(r["sector_name"]),
+                        "turnover": float(r["turnover"] or 0),
+                        "turnover_pct": float(r["turnover_pct"] or 0),
+                        "active_buy": buy,
+                        "active_sell": sell,
+                        "buy_pct": (buy / mkt["active_buy"]) if buy is not None and mkt["active_buy"] > 0 else None,
+                        "sell_pct": (sell / mkt["active_sell"]) if sell is not None and mkt["active_sell"] > 0 else None,
+                    }
+                )
+            self._sort_sector_table_day(day_sectors, sort)
+            for rank, sec in enumerate(day_sectors, start=1):
+                sec["rank"] = rank
+            columns.append({"trade_date": d, "sectors": day_sectors})
+
+        return {
+            "days": days,
+            "sort": sort,
+            "trade_dates": dates_new_to_old,
+            "columns": columns,
+        }
+
+    @staticmethod
+    def _normalize_sector_table_sort(sort: str) -> str:
+        aliases = {
+            "pct_desc": "turnover_pct_desc",
+            "pct_asc": "turnover_pct_asc",
+            "amount_desc": "turnover_pct_desc",
+            "name_asc": "turnover_pct_desc",
+        }
+        sort = aliases.get(sort, sort)
+        allowed = {
+            "turnover_pct_desc",
+            "turnover_pct_asc",
+            "buy_pct_desc",
+            "buy_pct_asc",
+            "sell_pct_desc",
+            "sell_pct_asc",
+        }
+        return sort if sort in allowed else "turnover_pct_desc"
+
+    @staticmethod
+    def _sort_sector_table_day(sectors: list[dict[str, Any]], sort: str) -> None:
+        key_map = {
+            "turnover_pct_desc": ("turnover_pct", True),
+            "turnover_pct_asc": ("turnover_pct", False),
+            "buy_pct_desc": ("buy_pct", True),
+            "buy_pct_asc": ("buy_pct", False),
+            "sell_pct_desc": ("sell_pct", True),
+            "sell_pct_asc": ("sell_pct", False),
+        }
+        field, desc = key_map.get(sort, ("turnover_pct", True))
+
+        def sort_key(s: dict[str, Any]) -> tuple:
+            v = s.get(field)
+            if v is None:
+                return (1, 0.0, s.get("sector_name", ""))
+            return (0, -v if desc else v, s.get("sector_name", ""))
+
+        sectors.sort(key=sort_key)
 
     def get_sector_charts(self, days: int = 5) -> list[dict[str, Any]]:
         trade_dates = self.list_trading_days(days)
