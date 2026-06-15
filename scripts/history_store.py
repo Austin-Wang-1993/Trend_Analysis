@@ -484,6 +484,8 @@ class HistoryStore:
             for _, r in sub.iterrows():
                 buy = float(r["active_buy"]) if pd.notna(r["active_buy"]) else None
                 sell = float(r["active_sell"]) if pd.notna(r["active_sell"]) else None
+                net = (buy - sell) if buy is not None and sell is not None else None
+                market_net = mkt["active_buy"] - mkt["active_sell"]
                 day_sectors.append(
                     {
                         "sector_code": str(r["sector_code"]),
@@ -494,6 +496,8 @@ class HistoryStore:
                         "active_sell": sell,
                         "buy_pct": (buy / mkt["active_buy"]) if buy is not None and mkt["active_buy"] > 0 else None,
                         "sell_pct": (sell / mkt["active_sell"]) if sell is not None and mkt["active_sell"] > 0 else None,
+                        "net_value": net,
+                        "net_pct": (net / market_net) if net is not None and market_net != 0 else None,
                     }
                 )
             self._sort_sector_table_day(day_sectors, sort)
@@ -524,11 +528,17 @@ class HistoryStore:
             "buy_pct_asc",
             "sell_pct_desc",
             "sell_pct_asc",
+            "net_desc",
+            "net_asc",
         }
         return sort if sort in allowed else "turnover_pct_desc"
 
     @staticmethod
-    def _sort_sector_table_day(sectors: list[dict[str, Any]], sort: str) -> None:
+    def _normalize_rank_table_sort(sort: str) -> str:
+        return HistoryStore._normalize_sector_table_sort(sort)
+
+    @staticmethod
+    def _sort_rank_cards(items: list[dict[str, Any]], sort: str, name_key: str) -> None:
         key_map = {
             "turnover_pct_desc": ("turnover_pct", True),
             "turnover_pct_asc": ("turnover_pct", False),
@@ -536,16 +546,22 @@ class HistoryStore:
             "buy_pct_asc": ("buy_pct", False),
             "sell_pct_desc": ("sell_pct", True),
             "sell_pct_asc": ("sell_pct", False),
+            "net_desc": ("net_value", True),
+            "net_asc": ("net_value", False),
         }
         field, desc = key_map.get(sort, ("turnover_pct", True))
 
-        def sort_key(s: dict[str, Any]) -> tuple:
-            v = s.get(field)
+        def sort_key(item: dict[str, Any]) -> tuple:
+            v = item.get(field)
             if v is None:
-                return (1, 0.0, s.get("sector_name", ""))
-            return (0, -v if desc else v, s.get("sector_name", ""))
+                return (1, 0.0, item.get(name_key, ""))
+            return (0, -v if desc else v, item.get(name_key, ""))
 
-        sectors.sort(key=sort_key)
+        items.sort(key=sort_key)
+
+    @staticmethod
+    def _sort_sector_table_day(sectors: list[dict[str, Any]], sort: str) -> None:
+        HistoryStore._sort_rank_cards(sectors, sort, "sector_name")
 
     def get_sector_charts(self, days: int = 5) -> list[dict[str, Any]]:
         trade_dates = self.list_trading_days(days)
@@ -573,8 +589,19 @@ class HistoryStore:
             })
         return out
 
-    def get_sector_stocks(self, sector_code: str, days: int = 5) -> dict[str, Any]:
+    def get_sector_stocks(self, sector_code: str, days: int = 5, sort: str = "turnover_pct_desc") -> dict[str, Any]:
         trade_dates = self.list_trading_days(days)
+        if not trade_dates:
+            return {
+                "sector_code": sector_code,
+                "sector_name": sector_code,
+                "days": days,
+                "sort": sort,
+                "trade_dates": [],
+                "columns": [],
+            }
+
+        sort = self._normalize_rank_table_sort(sort)
         placeholders = ",".join("?" * len(trade_dates))
         with self._connect() as conn:
             meta = conn.execute(
@@ -591,20 +618,135 @@ class HistoryStore:
                 params=(sector_code, *trade_dates),
             )
         sector_name = meta["sector_name"] if meta else sector_code
-        stocks = []
+
+        sector_totals_by_date: dict[str, dict[str, float]] = {}
         if not df.empty:
-            for (code, name), grp in df.groupby(["stock_code", "stock_name"]):
-                g = grp.set_index("trade_date")
-                stocks.append({
-                    "stock_code": code,
-                    "stock_name": name,
-                    "turnover_series": [{"trade_date": d, "value": float(g.loc[d, "turnover"] or 0) if d in g.index else 0} for d in trade_dates],
-                    "active_buy_series": [{"trade_date": d, "value": float(g.loc[d, "active_buy"] or 0) if d in g.index else 0} for d in trade_dates],
-                    "active_sell_series": [{"trade_date": d, "value": float(g.loc[d, "active_sell"] or 0) if d in g.index else 0} for d in trade_dates],
-                })
-            latest = trade_dates[-1]
-            stocks.sort(key=lambda s: s["turnover_series"][-1]["value"], reverse=True)
-        return {"sector_code": sector_code, "sector_name": sector_name, "trade_dates": trade_dates, "stocks": stocks}
+            for d, grp in df.groupby("trade_date"):
+                buy_sum = grp["active_buy"].fillna(0).astype(float).sum()
+                sell_sum = grp["active_sell"].fillna(0).astype(float).sum()
+                sector_totals_by_date[str(d)] = {
+                    "turnover": float(grp["turnover"].fillna(0).astype(float).sum()),
+                    "active_buy": float(buy_sum),
+                    "active_sell": float(sell_sum),
+                    "net": float(buy_sum - sell_sum),
+                }
+
+        columns: list[dict[str, Any]] = []
+        dates_new_to_old = list(reversed(trade_dates))
+        for d in dates_new_to_old:
+            day_stocks: list[dict[str, Any]] = []
+            sub = df[df["trade_date"] == d] if not df.empty else df
+            totals = sector_totals_by_date.get(
+                d, {"turnover": 0.0, "active_buy": 0.0, "active_sell": 0.0, "net": 0.0}
+            )
+            for _, r in sub.iterrows():
+                buy = float(r["active_buy"]) if pd.notna(r["active_buy"]) else None
+                sell = float(r["active_sell"]) if pd.notna(r["active_sell"]) else None
+                net = (buy - sell) if buy is not None and sell is not None else None
+                turnover = float(r["turnover"] or 0)
+                day_stocks.append(
+                    {
+                        "stock_code": str(r["stock_code"]),
+                        "stock_name": str(r["stock_name"] or ""),
+                        "turnover": turnover,
+                        "turnover_pct": (turnover / totals["turnover"]) if totals["turnover"] > 0 else None,
+                        "active_buy": buy,
+                        "active_sell": sell,
+                        "buy_pct": (buy / totals["active_buy"]) if buy is not None and totals["active_buy"] > 0 else None,
+                        "sell_pct": (sell / totals["active_sell"]) if sell is not None and totals["active_sell"] > 0 else None,
+                        "net_value": net,
+                        "net_pct": (net / totals["net"]) if net is not None and totals["net"] != 0 else None,
+                    }
+                )
+            self._sort_rank_cards(day_stocks, sort, "stock_code")
+            for rank, stock in enumerate(day_stocks, start=1):
+                stock["rank"] = rank
+            columns.append({"trade_date": d, "stocks": day_stocks})
+
+        return {
+            "sector_code": sector_code,
+            "sector_name": sector_name,
+            "days": days,
+            "sort": sort,
+            "trade_dates": dates_new_to_old,
+            "columns": columns,
+        }
+
+    def get_stock_series(self, stock_code: str, days: int = 5, sector_code: str | None = None) -> dict[str, Any]:
+        trade_dates = self.list_trading_days(days)
+        if not trade_dates:
+            return {
+                "stock_code": stock_code,
+                "stock_name": stock_code,
+                "sector_code": sector_code,
+                "sector_name": None,
+                "days": days,
+                "series": [],
+            }
+
+        placeholders = ",".join("?" * len(trade_dates))
+        query = f"""
+            SELECT * FROM stock_daily
+            WHERE stock_code=? AND trade_date IN ({placeholders})
+        """
+        params: list[Any] = [stock_code, *trade_dates]
+        if sector_code:
+            query += " AND sector_code=?"
+            params.append(sector_code)
+
+        with self._connect() as conn:
+            df = pd.read_sql_query(query, conn, params=params)
+
+        if df.empty:
+            return {
+                "stock_code": stock_code,
+                "stock_name": stock_code,
+                "sector_code": sector_code,
+                "sector_name": None,
+                "days": days,
+                "series": [],
+            }
+
+        row0 = df.iloc[0]
+        stock_name = str(row0["stock_name"] or "")
+        sec_code = str(row0["sector_code"] or sector_code or "")
+        sector_name = None
+        if sec_code:
+            with self._connect() as conn:
+                meta = conn.execute(
+                    "SELECT sector_name FROM sector_daily WHERE sector_code=? LIMIT 1",
+                    (sec_code,),
+                ).fetchone()
+                sector_name = meta["sector_name"] if meta else None
+
+        g = df.set_index("trade_date")
+        dates_new_to_old = list(reversed(trade_dates))
+        series = []
+        for d in dates_new_to_old:
+            if d in g.index:
+                r = g.loc[d]
+                buy = float(r["active_buy"]) if pd.notna(r["active_buy"]) else 0.0
+                sell = float(r["active_sell"]) if pd.notna(r["active_sell"]) else 0.0
+                turnover = float(r["turnover"] or 0)
+            else:
+                buy = sell = turnover = 0.0
+            series.append(
+                {
+                    "trade_date": d,
+                    "turnover": turnover,
+                    "active_buy": buy,
+                    "active_sell": sell,
+                }
+            )
+
+        return {
+            "stock_code": stock_code,
+            "stock_name": stock_name,
+            "sector_code": sec_code or sector_code,
+            "sector_name": sector_name,
+            "days": days,
+            "series": series,
+        }
 
     def get_etf_table(self, days: int = 5, sort: str = "pct_desc", page: int = 1, page_size: int = 50, q: str = "") -> dict[str, Any]:
         trade_dates = self.list_trading_days(days)

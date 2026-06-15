@@ -485,7 +485,9 @@ python3 scripts/backfill_history.py --days 5 --no-all-turnover
           "active_buy": 123,
           "buy_pct": 0.15,
           "active_sell": 456,
-          "sell_pct": 0.14
+          "sell_pct": 0.14,
+          "net_value": 789,
+          "net_pct": 0.02
         }
       ]
     }
@@ -493,15 +495,41 @@ python3 scripts/backfill_history.py --days 5 --no-all-turnover
 }
 ```
 
-`buy_pct` / `sell_pct` 分母为当日 `market_daily.active_buy` / `active_sell`。
+`buy_pct` / `sell_pct` 分母为当日 `market_daily.active_buy` / `active_sell`；`net_value = active_buy - active_sell`，`net_pct` 分母为当日全 A 净值（全 A 主买 − 主卖）。
 
-### 4.4 GET /api/sectors/charts?days=5&sort=pct_desc
+排序 `sort` 支持：`turnover_pct_desc|asc`、`buy_pct_desc|asc`、`sell_pct_desc|asc`、**`net_desc|asc`**。
 
-页面 3 用。返回 **131** 个申万二级板块 × 三序列。
+### 4.5 GET /api/sectors/{sector_code}/stocks?days=5&sort=turnover_pct_desc
 
-### 4.5 GET /api/sectors/{sector_code}/stocks?days=5
+页面 4 用。结构与 4.3 对称，对象为成份股；`columns[].stocks[]` 含 `rank`、`stock_code`、`stock_name`、成交/买卖/净值及占比（分母为 **板块内** 当日合计）。
 
-页面 4 用。
+### 4.5b GET /api/stocks/{stock_code}/series?days=5&sector=sw2_...
+
+页面 4b 用。
+
+```json
+{
+  "stock_code": "603986",
+  "stock_name": "兆易创新",
+  "sector_code": "sw2_270100",
+  "sector_name": "半导体",
+  "days": 5,
+  "series": [
+    {
+      "trade_date": "2026-06-14",
+      "turnover": 1.2e9,
+      "active_buy": 6e8,
+      "active_sell": 6e8
+    }
+  ]
+}
+```
+
+`series` 按日期 **降序**（左新右旧，与看板列表一致）。
+
+### 4.4 GET /api/sectors/charts?days=5
+
+页面 3 用。返回 **131** 个申万二级板块 × 三序列（accordion 柱图）。
 
 ### 4.6 GET /api/etf/table?days=5&sort=pct_desc&page=1&page_size=50&q=
 

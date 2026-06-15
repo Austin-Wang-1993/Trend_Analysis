@@ -4,47 +4,187 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>板块成份股 — Trend Analysis</title>
-  <link rel="stylesheet" href="/static/css/style.css" />
-  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  <link rel="stylesheet" href="/static/css/style.css?v=20260619" />
+  <link rel="stylesheet" href="/static/css/sectors-table.css?v=20260619" />
 </head>
-<body>
+<body class="sector-table-page">
   <nav></nav>
-  <main>
-    <h1 id="title">板块成份股</h1>
-    <div id="list"></div>
+  <main class="main-wide sector-page">
+    <div class="sector-page-fixed">
+      <div class="page-nav-row">
+        <a class="page-back" id="backTable" href="/sectors-table.html">← 返回板块表格</a>
+        <p class="breadcrumb" id="breadcrumb"></p>
+      </div>
+      <h1 id="title">板块成份股</h1>
+      <div class="toolbar">
+        <label>排序
+          <select id="sort">
+            <option value="turnover_pct_desc">成交占比 ↓</option>
+            <option value="turnover_pct_asc">成交占比 ↑</option>
+            <option value="buy_pct_desc">买入占比 ↓</option>
+            <option value="buy_pct_asc">买入占比 ↑</option>
+            <option value="sell_pct_desc">卖出占比 ↓</option>
+            <option value="sell_pct_asc">卖出占比 ↑</option>
+            <option value="net_desc">净值 ↓</option>
+            <option value="net_asc">净值 ↑</option>
+          </select>
+        </label>
+        <label>天数
+          <select id="days">
+            <option value="5" selected>近 5 日</option>
+            <option value="15">近 15 日</option>
+            <option value="30">近 30 日</option>
+          </select>
+        </label>
+      </div>
+      <p class="footnote sector-board-hint">左新右旧；点击卡片高亮同股各列；点击名称查看个股堆积图。</p>
+      <div class="sector-dates-bar" id="stickyDates">
+        <div class="sector-dates-inner" id="stickyDatesInner"></div>
+      </div>
+    </div>
+    <div class="sector-cards-viewport" id="cardsViewport">
+      <div class="sector-board-outer" id="boardOuter">
+        <div id="board" class="sector-board"></div>
+      </div>
+    </div>
   </main>
   <script src="/static/js/format.js"></script>
   <script src="/static/js/api.js"></script>
-  <script src="/static/js/charts.js"></script>
   <script src="/static/js/nav.js"></script>
   <script>
     initNav();
-    const sector = new URLSearchParams(location.search).get('sector');
-    if (!sector) { document.querySelector('main').innerHTML = '<p class="loading">请从板块表格选择板块</p>'; }
-    else {
-      (async () => {
-        const data = await apiGet(`/api/sectors/${encodeURIComponent(sector)}/stocks?days=5`);
-        document.getElementById('title').textContent = `${formatSectorName(data.sector_name)} — 成份股（近 5 日）`;
-        const list = document.getElementById('list');
-        const top = (data.stocks || []).slice(0, 30);
-        top.forEach((s, i) => {
-          const dates = s.turnover_series.map(x => x.trade_date);
-          const div = document.createElement('div');
-          div.className = 'card accordion-item';
-          div.innerHTML = `
-            <div class="accordion-head"><span>${s.stock_code} ${s.stock_name || ''}</span><span>▶</span></div>
-            <div class="accordion-body"><div id="sc-${i}" class="chart"></div></div>`;
-          list.appendChild(div);
-          div.querySelector('.accordion-head').addEventListener('click', () => {
-            div.classList.toggle('open');
-            if (div.classList.contains('open') && !div._chart) {
-              div._chart = renderBar(document.getElementById(`sc-${i}`),
-                barChartOption('成交额', dates, s.turnover_series.map(x => x.value)));
-            }
-          });
-        });
-      })().catch(e => { document.querySelector('main').innerHTML = `<p class="loading">${e.message}</p>`; });
+    const params = new URLSearchParams(location.search);
+    const sector = params.get('sector');
+    const sortEl = document.getElementById('sort');
+    const daysEl = document.getElementById('days');
+    const boardEl = document.getElementById('board');
+    const boardOuter = document.getElementById('boardOuter');
+    const stickyDatesInner = document.getElementById('stickyDatesInner');
+    const backTable = document.getElementById('backTable');
+    const breadcrumbEl = document.getElementById('breadcrumb');
+    let highlightedCode = null;
+
+    if (params.get('sort')) sortEl.value = params.get('sort');
+    if (params.get('days')) daysEl.value = params.get('days');
+
+    function tableUrl() {
+      return `/sectors-table.html?days=${encodeURIComponent(daysEl.value)}&sort=${encodeURIComponent(sortEl.value)}`;
     }
+
+    function syncNavLinks(sectorName) {
+      backTable.href = tableUrl();
+      const name = escapeHtml(formatSectorName(sectorName || ''));
+      breadcrumbEl.innerHTML = `<a href="${tableUrl()}">板块表格</a> &gt; ${name} 成份股`;
+    }
+
+    function fmtMoney(v) {
+      if (v == null || Number.isNaN(v)) return '—';
+      return formatAmount(v).text;
+    }
+
+    function fmtPct(v) {
+      if (v == null || Number.isNaN(v)) return '—';
+      return formatPct(v);
+    }
+
+    function fmtNet(v) {
+      const n = formatNetValue(v);
+      return `<span class="metric-net ${n.cls}">${n.text}</span>`;
+    }
+
+    function stockDetailUrl(code) {
+      return `/stock-detail.html?stock=${encodeURIComponent(code)}&sector=${encodeURIComponent(sector)}&days=${encodeURIComponent(daysEl.value)}&sort=${encodeURIComponent(sortEl.value)}`;
+    }
+
+    function renderCard(stock) {
+      const code = stock.stock_code;
+      const cls = highlightedCode === code ? 'sector-card highlighted' : 'sector-card';
+      const label = escapeHtml(`${code} ${stock.stock_name || ''}`.trim());
+      return `
+        <article class="${cls}" data-stock-code="${escapeAttr(code)}" tabindex="0">
+          <div class="sector-card-head">
+            <span class="sector-rank">#${stock.rank}</span>
+            <a class="sector-name" href="${stockDetailUrl(code)}">${label}</a>
+          </div>
+          <dl class="sector-metrics">
+            <div><dt>成交</dt><dd>${fmtMoney(stock.turnover)} <span class="metric-pct">${fmtPct(stock.turnover_pct)}</span></dd></div>
+            <div><dt>买入</dt><dd>${fmtMoney(stock.active_buy)} <span class="metric-pct">${fmtPct(stock.buy_pct)}</span></dd></div>
+            <div><dt>卖出</dt><dd>${fmtMoney(stock.active_sell)} <span class="metric-pct">${fmtPct(stock.sell_pct)}</span></dd></div>
+            <div><dt>净值</dt><dd>${fmtNet(stock.net_value)} <span class="metric-pct">${fmtPct(stock.net_pct)}</span></dd></div>
+          </dl>
+        </article>`;
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+    }
+
+    function escapeAttr(s) {
+      return String(s).replace(/"/g, '&quot;');
+    }
+
+    function bindCardEvents() {
+      boardEl.querySelectorAll('.sector-card').forEach(card => {
+        card.onclick = (e) => {
+          if (e.target.closest('.sector-name')) return;
+          const code = card.dataset.stockCode;
+          highlightedCode = highlightedCode === code ? null : code;
+          boardEl.querySelectorAll('.sector-card').forEach(c => {
+            c.classList.toggle('highlighted', highlightedCode && c.dataset.stockCode === highlightedCode);
+          });
+        };
+      });
+    }
+
+    function renderDateHead(tradeDate) {
+      return `<div class="sector-date-cell" title="${escapeAttr(tradeDate)}">${shortDate(tradeDate)}</div>`;
+    }
+
+    function syncStickyDatesScroll() {
+      stickyDatesInner.style.transform = `translateX(-${boardOuter.scrollLeft}px)`;
+    }
+
+    if (!boardOuter.dataset.scrollBound) {
+      boardOuter.addEventListener('scroll', syncStickyDatesScroll, { passive: true });
+      boardOuter.dataset.scrollBound = '1';
+    }
+
+    async function load() {
+      if (!sector) {
+        document.querySelector('main').innerHTML = '<p class="loading">请从板块表格选择板块</p>';
+        return;
+      }
+      boardEl.innerHTML = '<p class="loading">加载中…</p>';
+      stickyDatesInner.innerHTML = '';
+      const data = await apiGet(`/api/sectors/${encodeURIComponent(sector)}/stocks?days=${daysEl.value}&sort=${sortEl.value}`);
+      document.getElementById('title').textContent = `${formatSectorName(data.sector_name)} — 成份股`;
+      syncNavLinks(data.sector_name);
+      const columns = data.columns || [];
+      if (!columns.length) {
+        boardEl.innerHTML = '<p class="loading">暂无数据</p>';
+        return;
+      }
+      stickyDatesInner.innerHTML = columns.map(col => renderDateHead(col.trade_date)).join('');
+      boardOuter.scrollLeft = 0;
+      syncStickyDatesScroll();
+      boardEl.innerHTML = columns.map(col => `
+        <section class="sector-column">
+          <div class="sector-column-cards">
+            ${(col.stocks || []).map(renderCard).join('')}
+          </div>
+        </section>
+      `).join('');
+      bindCardEvents();
+      if (highlightedCode) {
+        boardEl.querySelectorAll('.sector-card').forEach(c => {
+          c.classList.toggle('highlighted', c.dataset.stockCode === highlightedCode);
+        });
+      }
+    }
+
+    sortEl.addEventListener('change', () => load().catch(e => alert(e.message)));
+    daysEl.addEventListener('change', () => load().catch(e => alert(e.message)));
+    load().catch(e => { boardEl.innerHTML = `<p class="loading status-fail">${escapeHtml(e.message)}</p>`; });
   </script>
 </body>
 </html>

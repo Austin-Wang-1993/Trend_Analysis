@@ -24,3 +24,11 @@ function shortDate(iso) {
   const p = iso.split('-');
   return p.length >= 3 ? `${p[1]}-${p[2]}` : iso;
 }
+
+function formatNetValue(v) {
+  if (v == null || Number.isNaN(v)) return { text: '—', cls: '' };
+  const cls = v > 0 ? 'positive' : v < 0 ? 'negative' : '';
+  const amt = formatAmount(v);
+  const prefix = v > 0 ? '+' : '';
+  return { text: `${prefix}${amt.text}`, cls };
+}

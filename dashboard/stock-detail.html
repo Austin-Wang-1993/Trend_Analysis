@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>个股详情 — Trend Analysis</title>
+  <link rel="stylesheet" href="/static/css/style.css?v=20260619" />
+  <link rel="stylesheet" href="/static/css/sectors-table.css?v=20260619" />
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+</head>
+<body>
+  <nav></nav>
+  <main class="main-wide">
+    <div class="page-nav-row">
+      <a class="page-back" id="backStocks" href="#">← 返回成份股</a>
+      <p class="breadcrumb" id="breadcrumb"></p>
+    </div>
+    <h1 id="title">个股详情</h1>
+    <div class="toolbar">
+      <label>天数
+        <select id="days">
+          <option value="5" selected>近 5 日</option>
+          <option value="15">近 15 日</option>
+          <option value="30">近 30 日</option>
+        </select>
+      </label>
+    </div>
+    <p class="footnote">主买 + 主卖 堆积柱（柱高 = 成交额）；X 轴左新右旧。</p>
+    <div id="chart" class="stock-detail-chart"></div>
+  </main>
+  <script src="/static/js/format.js"></script>
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/charts.js"></script>
+  <script src="/static/js/nav.js"></script>
+  <script>
+    initNav();
+    const params = new URLSearchParams(location.search);
+    const stock = params.get('stock');
+    const sector = params.get('sector');
+    const sort = params.get('sort') || 'turnover_pct_desc';
+    const daysEl = document.getElementById('days');
+    const backStocks = document.getElementById('backStocks');
+    const breadcrumbEl = document.getElementById('breadcrumb');
+    const titleEl = document.getElementById('title');
+    const chartEl = document.getElementById('chart');
+    let chart;
+
+    if (params.get('days')) daysEl.value = params.get('days');
+
+    function stocksUrl(sectorName) {
+      const base = `/sector-stocks.html?sector=${encodeURIComponent(sector || '')}&days=${encodeURIComponent(daysEl.value)}&sort=${encodeURIComponent(sort)}`;
+      return base;
+    }
+
+    function tableUrl() {
+      return `/sectors-table.html?days=${encodeURIComponent(daysEl.value)}&sort=${encodeURIComponent(sort)}`;
+    }
+
+    function syncNav(data) {
+      const sectorName = formatSectorName(data.sector_name || '');
+      const stockLabel = `${data.stock_code} ${data.stock_name || ''}`.trim();
+      backStocks.href = stocksUrl(sectorName);
+      breadcrumbEl.innerHTML = [
+        `<a href="${tableUrl()}">板块表格</a>`,
+        '&gt;',
+        `<a href="${stocksUrl(sectorName)}">${escapeHtml(sectorName)}</a>`,
+        '&gt;',
+        escapeHtml(stockLabel),
+      ].join(' ');
+      titleEl.textContent = stockLabel;
+      document.title = `${stockLabel} — Trend Analysis`;
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+    }
+
+    async function load() {
+      if (!stock) {
+        document.querySelector('main').innerHTML = '<p class="loading">缺少 stock 参数</p>';
+        return;
+      }
+      chartEl.innerHTML = '<p class="loading">加载中…</p>';
+      const q = new URLSearchParams({ days: daysEl.value });
+      if (sector) q.set('sector', sector);
+      const data = await apiGet(`/api/stocks/${encodeURIComponent(stock)}/series?${q}`);
+      syncNav(data);
+      const series = data.series || [];
+      if (!series.length) {
+        chartEl.innerHTML = '<p class="loading">暂无数据</p>';
+        return;
+      }
+      chartEl.innerHTML = '';
+      const dates = series.map(x => x.trade_date);
+      const buy = series.map(x => x.active_buy || 0);
+      const sell = series.map(x => x.active_sell || 0);
+      if (chart) disposeChart(chart);
+      chart = renderBar(chartEl, stackedBuySellOption(dates, buy, sell));
+    }
+
+    daysEl.addEventListener('change', () => load().catch(e => alert(e.message)));
+    load().catch(e => { chartEl.innerHTML = `<p class="loading status-fail">${escapeHtml(e.message)}</p>`; });
+  </script>
+</body>
+</html>

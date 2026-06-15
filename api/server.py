@@ -174,8 +174,21 @@ def api_sectors_charts(days: int = Query(5, ge=1, le=30)) -> list[dict[str, Any]
 
 
 @app.get("/api/sectors/{sector_code}/stocks")
-def api_sector_stocks(sector_code: str, days: int = Query(5, ge=1, le=30)) -> dict[str, Any]:
-    return get_store().get_sector_stocks(sector_code, days)
+def api_sector_stocks(
+    sector_code: str,
+    days: int = Query(5, ge=1, le=30),
+    sort: str = Query("turnover_pct_desc"),
+) -> dict[str, Any]:
+    return get_store().get_sector_stocks(sector_code, days, sort=sort)
+
+
+@app.get("/api/stocks/{stock_code}/series")
+def api_stock_series(
+    stock_code: str,
+    days: int = Query(5, ge=1, le=30),
+    sector: str | None = Query(None),
+) -> dict[str, Any]:
+    return get_store().get_stock_series(stock_code, days, sector_code=sector)
 
 
 @app.get("/api/etf/table")
@@ -352,6 +365,11 @@ def page_sectors_table() -> FileResponse:
 @app.get("/sectors-charts.html")
 def page_sectors_charts() -> FileResponse:
     return _html("sectors-charts.html")
+
+
+@app.get("/stock-detail.html")
+def page_stock_detail() -> FileResponse:
+    return _html("stock-detail.html")
 
 
 @app.get("/sector-stocks.html")

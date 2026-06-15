@@ -200,3 +200,50 @@ main.sector-page h1 {
   font-size: 0.72rem;
   margin-left: 0.2rem;
 }
+
+.metric-net.positive {
+  color: #ef4444;
+}
+
+.metric-net.negative {
+  color: #22c55e;
+}
+
+.page-nav-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.25rem;
+  margin-bottom: 0.65rem;
+}
+
+.page-back {
+  color: var(--accent, #3b82f6);
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.page-back:hover {
+  text-decoration: underline;
+}
+
+.breadcrumb {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted, #8b9cb3);
+}
+
+.breadcrumb a {
+  color: var(--accent, #3b82f6);
+  text-decoration: none;
+}
+
+.breadcrumb a:hover {
+  text-decoration: underline;
+}
+
+.stock-detail-chart {
+  width: 100%;
+  min-height: 420px;
+  height: calc(100dvh - 14rem);
+}

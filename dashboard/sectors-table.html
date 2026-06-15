@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>板块表格 — Trend Analysis</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=20260618" />
-  <link rel="stylesheet" href="/static/css/sectors-table.css?v=20260618" />
+  <link rel="stylesheet" href="/static/css/style.css?v=20260619" />
+  <link rel="stylesheet" href="/static/css/sectors-table.css?v=20260619" />
 </head>
 <body class="sector-table-page">
   <nav></nav>
@@ -21,6 +21,8 @@
             <option value="buy_pct_asc">买入占比 ↑</option>
             <option value="sell_pct_desc">卖出占比 ↓</option>
             <option value="sell_pct_asc">卖出占比 ↑</option>
+            <option value="net_desc">净值 ↓</option>
+            <option value="net_asc">净值 ↑</option>
           </select>
         </label>
         <label>天数
@@ -64,11 +66,16 @@
       return formatPct(v);
     }
 
+    function fmtNet(v) {
+      const n = formatNetValue(v);
+      return `<span class="metric-net ${n.cls}">${n.text}</span>`;
+    }
+
     function renderCard(sector) {
       const code = sector.sector_code;
       const cls = highlightedCode === code ? 'sector-card highlighted' : 'sector-card';
       const name = escapeHtml(formatSectorName(sector.sector_name));
-      const stocksUrl = `/sector-stocks.html?sector=${encodeURIComponent(code)}`;
+      const stocksUrl = `/sector-stocks.html?sector=${encodeURIComponent(code)}&days=${encodeURIComponent(daysEl.value)}&sort=${encodeURIComponent(sortEl.value)}`;
       return `
         <article class="${cls}" data-sector-code="${escapeAttr(code)}" tabindex="0">
           <div class="sector-card-head">
@@ -79,6 +86,7 @@
             <div><dt>成交</dt><dd>${fmtMoney(sector.turnover)} <span class="metric-pct">${fmtPct(sector.turnover_pct)}</span></dd></div>
             <div><dt>买入</dt><dd>${fmtMoney(sector.active_buy)} <span class="metric-pct">${fmtPct(sector.buy_pct)}</span></dd></div>
             <div><dt>卖出</dt><dd>${fmtMoney(sector.active_sell)} <span class="metric-pct">${fmtPct(sector.sell_pct)}</span></dd></div>
+            <div><dt>净值</dt><dd>${fmtNet(sector.net_value)} <span class="metric-pct">${fmtPct(sector.net_pct)}</span></dd></div>
           </dl>
         </article>`;
     }
