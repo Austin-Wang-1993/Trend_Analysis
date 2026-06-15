@@ -4,7 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>板块表格 — Trend Analysis</title>
-  <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="stylesheet" href="/static/css/style.css?v=20260616" />
+  <link rel="stylesheet" href="/static/css/sectors-table.css?v=20260616" />
 </head>
 <body>
   <nav></nav>
@@ -29,7 +30,7 @@
         </select>
       </label>
     </div>
-    <p class="footnote">左新右旧；点击卡片可在各列中高亮同一板块，再次点击取消。</p>
+    <p class="footnote">左新右旧；点击卡片高亮同板块各列；点击板块名称查看成份股。</p>
     <div id="board" class="sector-board"></div>
   </main>
   <script src="/static/js/format.js"></script>
@@ -81,7 +82,8 @@
 
     function bindCardEvents() {
       boardEl.querySelectorAll('.sector-card').forEach(card => {
-        card.onclick = () => {
+        card.onclick = (e) => {
+          if (e.target.closest('.sector-name')) return;
           const code = card.dataset.sectorCode;
           highlightedCode = highlightedCode === code ? null : code;
           boardEl.querySelectorAll('.sector-card').forEach(c => {
@@ -101,7 +103,10 @@
       }
       boardEl.innerHTML = columns.map(col => `
         <section class="sector-column">
-          <header class="sector-column-head">${shortDate(col.trade_date)}<span class="sector-column-sub">${col.trade_date}</span></header>
+          <header class="sector-column-head">
+            <span class="sector-column-date">${shortDate(col.trade_date)}</span>
+            <span class="sector-column-sub">${col.trade_date}</span>
+          </header>
           <div class="sector-column-cards">
             ${(col.sectors || []).map(renderCard).join('')}
           </div>
