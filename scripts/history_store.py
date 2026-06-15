@@ -748,11 +748,47 @@ class HistoryStore:
             "series": series,
         }
 
-    def get_etf_table(self, days: int = 5, sort: str = "pct_desc", page: int = 1, page_size: int = 50, q: str = "") -> dict[str, Any]:
+    @staticmethod
+    def _normalize_etf_table_sort(sort: str) -> str:
+        aliases = {
+            "pct_desc": "turnover_pct_desc",
+            "pct_asc": "turnover_pct_asc",
+            "amount_desc": "turnover_desc",
+            "name_asc": "turnover_pct_desc",
+        }
+        sort = aliases.get(sort, sort)
+        allowed = {
+            "turnover_pct_desc",
+            "turnover_pct_asc",
+            "turnover_desc",
+            "turnover_asc",
+        }
+        return sort if sort in allowed else "turnover_pct_desc"
+
+    @staticmethod
+    def _sort_etf_table_day(etfs: list[dict[str, Any]], sort: str) -> None:
+        key_map = {
+            "turnover_pct_desc": ("turnover_pct", True),
+            "turnover_pct_asc": ("turnover_pct", False),
+            "turnover_desc": ("turnover", True),
+            "turnover_asc": ("turnover", False),
+        }
+        field, desc = key_map.get(sort, ("turnover_pct", True))
+
+        def sort_key(item: dict[str, Any]) -> tuple:
+            v = item.get(field)
+            if v is None:
+                return (1, 0.0, item.get("etf_name", ""), item.get("etf_code", ""))
+            return (0, -v if desc else v, item.get("etf_name", ""), item.get("etf_code", ""))
+
+        etfs.sort(key=sort_key)
+
+    def get_etf_table(self, days: int = 5, sort: str = "turnover_pct_desc") -> dict[str, Any]:
         trade_dates = self.list_trading_days(days)
         if not trade_dates:
-            return {"trade_dates": [], "meta": {"total": 0, "page": page, "page_size": page_size}, "rows": []}
-        latest = trade_dates[-1]
+            return {"days": days, "sort": sort, "trade_dates": [], "columns": []}
+
+        sort = self._normalize_etf_table_sort(sort)
         placeholders = ",".join("?" * len(trade_dates))
         with self._connect() as conn:
             df = pd.read_sql_query(
@@ -760,48 +796,118 @@ class HistoryStore:
                 conn,
                 params=trade_dates,
             )
-        if df.empty:
-            return {"trade_dates": trade_dates, "meta": {"total": 0, "page": page, "page_size": page_size}, "rows": []}
-        if q:
-            q = q.strip().lower()
-            df = df[df["etf_code"].str.lower().str.contains(q) | df["etf_name"].str.lower().str.contains(q)]
-        rows_out = []
-        for (code, name), grp in df.groupby(["etf_code", "etf_name"]):
-            cells = []
-            for d in trade_dates:
-                sub = grp[grp["trade_date"] == d]
-                if len(sub):
-                    r = sub.iloc[0]
-                    cells.append({"trade_date": d, "turnover": float(r["turnover"]), "turnover_pct": float(r["turnover_pct"] or 0)})
-                else:
-                    cells.append({"trade_date": d, "turnover": 0, "turnover_pct": 0})
-            latest_pct = next((c["turnover_pct"] for c in cells if c["trade_date"] == latest), 0)
-            rows_out.append({"etf_code": code, "etf_name": name, "cells": cells, "_sort_pct": latest_pct, "_sort_turnover": cells[-1]["turnover"]})
-        if sort == "pct_asc":
-            rows_out.sort(key=lambda x: x["_sort_pct"])
-        elif sort == "name_asc":
-            rows_out.sort(key=lambda x: x["etf_name"])
-        else:
-            rows_out.sort(key=lambda x: x["_sort_pct"], reverse=True)
-        total = len(rows_out)
-        start = (page - 1) * page_size
-        page_rows = rows_out[start : start + page_size]
-        for r in page_rows:
-            r.pop("_sort_pct", None)
-            r.pop("_sort_turnover", None)
-        return {"trade_dates": trade_dates, "meta": {"total": total, "page": page, "page_size": page_size}, "rows": page_rows}
+
+        columns: list[dict[str, Any]] = []
+        dates_new_to_old = list(reversed(trade_dates))
+        for d in dates_new_to_old:
+            day_etfs: list[dict[str, Any]] = []
+            sub = df[df["trade_date"] == d] if not df.empty else df
+            for _, r in sub.iterrows():
+                day_etfs.append(
+                    {
+                        "etf_code": str(r["etf_code"]),
+                        "etf_name": str(r["etf_name"] or ""),
+                        "turnover": float(r["turnover"] or 0),
+                        "turnover_pct": float(r["turnover_pct"] or 0),
+                    }
+                )
+            self._sort_etf_table_day(day_etfs, sort)
+            for rank, etf in enumerate(day_etfs, start=1):
+                etf["rank"] = rank
+            columns.append({"trade_date": d, "etfs": day_etfs})
+
+        return {
+            "days": days,
+            "sort": sort,
+            "trade_dates": dates_new_to_old,
+            "columns": columns,
+        }
+
+    def get_etf_series(self, etf_code: str, days: int = 5) -> dict[str, Any]:
+        trade_dates = self.list_trading_days(days)
+        if not trade_dates:
+            return {"etf_code": etf_code, "etf_name": etf_code, "days": days, "series": []}
+
+        placeholders = ",".join("?" * len(trade_dates))
+        with self._connect() as conn:
+            df = pd.read_sql_query(
+                f"""
+                SELECT * FROM etf_daily
+                WHERE etf_code=? AND trade_date IN ({placeholders})
+                ORDER BY trade_date
+                """,
+                conn,
+                params=(etf_code, *trade_dates),
+            )
+
+        etf_name = etf_code
+        if not df.empty:
+            etf_name = str(df.iloc[0]["etf_name"] or etf_code)
+
+        g = df.set_index("trade_date") if not df.empty else df
+        dates_new_to_old = list(reversed(trade_dates))
+        series = []
+        for d in dates_new_to_old:
+            if not df.empty and d in g.index:
+                r = g.loc[d]
+                turnover = float(r["turnover"] or 0)
+                turnover_pct = float(r["turnover_pct"] or 0)
+            else:
+                turnover = turnover_pct = 0.0
+            series.append(
+                {
+                    "trade_date": d,
+                    "turnover": turnover,
+                    "turnover_pct": turnover_pct,
+                }
+            )
+
+        return {
+            "etf_code": etf_code,
+            "etf_name": etf_name,
+            "days": days,
+            "series": series,
+        }
 
     def get_etf_charts(self, days: int = 5, top: int = 50, q: str = "") -> list[dict[str, Any]]:
-        table = self.get_etf_table(days=days, sort="pct_desc", page=1, page_size=max(top, 500), q=q)
-        trade_dates = table["trade_dates"]
+        table = self.get_etf_table(days=days, sort="turnover_pct_desc")
         out = []
-        for row in table["rows"][:top]:
-            out.append({
-                "etf_code": row["etf_code"],
-                "etf_name": row["etf_name"],
-                "turnover_series": [{"trade_date": c["trade_date"], "value": c["turnover"]} for c in row["cells"]],
-            })
-        return out
+        for col in table.get("columns", []):
+            if not col.get("etfs"):
+                continue
+            for row in col["etfs"]:
+                if q:
+                    ql = q.strip().lower()
+                    text = f"{row['etf_code']} {row.get('etf_name', '')}".lower()
+                    if ql not in text and ql not in row["etf_code"].lower():
+                        continue
+                out.append(row)
+            break
+        seen = set()
+        unique = []
+        for row in out:
+            if row["etf_code"] in seen:
+                continue
+            seen.add(row["etf_code"])
+            unique.append(row)
+        unique = unique[:top]
+        series_map: dict[str, list] = {r["etf_code"]: [] for r in unique}
+        for col in table.get("columns", []):
+            d = col["trade_date"]
+            by_code = {e["etf_code"]: e for e in col.get("etfs", [])}
+            for code in series_map:
+                e = by_code.get(code)
+                series_map[code].append(
+                    {"trade_date": d, "value": float(e["turnover"]) if e else 0.0}
+                )
+        return [
+            {
+                "etf_code": r["etf_code"],
+                "etf_name": r["etf_name"],
+                "turnover_series": series_map[r["etf_code"]],
+            }
+            for r in unique
+        ]
 
     def get_data_calendar(self) -> list[dict[str, Any]]:
         with self._connect() as conn:

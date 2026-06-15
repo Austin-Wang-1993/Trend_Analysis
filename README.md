@@ -47,7 +47,7 @@ python3 scripts/serve_dashboard.py
 |------|------|
 | 全 A 概览 | `/` |
 | 申万二级表格/图表 | `/sectors-table.html` `/sectors-charts.html` |
-| ETF | `/etf-table.html` `/etf-charts.html` |
+| ETF | `/etf-table.html` `/etf-detail.html` |
 | 管理 | `/admin.html` |
 
 ## 板块层级

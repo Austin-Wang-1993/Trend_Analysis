@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -194,12 +194,17 @@ def api_stock_series(
 @app.get("/api/etf/table")
 def api_etf_table(
     days: int = Query(5, ge=1, le=30),
-    sort: str = Query("pct_desc"),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=10, le=200),
-    q: str = Query(""),
+    sort: str = Query("turnover_pct_desc"),
 ) -> dict[str, Any]:
-    return get_store().get_etf_table(days, sort=sort, page=page, page_size=page_size, q=q)
+    return get_store().get_etf_table(days, sort=sort)
+
+
+@app.get("/api/etfs/{etf_code}/series")
+def api_etf_series(
+    etf_code: str,
+    days: int = Query(5, ge=1, le=30),
+) -> dict[str, Any]:
+    return get_store().get_etf_series(etf_code, days)
 
 
 @app.get("/api/etf/charts")
@@ -382,9 +387,14 @@ def page_etf_table() -> FileResponse:
     return _html("etf-table.html")
 
 
+@app.get("/etf-detail.html")
+def page_etf_detail() -> FileResponse:
+    return _html("etf-detail.html")
+
+
 @app.get("/etf-charts.html")
-def page_etf_charts() -> FileResponse:
-    return _html("etf-charts.html")
+def page_etf_charts() -> RedirectResponse:
+    return RedirectResponse(url="/etf-table.html", status_code=302)
 
 
 @app.get("/admin.html")

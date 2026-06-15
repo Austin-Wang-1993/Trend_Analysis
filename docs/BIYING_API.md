@@ -162,7 +162,8 @@ GET https://api.biyingapi.com/fd/real/time/{code}/{licence}
 | `cje` | ETF 成交额 |
 | `v` | 成交量 |
 
-**限制**：必盈暂无 ETF 资金流向/买卖拆分接口；`hsstock/history/transaction` 对 ETF 代码返回 `[]`。
+**限制**：必盈暂无 ETF 资金流向/买卖拆分接口；`hsstock/history/transaction` 对 ETF 代码返回 `[]`。  
+**ETF 持仓**：公开文档（`doc_jj`）仅含 `fd/list/etf`、`fd/real/time`；**无**「按 ETF 代码查持仓股票」接口；`hscp/jjcg/{股票}` 为反向（哪些基金持有该股）。持仓下钻本期不做。
 
 ---
 

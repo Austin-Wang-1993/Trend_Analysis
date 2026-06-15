@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ETF 详情 — Trend Analysis</title>
+  <link rel="stylesheet" href="/static/css/style.css?v=20260623" />
+  <link rel="stylesheet" href="/static/css/sectors-table.css?v=20260623" />
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+</head>
+<body>
+  <nav></nav>
+  <main class="main-wide">
+    <div class="page-nav-row">
+      <a class="page-back" id="backTable" href="/etf-table.html">← 返回 ETF 表格</a>
+      <p class="breadcrumb" id="breadcrumb"></p>
+    </div>
+    <h1 id="title">ETF 详情</h1>
+    <div class="toolbar">
+      <label>天数
+        <select id="days">
+          <option value="5" selected>近 5 日</option>
+          <option value="15">近 15 日</option>
+          <option value="30">近 30 日</option>
+        </select>
+      </label>
+    </div>
+    <p class="footnote">近 N 日成交额柱状图；X 轴左新右旧。</p>
+    <div id="chart" class="stock-detail-chart"></div>
+  </main>
+  <script src="/static/js/format.js?v=20260623"></script>
+  <script src="/static/js/api.js?v=20260623"></script>
+  <script src="/static/js/charts.js?v=20260623"></script>
+  <script src="/static/js/nav.js?v=20260623"></script>
+  <script>
+    initNav();
+    const params = new URLSearchParams(location.search);
+    const etf = params.get('etf');
+    const sort = params.get('sort') || 'turnover_pct_desc';
+    const daysEl = document.getElementById('days');
+    const backTable = document.getElementById('backTable');
+    const breadcrumbEl = document.getElementById('breadcrumb');
+    const titleEl = document.getElementById('title');
+    const chartEl = document.getElementById('chart');
+    let chart;
+
+    if (params.get('days')) daysEl.value = params.get('days');
+
+    function tableUrl() {
+      return `/etf-table.html?days=${encodeURIComponent(daysEl.value)}&sort=${encodeURIComponent(sort)}`;
+    }
+
+    function syncNav(data) {
+      const label = `${data.etf_code} ${data.etf_name || ''}`.trim();
+      backTable.href = tableUrl();
+      breadcrumbEl.innerHTML = `<a href="${tableUrl()}">ETF 表格</a> &gt; ${escapeHtml(label)}`;
+      titleEl.textContent = label;
+      document.title = `${label} — Trend Analysis`;
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+    }
+
+    async function load() {
+      if (!etf) {
+        document.querySelector('main').innerHTML = '<p class="loading">缺少 etf 参数</p>';
+        return;
+      }
+      chartEl.innerHTML = '<p class="loading">加载中…</p>';
+      const data = await apiGet(`/api/etfs/${encodeURIComponent(etf)}/series?days=${daysEl.value}`);
+      syncNav(data);
+      const series = data.series || [];
+      if (!series.length) {
+        chartEl.innerHTML = '<p class="loading">暂无数据</p>';
+        return;
+      }
+      chartEl.innerHTML = '';
+      const dates = series.map(x => x.trade_date);
+      const values = series.map(x => x.turnover || 0);
+      if (chart) disposeChart(chart);
+      chart = renderBar(chartEl, barChartOption('成交额', dates, values, '#3b82f6'));
+    }
+
+    daysEl.addEventListener('change', () => load().catch(e => alert(e.message)));
+    load().catch(e => { chartEl.innerHTML = `<p class="loading status-fail">${escapeHtml(e.message)}</p>`; });
+  </script>
+</body>
+</html>

@@ -4,56 +4,181 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>ETF 表格 — Trend Analysis</title>
-  <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="stylesheet" href="/static/css/style.css?v=20260623" />
+  <link rel="stylesheet" href="/static/css/sectors-table.css?v=20260623" />
 </head>
-<body>
+<body class="sector-table-page">
   <nav></nav>
-  <main>
-    <h1>ETF — 近 5 日成交额</h1>
-    <div class="toolbar">
-      <input id="q" placeholder="搜索代码/名称" />
-      <select id="sort">
-        <option value="pct_desc">占比 ↓</option>
-        <option value="pct_asc">占比 ↑</option>
-        <option value="name_asc">名称</option>
-      </select>
-      <button id="prev" class="secondary">上一页</button>
-      <span id="pager"></span>
-      <button id="next" class="secondary">下一页</button>
+  <main class="main-wide sector-page">
+    <div class="sector-page-fixed">
+      <h1>ETF — 每日排行</h1>
+      <div class="toolbar">
+        <div class="card-search-toolbar">
+          <label>搜索
+            <input type="search" id="searchInput" class="card-search-input" placeholder="代码或名称" autocomplete="off" />
+          </label>
+          <p class="card-search-count" id="searchCount"></p>
+          <div class="card-search-nav">
+            <button type="button" id="searchPrev">上一个</button>
+            <button type="button" id="searchNext">下一个</button>
+          </div>
+        </div>
+        <label>排序
+          <select id="sort">
+            <option value="turnover_pct_desc">成交占比 ↓</option>
+            <option value="turnover_pct_asc">成交占比 ↑</option>
+            <option value="turnover_desc">成交额 ↓</option>
+            <option value="turnover_asc">成交额 ↑</option>
+          </select>
+        </label>
+        <label>天数
+          <select id="days">
+            <option value="5" selected>近 5 日</option>
+            <option value="15">近 15 日</option>
+            <option value="30">近 30 日</option>
+          </select>
+        </label>
+      </div>
+      <p class="footnote sector-board-hint">左新右旧；点击卡片高亮同 ETF 各列；点击名称查看成交额柱图。</p>
+      <div class="sector-dates-bar" id="stickyDates">
+        <div class="sector-dates-inner" id="stickyDatesInner"></div>
+      </div>
     </div>
-    <div class="card"><div class="table-wrap"><table id="tbl"><thead></thead><tbody></tbody></table></div></div>
+    <div class="sector-cards-viewport" id="cardsViewport">
+      <div class="sector-board-outer" id="boardOuter">
+        <div id="board" class="sector-board"></div>
+      </div>
+    </div>
   </main>
-  <script src="/static/js/format.js"></script>
-  <script src="/static/js/api.js"></script>
-  <script src="/static/js/nav.js"></script>
+  <script src="/static/js/format.js?v=20260623"></script>
+  <script src="/static/js/api.js?v=20260623"></script>
+  <script src="/static/js/nav.js?v=20260623"></script>
+  <script src="/static/js/card-search.js?v=20260623"></script>
   <script>
     initNav();
-    let page = 1;
-    const pageSize = 50;
-    async function load() {
-      const q = document.getElementById('q').value;
-      const sort = document.getElementById('sort').value;
-      const data = await apiGet(`/api/etf/table?days=5&sort=${sort}&page=${page}&page_size=${pageSize}&q=${encodeURIComponent(q)}`);
-      const dates = data.trade_dates || [];
-      const meta = data.meta || {};
-      document.getElementById('pager').textContent = `第 ${meta.page}/${Math.ceil((meta.total||1)/pageSize)} 页，共 ${meta.total} 条`;
-      const thead = document.querySelector('#tbl thead');
-      let hdr = '<tr><th>代码</th><th>名称</th>';
-      dates.forEach(d => { hdr += `<th>${shortDate(d)} 额</th><th>${shortDate(d)} %</th>`; });
-      thead.innerHTML = hdr + '</tr>';
-      document.querySelector('#tbl tbody').innerHTML = (data.rows || []).map(row => {
-        let tr = `<tr><td>${row.etf_code}</td><td>${row.etf_name || ''}</td>`;
-        (row.cells || []).forEach(c => {
-          tr += `<td>${formatAmount(c.turnover).text}</td><td>${formatPct(c.turnover_pct)}</td>`;
-        });
-        return tr + '</tr>';
-      }).join('');
+    const sortEl = document.getElementById('sort');
+    const daysEl = document.getElementById('days');
+    const boardEl = document.getElementById('board');
+    const boardOuter = document.getElementById('boardOuter');
+    const stickyDatesInner = document.getElementById('stickyDatesInner');
+    const cardsViewport = document.getElementById('cardsViewport');
+    let highlightedCode = null;
+
+    function clearCrossHighlight() {
+      highlightedCode = null;
+      boardEl.querySelectorAll('.sector-card.highlighted').forEach(c => c.classList.remove('highlighted'));
     }
-    document.getElementById('prev').onclick = () => { if (page > 1) { page--; load(); } };
-    document.getElementById('next').onclick = () => { page++; load(); };
-    document.getElementById('sort').onchange = () => { page = 1; load(); };
-    document.getElementById('q').onkeydown = e => { if (e.key === 'Enter') { page = 1; load(); } };
-    load().catch(e => { document.querySelector('main').innerHTML = `<p class="loading">${e.message}</p>`; });
+
+    const cardSearch = createCardSearch({
+      inputEl: document.getElementById('searchInput'),
+      countEl: document.getElementById('searchCount'),
+      prevBtn: document.getElementById('searchPrev'),
+      nextBtn: document.getElementById('searchNext'),
+      boardEl,
+      boardOuter,
+      viewportEl: cardsViewport,
+      syncHorizontalScroll: () => syncStickyDatesScroll(),
+      getMatchText: card => card.dataset.searchText || '',
+      onClearCrossHighlight: clearCrossHighlight,
+    });
+
+    function fmtMoney(v) {
+      if (v == null || Number.isNaN(v)) return '—';
+      return formatAmount(v).text;
+    }
+
+    function fmtPct(v) {
+      if (v == null || Number.isNaN(v)) return '—';
+      return formatPct(v);
+    }
+
+    function etfDetailUrl(code) {
+      return `/etf-detail.html?etf=${encodeURIComponent(code)}&days=${encodeURIComponent(daysEl.value)}&sort=${encodeURIComponent(sortEl.value)}`;
+    }
+
+    function renderCard(etf) {
+      const code = etf.etf_code;
+      const cls = highlightedCode === code ? 'sector-card highlighted' : 'sector-card';
+      const label = escapeHtml(`${code} ${etf.etf_name || ''}`.trim());
+      const searchText = `${code} ${etf.etf_name || ''}`.trim();
+      return `
+        <article class="${cls}" data-etf-code="${escapeAttr(code)}" data-search-text="${escapeAttr(searchText)}" tabindex="0">
+          <div class="sector-card-head">
+            <span class="sector-rank">#${etf.rank}</span>
+            <a class="sector-name" href="${etfDetailUrl(code)}">${label}</a>
+          </div>
+          <dl class="sector-metrics">
+            <div><dt>成交</dt><dd>${fmtMoney(etf.turnover)} <span class="metric-pct">${fmtPct(etf.turnover_pct)}</span></dd></div>
+          </dl>
+        </article>`;
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+    }
+
+    function escapeAttr(s) {
+      return String(s).replace(/"/g, '&quot;');
+    }
+
+    function bindCardEvents() {
+      boardEl.querySelectorAll('.sector-card').forEach(card => {
+        card.onclick = (e) => {
+          if (e.target.closest('.sector-name')) return;
+          if (cardSearch.isActive()) return;
+          const code = card.dataset.etfCode;
+          highlightedCode = highlightedCode === code ? null : code;
+          boardEl.querySelectorAll('.sector-card').forEach(c => {
+            c.classList.toggle('highlighted', highlightedCode && c.dataset.etfCode === highlightedCode);
+          });
+        };
+      });
+    }
+
+    function renderDateHead(tradeDate) {
+      return `<div class="sector-date-cell" title="${escapeAttr(tradeDate)}">${shortDate(tradeDate)}</div>`;
+    }
+
+    function syncStickyDatesScroll() {
+      stickyDatesInner.style.transform = `translateX(-${boardOuter.scrollLeft}px)`;
+    }
+
+    if (!boardOuter.dataset.scrollBound) {
+      boardOuter.addEventListener('scroll', syncStickyDatesScroll, { passive: true });
+      boardOuter.dataset.scrollBound = '1';
+    }
+
+    async function load() {
+      boardEl.innerHTML = '<p class="loading">加载中…</p>';
+      stickyDatesInner.innerHTML = '';
+      const data = await apiGet(`/api/etf/table?days=${daysEl.value}&sort=${sortEl.value}`);
+      const columns = data.columns || [];
+      if (!columns.length) {
+        boardEl.innerHTML = '<p class="loading">暂无数据</p>';
+        return;
+      }
+      stickyDatesInner.innerHTML = columns.map(col => renderDateHead(col.trade_date)).join('');
+      boardOuter.scrollLeft = 0;
+      syncStickyDatesScroll();
+      boardEl.innerHTML = columns.map(col => `
+        <section class="sector-column">
+          <div class="sector-column-cards">
+            ${(col.etfs || []).map(renderCard).join('')}
+          </div>
+        </section>
+      `).join('');
+      bindCardEvents();
+      if (highlightedCode && !cardSearch.isActive()) {
+        boardEl.querySelectorAll('.sector-card').forEach(c => {
+          c.classList.toggle('highlighted', c.dataset.etfCode === highlightedCode);
+        });
+      }
+      cardSearch.onBoardRendered();
+    }
+
+    sortEl.addEventListener('change', () => load().catch(e => alert(e.message)));
+    daysEl.addEventListener('change', () => load().catch(e => alert(e.message)));
+    load().catch(e => { boardEl.innerHTML = `<p class="loading status-fail">${escapeHtml(e.message)}</p>`; });
   </script>
 </body>
 </html>

@@ -533,41 +533,21 @@ python3 scripts/backfill_history.py --days 5 --no-all-turnover
 
 页面 3 用。返回 **131** 个申万二级板块 × 三序列（accordion 柱图）。
 
-### 4.6 GET /api/etf/table?days=5&sort=pct_desc&page=1&page_size=50&q=
+### 4.6 GET /api/etf/table?days=5&sort=turnover_pct_desc
 
-页面 5 用。**必须分页**。
+页面 5 用。返回 `columns[]`，每列 `etfs[]` 含 `rank`、`etf_code`、`etf_name`、`turnover`、`turnover_pct`。**全量** ~1480 只/列，无分页。
 
-```json
-{
-  "meta": { "total": 1480, "page": 1, "page_size": 50 },
-  "columns": ["2026-06-09", "2026-06-10", "..."],
-  "rows": [
-    {
-      "etf_code": "510300",
-      "etf_name": "沪深300ETF",
-      "cells": [
-        {"trade_date": "2026-06-13", "turnover": 4.68e9, "turnover_pct": 0.0023}
-      ]
-    }
-  ]
-}
-```
+排序：`turnover_pct_desc|asc`、`turnover_desc|asc`（兼容别名 `pct_desc` → `turnover_pct_desc`）。
 
-### 4.7 GET /api/etf/charts?days=5&sort=pct_desc&top=50&q=
+### 4.6b GET /api/etfs/{etf_code}/series?days=5
 
-页面 6 用。默认 `top=50` 仅返回成交额 Top 50（可改 `top=` 或全量）。
+页面 5b 用。`series[]` 按日期降序（左新右旧），含 `turnover`、`turnover_pct`。
 
-```json
-[
-  {
-    "etf_code": "510300",
-    "etf_name": "沪深300ETF",
-    "turnover_series": [{"trade_date": "...", "value": ...}]
-  }
-]
-```
+### 4.7 GET /api/etf/charts（已废弃）
 
-]
+原页面 6 用；保留接口兼容旧客户端，新看板请用 5 + 5b。
+
+---
 
 ---
 
