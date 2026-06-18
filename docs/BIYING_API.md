@@ -67,7 +67,7 @@ GET https://api.biyingapi.com/hszg/list/{licence}
 |------|------|
 | `code` | 板块代码（如 `sw_mt`） |
 | `name` | 板块名称 |
-| `type2` | `0`=申万一级（31），`1`=**申万二级（131，默认）** |
+| `type2` | `0`=申万一级（31），`1`=**申万二级（131，默认）**，`2`=**热门概念**，`3`=**概念板块** |
 | `isleaf` | `1`=叶子节点，可作为 `hszg/gg` 参数 |
 | `level`, `pcode`, `pname` | 层级与父节点 |
 
@@ -140,11 +140,13 @@ GET https://api.biyingapi.com/hsstock/history/transaction/{code}/{licence}?st=YY
 
 | 汇总字段 | 来源 |
 |----------|------|
-| `active_buy` | `zmbtdcje + zmbddcje + zmbzdcje + zmbxdcje`（主买） |
-| `active_sell` | `zmstdcje + zmsddcje + zmszdcje + zmsxdcje`（主卖） |
+| `active_buy` | `zmbtdcje + zmbddcje + zmbzdcje + zmbxdcje`（主买四档之和） |
+| `active_sell` | `zmstdcje + zmsddcje + zmszdcje + zmsxdcje`（主卖四档之和） |
 | `net_active` | 主买 − 主卖 |
-| `passive_buy` / `passive_sell` | `bdmb*` / `bdms*` |
-| `large_buy` / `large_sell` | 特大单 + 大单 |
+| **原子成交额（v3.6 落库）** | 上述 8 个 `*cje` 字段分别落库 `stock_daily` / `concept_sector_daily`，不预聚合为 large_* |
+| `passive_buy` / `passive_sell` | `bdmb*` / `bdms*`（本期不落库） |
+
+映射刷新：`scripts/refresh_sector_mappings.py`（默认每日 02:00；申万 L2 + type2=2/3，`hszg/gg` 按板块拉成份）。
 
 **更新频率**：每日 21:30。**无批量接口**，全 A 约 5208 次/日（体验版约 17 分钟）。
 

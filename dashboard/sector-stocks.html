@@ -66,6 +66,7 @@
     initNav();
     const params = new URLSearchParams(location.search);
     const sector = params.get('sector');
+    const kind = params.get('kind') || 'sw_l2';
     const sortEl = document.getElementById('sort');
     const daysEl = document.getElementById('days');
     const boardEl = document.getElementById('board');
@@ -98,7 +99,8 @@
     if (params.get('days')) daysEl.value = params.get('days');
 
     function tableUrl() {
-      return `/sectors-table.html?days=${encodeURIComponent(daysEl.value)}&sort=${encodeURIComponent(sortEl.value)}`;
+      const q = new URLSearchParams({ kind, days: daysEl.value, sort: sortEl.value });
+      return `/sectors-table.html?${q}`;
     }
 
     function syncNavLinks(sectorName) {
@@ -194,7 +196,7 @@
       }
       boardEl.innerHTML = '<p class="loading">加载中…</p>';
       stickyDatesInner.innerHTML = '';
-      const data = await apiGet(`/api/sectors/${encodeURIComponent(sector)}/stocks?days=${daysEl.value}&sort=${sortEl.value}`);
+      const data = await apiGet(`/api/sectors/${encodeURIComponent(sector)}/stocks?kind=${encodeURIComponent(kind)}&days=${daysEl.value}&sort=${sortEl.value}`);
       document.getElementById('title').textContent = `${formatSectorName(data.sector_name)} — 成份股`;
       syncNavLinks(data.sector_name);
       const columns = data.columns || [];

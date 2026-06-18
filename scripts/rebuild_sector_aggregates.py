@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""根据 stock_daily 重算 market/sector_daily，并清理当日僵尸板块行。
+"""根据 stock_daily 重算 market/sector_daily、concept_sector_daily，并清理僵尸行。
 
-无需重打必盈 API；适用于 L1→L2 迁移后或修复 sector/stock 不一致。
+无需重打必盈 API；适用于 L1→L2 迁移后、概念映射更新后或修复 sector/stock 不一致。
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ def main() -> int:
         print("错误: stock_daily 无数据", file=sys.stderr)
         return 1
     store.rebuild_aggregates_for_dates(set(dates))
-    print(f"已重聚合并清理 sector 僵尸行，共 {len(dates)} 日: {dates}")
+    print(f"已重聚合 sector + concept，共 {len(dates)} 日: {dates[0]} ~ {dates[-1]}")
     return 0
 
 

@@ -35,6 +35,34 @@ main.sector-page h1 {
   margin-bottom: 0.65rem;
 }
 
+.sector-kind-tabs {
+  display: flex;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.sector-kind-tab {
+  display: inline-block;
+  padding: 0.35rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid var(--border, #2d3a4d);
+  color: var(--text-muted, #9aa8bc);
+  text-decoration: none;
+  font-size: 0.92rem;
+}
+
+.sector-kind-tab:hover {
+  color: var(--text, #e8eef5);
+  border-color: var(--accent, #4da3ff);
+}
+
+.sector-kind-tab.active {
+  background: var(--accent, #4da3ff);
+  border-color: var(--accent, #4da3ff);
+  color: #fff;
+}
+
 .sector-board-hint {
   margin: 0 0 0.55rem;
 }

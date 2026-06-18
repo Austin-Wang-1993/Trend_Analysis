@@ -55,7 +55,16 @@ python3 scripts/serve_dashboard.py
 | 层级 | 板块数 | 默认 |
 |------|--------|------|
 | 申万一级 | 31 | 否 |
-| **申万二级** | **131** | **是** |
+| **申万二级** | **131** | **是（Tab 默认）** |
+| 热门概念 / 概念板块 | type2=2/3 | 页面 2 Tab；`concept_sector_daily` |
+
+```bash
+# 刷新板块映射（申万 L2 + 概念，约 10–20 分钟）
+python3 scripts/refresh_sector_mappings.py
+
+# 从 stock_daily 重算 sector + concept 聚合
+python3 scripts/rebuild_sector_aggregates.py
+```
 | 申万三级 | — | 必盈无 |
 
 配置：`scripts/sector_config.py` → `DEFAULT_SECTOR_LEVEL = "l2"`

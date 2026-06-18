@@ -21,7 +21,21 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "schedule_time": "21:35",
     "schedule_timezone": "Asia/Shanghai",
     "schedule_run_mode": "trading_day",
+    "mapping_refresh_enabled": "true",
+    "mapping_refresh_time": "02:00",
 }
+
+ATOMIC_FLOW_AMOUNT_FIELDS = (
+    "zmbtdcje",
+    "zmbddcje",
+    "zmbzdcje",
+    "zmbxdcje",
+    "zmstdcje",
+    "zmsddcje",
+    "zmszdcje",
+    "zmsxdcje",
+)
+STOCK_FLOW_METRICS = ("turnover", "active_buy", "active_sell", "net_active", *ATOMIC_FLOW_AMOUNT_FIELDS)
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS market_daily (
@@ -94,6 +108,37 @@ CREATE INDEX IF NOT EXISTS idx_stock_daily_sector ON stock_daily(trade_date, sec
 CREATE INDEX IF NOT EXISTS idx_stock_daily_code ON stock_daily(stock_code, trade_date);
 CREATE INDEX IF NOT EXISTS idx_etf_daily_date ON etf_daily(trade_date);
 CREATE INDEX IF NOT EXISTS idx_fetch_jobs_status ON fetch_jobs(status);
+CREATE TABLE IF NOT EXISTS concept_stock_map (
+    concept_type INTEGER NOT NULL,
+    sector_code TEXT NOT NULL,
+    sector_name TEXT NOT NULL,
+    stock_code TEXT NOT NULL,
+    PRIMARY KEY (concept_type, sector_code, stock_code)
+);
+CREATE INDEX IF NOT EXISTS idx_concept_map_stock ON concept_stock_map(concept_type, stock_code);
+CREATE INDEX IF NOT EXISTS idx_concept_map_sector ON concept_stock_map(concept_type, sector_code);
+CREATE TABLE IF NOT EXISTS concept_sector_daily (
+    trade_date TEXT NOT NULL,
+    concept_type INTEGER NOT NULL,
+    sector_code TEXT NOT NULL,
+    sector_name TEXT NOT NULL,
+    turnover REAL NOT NULL DEFAULT 0,
+    turnover_pct REAL,
+    active_buy REAL,
+    active_sell REAL,
+    net_active REAL,
+    zmbtdcje REAL,
+    zmbddcje REAL,
+    zmbzdcje REAL,
+    zmbxdcje REAL,
+    zmstdcje REAL,
+    zmsddcje REAL,
+    zmszdcje REAL,
+    zmsxdcje REAL,
+    stock_count INTEGER,
+    PRIMARY KEY (trade_date, concept_type, sector_code)
+);
+CREATE INDEX IF NOT EXISTS idx_concept_sector_date ON concept_sector_daily(trade_date, concept_type);
 """
 
 
@@ -123,6 +168,45 @@ class HistoryStore:
         cols = {row[1] for row in conn.execute("PRAGMA table_info(fetch_jobs)").fetchall()}
         if "end_date" not in cols:
             conn.execute("ALTER TABLE fetch_jobs ADD COLUMN end_date TEXT")
+        stock_cols = {row[1] for row in conn.execute("PRAGMA table_info(stock_daily)").fetchall()}
+        for col in ATOMIC_FLOW_AMOUNT_FIELDS:
+            if col not in stock_cols:
+                conn.execute(f"ALTER TABLE stock_daily ADD COLUMN {col} REAL")
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS concept_stock_map (
+                concept_type INTEGER NOT NULL,
+                sector_code TEXT NOT NULL,
+                sector_name TEXT NOT NULL,
+                stock_code TEXT NOT NULL,
+                PRIMARY KEY (concept_type, sector_code, stock_code)
+            );
+            CREATE INDEX IF NOT EXISTS idx_concept_map_stock ON concept_stock_map(concept_type, stock_code);
+            CREATE INDEX IF NOT EXISTS idx_concept_map_sector ON concept_stock_map(concept_type, sector_code);
+            CREATE TABLE IF NOT EXISTS concept_sector_daily (
+                trade_date TEXT NOT NULL,
+                concept_type INTEGER NOT NULL,
+                sector_code TEXT NOT NULL,
+                sector_name TEXT NOT NULL,
+                turnover REAL NOT NULL DEFAULT 0,
+                turnover_pct REAL,
+                active_buy REAL,
+                active_sell REAL,
+                net_active REAL,
+                zmbtdcje REAL,
+                zmbddcje REAL,
+                zmbzdcje REAL,
+                zmbxdcje REAL,
+                zmstdcje REAL,
+                zmsddcje REAL,
+                zmszdcje REAL,
+                zmsxdcje REAL,
+                stock_count INTEGER,
+                PRIMARY KEY (trade_date, concept_type, sector_code)
+            );
+            CREATE INDEX IF NOT EXISTS idx_concept_sector_date ON concept_sector_daily(trade_date, concept_type);
+            """
+        )
 
     def get_settings(self) -> dict[str, str]:
         with self._connect() as conn:
@@ -180,6 +264,158 @@ class HistoryStore:
         )
         return cur.rowcount
 
+    @staticmethod
+    def _prune_concept_sector_daily(
+        conn: sqlite3.Connection, trade_date: str, concept_type: int, kept_codes: set[str]
+    ) -> int:
+        if not kept_codes:
+            cur = conn.execute(
+                "DELETE FROM concept_sector_daily WHERE trade_date=? AND concept_type=?",
+                (trade_date, concept_type),
+            )
+            return cur.rowcount
+        placeholders = ",".join("?" * len(kept_codes))
+        cur = conn.execute(
+            f"""DELETE FROM concept_sector_daily
+                WHERE trade_date=? AND concept_type=? AND sector_code NOT IN ({placeholders})""",
+            (trade_date, concept_type, *sorted(kept_codes)),
+        )
+        return cur.rowcount
+
+    def replace_concept_stock_map(self, concept_type: int, mapping_df: pd.DataFrame) -> None:
+        with self._connect() as conn:
+            conn.execute("DELETE FROM concept_stock_map WHERE concept_type=?", (concept_type,))
+            for _, row in mapping_df.iterrows():
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO concept_stock_map(concept_type, sector_code, sector_name, stock_code)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        concept_type,
+                        str(row.get("sector_code", "")),
+                        str(row.get("sector_name", "")),
+                        str(row.get("stock_code", "")),
+                    ),
+                )
+            conn.commit()
+
+    @staticmethod
+    def _stock_upsert_params(row: pd.Series | dict[str, Any]) -> tuple[Any, ...]:
+        data = row.to_dict() if isinstance(row, pd.Series) else dict(row)
+        return (
+            data.get("trade_date"),
+            str(data.get("stock_code", "")),
+            data.get("stock_name"),
+            data.get("sector_code"),
+            data.get("sector_name"),
+            data.get("turnover"),
+            data.get("active_buy"),
+            data.get("active_sell"),
+            data.get("net_active"),
+            *(data.get(col) for col in ATOMIC_FLOW_AMOUNT_FIELDS),
+        )
+
+    def _upsert_concept_sector_rows(
+        self,
+        conn: sqlite3.Connection,
+        trade_date: str,
+        concept_type: int,
+        sector_df: pd.DataFrame,
+        market_turnover: float,
+    ) -> None:
+        if sector_df.empty:
+            return
+        df = sector_df.copy()
+        if market_turnover > 0 and "turnover" in df.columns:
+            df["turnover_pct"] = df["turnover"] / market_turnover
+        for _, row in df.iterrows():
+            conn.execute(
+                """
+                INSERT INTO concept_sector_daily(
+                    trade_date, concept_type, sector_code, sector_name, turnover, turnover_pct,
+                    active_buy, active_sell, net_active,
+                    zmbtdcje, zmbddcje, zmbzdcje, zmbxdcje,
+                    zmstdcje, zmsddcje, zmszdcje, zmsxdcje,
+                    stock_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(trade_date, concept_type, sector_code) DO UPDATE SET
+                    sector_name=excluded.sector_name, turnover=excluded.turnover,
+                    turnover_pct=excluded.turnover_pct, active_buy=excluded.active_buy,
+                    active_sell=excluded.active_sell, net_active=excluded.net_active,
+                    zmbtdcje=excluded.zmbtdcje, zmbddcje=excluded.zmbddcje,
+                    zmbzdcje=excluded.zmbzdcje, zmbxdcje=excluded.zmbxdcje,
+                    zmstdcje=excluded.zmstdcje, zmsddcje=excluded.zmsddcje,
+                    zmszdcje=excluded.zmszdcje, zmsxdcje=excluded.zmsxdcje,
+                    stock_count=excluded.stock_count
+                """,
+                (
+                    trade_date,
+                    concept_type,
+                    str(row.get("sector_code", "")),
+                    str(row.get("sector_name", "")),
+                    float(row.get("turnover") or 0),
+                    row.get("turnover_pct"),
+                    row.get("active_buy"),
+                    row.get("active_sell"),
+                    row.get("net_active"),
+                    row.get("zmbtdcje"),
+                    row.get("zmbddcje"),
+                    row.get("zmbzdcje"),
+                    row.get("zmbxdcje"),
+                    row.get("zmstdcje"),
+                    row.get("zmsddcje"),
+                    row.get("zmszdcje"),
+                    row.get("zmsxdcje"),
+                    int(row.get("stock_count") or 0),
+                ),
+            )
+        kept = {
+            str(row.get("sector_code", ""))
+            for _, row in df.iterrows()
+            if str(row.get("sector_code", "")).strip()
+        }
+        self._prune_concept_sector_daily(conn, trade_date, concept_type, kept)
+
+    def rebuild_concept_aggregates_for_date(self, trade_date: str) -> None:
+        from concept_common import aggregate_concept_sectors, sectors_for_concept_type
+        from by_common import TYPE2_BOARD, TYPE2_HOT
+
+        with self._connect() as conn:
+            stocks = pd.read_sql_query(
+                "SELECT * FROM stock_daily WHERE trade_date = ?",
+                conn,
+                params=(trade_date,),
+            )
+            tree_path = self.db_path.parent / "cache" / "sector_tree.json"
+            if tree_path.exists():
+                import json
+
+                tree_df = pd.DataFrame(json.loads(tree_path.read_text(encoding="utf-8")))
+            else:
+                tree_df = pd.DataFrame()
+        if stocks.empty:
+            return
+        market_turnover = float(stocks["turnover"].fillna(0).sum())
+        for concept_type in (TYPE2_HOT, TYPE2_BOARD):
+            with self._connect() as conn:
+                mapping = pd.read_sql_query(
+                    "SELECT sector_code, sector_name, stock_code FROM concept_stock_map WHERE concept_type=?",
+                    conn,
+                    params=(concept_type,),
+                )
+            if mapping.empty:
+                continue
+            if not tree_df.empty:
+                catalog = sectors_for_concept_type(tree_df, concept_type)
+            else:
+                catalog = mapping[["sector_code", "sector_name"]].drop_duplicates()
+                catalog = catalog.rename(columns={"sector_code": "code", "sector_name": "name"})
+            sector_df = aggregate_concept_sectors(stocks, mapping, catalog)
+            with self._connect() as conn:
+                self._upsert_concept_sector_rows(conn, trade_date, concept_type, sector_df, market_turnover)
+                conn.commit()
+
     def upsert_snapshot(
         self,
         trade_date: str,
@@ -189,6 +425,7 @@ class HistoryStore:
         market_row: dict[str, Any] | None,
         etf_df: pd.DataFrame | None,
         snapshot_time: str,
+        concept_sector_dfs: dict[int, pd.DataFrame] | None = None,
     ) -> None:
         market_turnover = float(stock_df["turnover"].sum()) if "turnover" in stock_df.columns else 0.0
         if market_row:
@@ -267,26 +504,25 @@ class HistoryStore:
                 conn.execute(
                     """
                     INSERT INTO stock_daily(trade_date, stock_code, stock_name, sector_code, sector_name,
-                        turnover, active_buy, active_sell, net_active)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        turnover, active_buy, active_sell, net_active,
+                        zmbtdcje, zmbddcje, zmbzdcje, zmbxdcje,
+                        zmstdcje, zmsddcje, zmszdcje, zmsxdcje)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(trade_date, stock_code) DO UPDATE SET
                         stock_name=excluded.stock_name, sector_code=excluded.sector_code,
                         sector_name=excluded.sector_name, turnover=excluded.turnover,
                         active_buy=excluded.active_buy, active_sell=excluded.active_sell,
-                        net_active=excluded.net_active
+                        net_active=excluded.net_active,
+                        zmbtdcje=excluded.zmbtdcje, zmbddcje=excluded.zmbddcje,
+                        zmbzdcje=excluded.zmbzdcje, zmbxdcje=excluded.zmbxdcje,
+                        zmstdcje=excluded.zmstdcje, zmsddcje=excluded.zmsddcje,
+                        zmszdcje=excluded.zmszdcje, zmsxdcje=excluded.zmsxdcje
                     """,
-                    (
-                        trade_date,
-                        str(row.get("stock_code", "")),
-                        str(row.get("stock_name", "")),
-                        row.get("sector_code"),
-                        row.get("sector_name"),
-                        row.get("turnover"),
-                        row.get("active_buy"),
-                        row.get("active_sell"),
-                        row.get("net_active"),
-                    ),
+                    self._stock_upsert_params({**row.to_dict(), "trade_date": trade_date}),
                 )
+            if concept_sector_dfs:
+                for concept_type, cdf in concept_sector_dfs.items():
+                    self._upsert_concept_sector_rows(conn, trade_date, concept_type, cdf, market_turnover)
             if etf_df is not None and not etf_df.empty:
                 for _, row in etf_df.iterrows():
                     pct = (float(row.get("turnover") or 0) / market_turnover) if market_turnover else None
@@ -317,8 +553,10 @@ class HistoryStore:
                 conn.execute(
                     """
                     INSERT INTO stock_daily(trade_date, stock_code, stock_name, sector_code, sector_name,
-                        turnover, active_buy, active_sell, net_active)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        turnover, active_buy, active_sell, net_active,
+                        zmbtdcje, zmbddcje, zmbzdcje, zmbxdcje,
+                        zmstdcje, zmsddcje, zmszdcje, zmsxdcje)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(trade_date, stock_code) DO UPDATE SET
                         stock_name=COALESCE(excluded.stock_name, stock_daily.stock_name),
                         sector_code=COALESCE(excluded.sector_code, stock_daily.sector_code),
@@ -326,19 +564,17 @@ class HistoryStore:
                         turnover=COALESCE(excluded.turnover, stock_daily.turnover),
                         active_buy=COALESCE(excluded.active_buy, stock_daily.active_buy),
                         active_sell=COALESCE(excluded.active_sell, stock_daily.active_sell),
-                        net_active=COALESCE(excluded.net_active, stock_daily.net_active)
+                        net_active=COALESCE(excluded.net_active, stock_daily.net_active),
+                        zmbtdcje=COALESCE(excluded.zmbtdcje, stock_daily.zmbtdcje),
+                        zmbddcje=COALESCE(excluded.zmbddcje, stock_daily.zmbddcje),
+                        zmbzdcje=COALESCE(excluded.zmbzdcje, stock_daily.zmbzdcje),
+                        zmbxdcje=COALESCE(excluded.zmbxdcje, stock_daily.zmbxdcje),
+                        zmstdcje=COALESCE(excluded.zmstdcje, stock_daily.zmstdcje),
+                        zmsddcje=COALESCE(excluded.zmsddcje, stock_daily.zmsddcje),
+                        zmszdcje=COALESCE(excluded.zmszdcje, stock_daily.zmszdcje),
+                        zmsxdcje=COALESCE(excluded.zmsxdcje, stock_daily.zmsxdcje)
                     """,
-                    (
-                        row["trade_date"],
-                        row["stock_code"],
-                        row.get("stock_name"),
-                        row.get("sector_code"),
-                        row.get("sector_name"),
-                        row.get("turnover"),
-                        row.get("active_buy"),
-                        row.get("active_sell"),
-                        row.get("net_active"),
-                    ),
+                    self._stock_upsert_params(row),
                 )
             conn.commit()
         self.rebuild_aggregates_for_dates({r["trade_date"] for r in rows})
@@ -421,6 +657,7 @@ class HistoryStore:
                     )
                 kept_sectors = set(sector["sector_code"].astype(str).str.strip()) - {""}
                 self._prune_sector_daily(conn, trade_date, kept_sectors)
+                self.rebuild_concept_aggregates_for_date(trade_date)
                 conn.commit()
 
     def get_market_series(self, days: int = 5) -> dict[str, list[dict[str, Any]]]:
@@ -440,7 +677,35 @@ class HistoryStore:
             "active_sell_series": [{"trade_date": r["trade_date"], "value": r["active_sell"] or 0} for r in rows],
         }
 
-    def get_sector_table(self, days: int = 5, sort: str = "turnover_pct_desc") -> dict[str, Any]:
+    def get_sector_table(self, days: int = 5, sort: str = "turnover_pct_desc", kind: str = "sw_l2") -> dict[str, Any]:
+        if kind == "sw_l2":
+            return self._get_rank_table_from_sql(
+                days,
+                sort,
+                table="sector_daily",
+                extra_where="",
+                extra_params=(),
+            )
+        from sector_config import concept_type_for_kind
+
+        concept_type = concept_type_for_kind(kind)
+        return self._get_rank_table_from_sql(
+            days,
+            sort,
+            table="concept_sector_daily",
+            extra_where=" AND concept_type=?",
+            extra_params=(concept_type,),
+        )
+
+    def _get_rank_table_from_sql(
+        self,
+        days: int,
+        sort: str,
+        *,
+        table: str,
+        extra_where: str,
+        extra_params: tuple[Any, ...],
+    ) -> dict[str, Any]:
         trade_dates = self.list_trading_days(days)
         if not trade_dates:
             return {"days": days, "sort": sort, "trade_dates": [], "columns": []}
@@ -452,10 +717,10 @@ class HistoryStore:
                 f"""
                 SELECT trade_date, sector_code, sector_name, turnover, turnover_pct,
                        active_buy, active_sell
-                FROM sector_daily WHERE trade_date IN ({placeholders})
+                FROM {table} WHERE trade_date IN ({placeholders}){extra_where}
                 """,
                 conn,
-                params=trade_dates,
+                params=(*trade_dates, *extra_params),
             )
             market_df = pd.read_sql_query(
                 f"""
@@ -505,15 +770,16 @@ class HistoryStore:
                 sec["rank"] = rank
             columns.append({"trade_date": d, "sectors": day_sectors})
 
+        kind_label = "sw_l2"
+        if table == "concept_sector_daily" and extra_params:
+            kind_label = "hot" if extra_params[0] == 2 else "board"
         return {
             "days": days,
             "sort": sort,
+            "kind": kind_label,
             "trade_dates": dates_new_to_old,
             "columns": columns,
         }
-
-    @staticmethod
-    def _normalize_sector_table_sort(sort: str) -> str:
         aliases = {
             "pct_desc": "turnover_pct_desc",
             "pct_asc": "turnover_pct_asc",
@@ -589,7 +855,13 @@ class HistoryStore:
             })
         return out
 
-    def get_sector_stocks(self, sector_code: str, days: int = 5, sort: str = "turnover_pct_desc") -> dict[str, Any]:
+    def get_sector_stocks(
+        self,
+        sector_code: str,
+        days: int = 5,
+        sort: str = "turnover_pct_desc",
+        kind: str = "sw_l2",
+    ) -> dict[str, Any]:
         trade_dates = self.list_trading_days(days)
         if not trade_dates:
             return {
@@ -597,6 +869,7 @@ class HistoryStore:
                 "sector_name": sector_code,
                 "days": days,
                 "sort": sort,
+                "kind": kind,
                 "trade_dates": [],
                 "columns": [],
             }
@@ -604,19 +877,50 @@ class HistoryStore:
         sort = self._normalize_rank_table_sort(sort)
         placeholders = ",".join("?" * len(trade_dates))
         with self._connect() as conn:
-            meta = conn.execute(
-                "SELECT sector_name FROM sector_daily WHERE sector_code=? LIMIT 1",
-                (sector_code,),
-            ).fetchone()
-            df = pd.read_sql_query(
-                f"""
-                SELECT * FROM stock_daily
-                WHERE sector_code=? AND trade_date IN ({placeholders})
-                ORDER BY stock_code, trade_date
-                """,
-                conn,
-                params=(sector_code, *trade_dates),
-            )
+            if kind in ("hot", "board"):
+                from sector_config import concept_type_for_kind
+
+                concept_type = concept_type_for_kind(kind)
+                meta = conn.execute(
+                    """
+                    SELECT sector_name FROM concept_stock_map
+                    WHERE concept_type=? AND sector_code=? LIMIT 1
+                    """,
+                    (concept_type, sector_code),
+                ).fetchone()
+                if not meta:
+                    meta = conn.execute(
+                        """
+                        SELECT sector_name FROM concept_sector_daily
+                        WHERE concept_type=? AND sector_code=? LIMIT 1
+                        """,
+                        (concept_type, sector_code),
+                    ).fetchone()
+                df = pd.read_sql_query(
+                    f"""
+                    SELECT s.* FROM stock_daily s
+                    INNER JOIN concept_stock_map m
+                      ON m.stock_code = s.stock_code AND m.concept_type = ? AND m.sector_code = ?
+                    WHERE s.trade_date IN ({placeholders})
+                    ORDER BY s.stock_code, s.trade_date
+                    """,
+                    conn,
+                    params=(concept_type, sector_code, *trade_dates),
+                )
+            else:
+                meta = conn.execute(
+                    "SELECT sector_name FROM sector_daily WHERE sector_code=? LIMIT 1",
+                    (sector_code,),
+                ).fetchone()
+                df = pd.read_sql_query(
+                    f"""
+                    SELECT * FROM stock_daily
+                    WHERE sector_code=? AND trade_date IN ({placeholders})
+                    ORDER BY stock_code, trade_date
+                    """,
+                    conn,
+                    params=(sector_code, *trade_dates),
+                )
         sector_name = meta["sector_name"] if meta else sector_code
 
         sector_totals_by_date: dict[str, dict[str, float]] = {}
@@ -668,6 +972,7 @@ class HistoryStore:
             "sector_name": sector_name,
             "days": days,
             "sort": sort,
+            "kind": kind,
             "trade_dates": dates_new_to_old,
             "columns": columns,
         }
@@ -987,6 +1292,11 @@ class HistoryStore:
         with self._connect() as conn:
             tables = {
                 "market_daily.csv": pd.read_sql_query("SELECT * FROM market_daily WHERE trade_date=?", conn, params=(trade_date,)),
+                "concept_sector_daily.csv": pd.read_sql_query(
+                    "SELECT * FROM concept_sector_daily WHERE trade_date=?",
+                    conn,
+                    params=(trade_date,),
+                ),
                 "sector_daily.csv": pd.read_sql_query("SELECT * FROM sector_daily WHERE trade_date=?", conn, params=(trade_date,)),
                 "stock_daily.csv": pd.read_sql_query("SELECT * FROM stock_daily WHERE trade_date=?", conn, params=(trade_date,)),
                 "etf_daily.csv": pd.read_sql_query("SELECT * FROM etf_daily WHERE trade_date=?", conn, params=(trade_date,)),

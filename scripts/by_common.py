@@ -20,6 +20,19 @@ CST = ZoneInfo("Asia/Shanghai")
 # hszg/list type2 含义（备用）
 TYPE2_SW_L1 = 0  # A股-申万行业
 TYPE2_SW_L2 = 1  # A股-申万二级
+TYPE2_HOT = 2  # A股-热门概念
+TYPE2_BOARD = 3  # A股-概念板块
+
+ATOMIC_FLOW_AMOUNT_FIELDS = (
+    "zmbtdcje",
+    "zmbddcje",
+    "zmbzdcje",
+    "zmbxdcje",
+    "zmstdcje",
+    "zmsddcje",
+    "zmszdcje",
+    "zmsxdcje",
+)
 
 # hslt/primarylist 申万一级行业名称前缀（中证1000成份的申万一级）
 HSLT_SW_L1_PREFIX = "1000SW1"
@@ -380,7 +393,7 @@ def parse_fund_flow_row(row: dict[str, Any], stock_code: str) -> dict[str, Any]:
     passive_sell = _sum_fields(row, FUND_FLOW_PASSIVE_SELL_FIELDS)
     large_buy = _sum_fields(row, FUND_FLOW_LARGE_BUY_FIELDS)
     large_sell = _sum_fields(row, FUND_FLOW_LARGE_SELL_FIELDS)
-    return {
+    parsed: dict[str, Any] = {
         "stock_code": stock_code,
         "trade_date": trade_date,
         "active_buy": active_buy,
@@ -395,6 +408,9 @@ def parse_fund_flow_row(row: dict[str, Any], stock_code: str) -> dict[str, Any]:
         "zddy": float(row.get("zddy", 0) or 0),
         "ddcf": float(row.get("ddcf", 0) or 0),
     }
+    for key in ATOMIC_FLOW_AMOUNT_FIELDS:
+        parsed[key] = float(row.get(key, 0) or 0)
+    return parsed
 
 
 def _exchange_suffix(stock_code: str) -> str:

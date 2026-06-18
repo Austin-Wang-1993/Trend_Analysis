@@ -26,7 +26,7 @@ from sector_config import DEFAULT_SECTOR_LEVEL, mapping_cache_name, primary_type
 from trading_calendar import get_trading_days, is_trading_day, normalize_date, today_cst
 
 CST = ZoneInfo("Asia/Shanghai")
-MAX_TRADING_DAYS = 30
+MAX_TRADING_DAYS = 400
 
 
 def parse_args() -> argparse.Namespace:

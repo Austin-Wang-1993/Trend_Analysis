@@ -60,7 +60,7 @@ class FetchRequest(BaseModel):
     end_date: str
 
 
-MAX_FETCH_TRADING_DAYS = 30
+MAX_FETCH_TRADING_DAYS = 400
 
 
 def _validate_fetch_range(start_date: str, end_date: str) -> tuple[str, str, list[str]]:
@@ -164,8 +164,9 @@ def api_market(days: int = Query(5, ge=1, le=30)) -> dict[str, Any]:
 def api_sectors_table(
     days: int = Query(5, ge=1, le=30),
     sort: str = Query("turnover_pct_desc"),
+    kind: str = Query("sw_l2", pattern="^(sw_l2|hot|board)$"),
 ) -> dict[str, Any]:
-    return get_store().get_sector_table(days, sort=sort)
+    return get_store().get_sector_table(days, sort=sort, kind=kind)
 
 
 @app.get("/api/sectors/charts")
@@ -178,8 +179,9 @@ def api_sector_stocks(
     sector_code: str,
     days: int = Query(5, ge=1, le=30),
     sort: str = Query("turnover_pct_desc"),
+    kind: str = Query("sw_l2", pattern="^(sw_l2|hot|board)$"),
 ) -> dict[str, Any]:
-    return get_store().get_sector_stocks(sector_code, days, sort=sort)
+    return get_store().get_sector_stocks(sector_code, days, sort=sort, kind=kind)
 
 
 @app.get("/api/stocks/{stock_code}/series")

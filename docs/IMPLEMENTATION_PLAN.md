@@ -1,8 +1,10 @@
 # 实现方案：历史落库 + Web 看板 + 管理页
 
-> 版本：**v3.5**  
+> 版本：**v3.6**  
 > 前置：[REQUIREMENTS.md](./REQUIREMENTS.md)  
 > 必盈接口：[BIYING_API.md](./BIYING_API.md)
+
+**v3.6 变更**：页面 2 **概念 Tab**；`concept_stock_map` / `concept_sector_daily`；`stock_daily` 8 档原子资金流；`refresh_sector_mappings.py`（02:00）；补数 **≤400 交易日**；`GET /api/sectors/table?kind=`.
 
 **v3.5 变更**：管理页 **区间补数**（开始+结束必填，相等=单日）；`fetch_by_range.py`；`transaction` / 日 K **`st/et` 按股拉取**；不跳过已有数据；**移除强制补数**。
 
@@ -59,7 +61,7 @@
 | 看板板块 | 申万一级 31 | **申万二级 131** |
 | 默认 `--level` | `l1` | **`l2`** |
 | L1→L2 迁移 | — | **`migrate_sectors_to_l2.py`** |
-| 手动补数 | 单日 | **起止日期必填**；区间 ≤30 交易日；**不跳过已有** |
+| 手动补数 | 单日 | **起止日期必填**；区间 ≤400 交易日；**不跳过已有** |
 | 任务取消 | — | **`POST .../cancel`** |
 | sector 僵尸行 | 不删除 | **upsert/rebuild 后 DELETE  orphan** |
 | Excel 导出 | 无 BOM 乱码 | **utf-8-sig** |
@@ -295,7 +297,7 @@ python3 scripts/fetch_by_range.py --start 2026-06-12 --end 2026-06-12
 **流程**
 
 ```text
-① validate: start/end 必填, start≤end, end≤today, 1≤交易日数≤30
+① validate: start/end 必填, start≤end, end≤today, 1≤交易日数≤400
 ② days = get_trading_days(start, end)   # PMC SSE
 ③ 若 days 仅 1 日且 = today → 委托 fetch_by_daily
 ④ 否则按股批量拉取（核心优化，调用量 ≈ 5200×2，与区间长度弱相关）：
@@ -597,7 +599,7 @@ python3 scripts/backfill_history.py --days 5 --no-all-turnover
 | `start_date > end_date` | 400 |
 | `end_date > today` | 400 |
 | 区间内 0 个交易日 | 400 |
-| 区间内 > 30 个交易日 | 400 |
+| 区间内 > 400 个交易日 | 400 |
 | `start==end` 且该日非交易日 | 400「休市日无数据，请选择交易日」 |
 | 已有 `running` 任务 | 409 |
 

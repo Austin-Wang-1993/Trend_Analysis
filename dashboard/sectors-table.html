@@ -4,14 +4,19 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>板块表格 — Trend Analysis</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=20260622" />
-  <link rel="stylesheet" href="/static/css/sectors-table.css?v=20260622" />
+  <link rel="stylesheet" href="/static/css/style.css?v=20260623" />
+  <link rel="stylesheet" href="/static/css/sectors-table.css?v=20260623" />
 </head>
 <body class="sector-table-page">
   <nav></nav>
   <main class="main-wide sector-page">
     <div class="sector-page-fixed">
-      <h1>申万二级板块 — 每日排行</h1>
+      <div class="sector-kind-tabs" role="tablist">
+        <a href="#" class="sector-kind-tab active" data-kind="sw_l2" role="tab">申万二级</a>
+        <a href="#" class="sector-kind-tab" data-kind="hot" role="tab">热门概念</a>
+        <a href="#" class="sector-kind-tab" data-kind="board" role="tab">概念板块</a>
+      </div>
+      <h1 id="pageTitle">申万二级板块 — 每日排行</h1>
       <div class="toolbar">
         <div class="card-search-toolbar">
           <label>搜索
@@ -43,7 +48,7 @@
           </select>
         </label>
       </div>
-      <p class="footnote sector-board-hint">左新右旧；点击卡片高亮同板块各列；点击板块名称查看成份股。</p>
+      <p class="footnote sector-board-hint" id="boardHint">左新右旧；点击卡片高亮同板块各列；点击板块名称查看成份股。</p>
       <div class="sector-dates-bar" id="stickyDates">
         <div class="sector-dates-inner" id="stickyDatesInner"></div>
       </div>
@@ -54,19 +59,56 @@
       </div>
     </div>
   </main>
-  <script src="/static/js/format.js?v=20260622"></script>
-  <script src="/static/js/api.js?v=20260622"></script>
-  <script src="/static/js/nav.js?v=20260622"></script>
-  <script src="/static/js/card-search.js?v=20260622"></script>
+  <script src="/static/js/format.js?v=20260623"></script>
+  <script src="/static/js/api.js?v=20260623"></script>
+  <script src="/static/js/nav.js?v=20260623"></script>
+  <script src="/static/js/card-search.js?v=20260623"></script>
   <script>
     initNav();
+    const params = new URLSearchParams(location.search);
+    const KIND_META = {
+      sw_l2: { title: '申万二级板块 — 每日排行', hint: '左新右旧；点击卡片高亮同板块各列；点击板块名称查看成份股。' },
+      hot: { title: '热门概念 — 每日排行', hint: '概念成份存在重叠，各板块占比之和不必等于 100%。占比分母为当日全 A。' },
+      board: { title: '概念板块 — 每日排行', hint: '概念成份存在重叠，各板块占比之和不必等于 100%。占比分母为当日全 A。' },
+    };
+    let currentKind = params.get('kind') || 'sw_l2';
+    if (!KIND_META[currentKind]) currentKind = 'sw_l2';
+
     const sortEl = document.getElementById('sort');
     const daysEl = document.getElementById('days');
     const boardEl = document.getElementById('board');
     const boardOuter = document.getElementById('boardOuter');
     const stickyDatesInner = document.getElementById('stickyDatesInner');
     const cardsViewport = document.getElementById('cardsViewport');
+    const pageTitle = document.getElementById('pageTitle');
+    const boardHint = document.getElementById('boardHint');
     let highlightedCode = null;
+
+    if (params.get('sort')) sortEl.value = params.get('sort');
+    if (params.get('days')) daysEl.value = params.get('days');
+
+    function syncKindUi() {
+      document.querySelectorAll('.sector-kind-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.kind === currentKind);
+      });
+      const meta = KIND_META[currentKind];
+      pageTitle.textContent = meta.title;
+      boardHint.textContent = meta.hint;
+      const q = new URLSearchParams({ kind: currentKind, days: daysEl.value, sort: sortEl.value });
+      history.replaceState(null, '', `/sectors-table.html?${q}`);
+    }
+
+    document.querySelectorAll('.sector-kind-tab').forEach(tab => {
+      tab.addEventListener('click', e => {
+        e.preventDefault();
+        const kind = tab.dataset.kind;
+        if (kind === currentKind) return;
+        currentKind = kind;
+        highlightedCode = null;
+        syncKindUi();
+        load().catch(err => alert(err.message));
+      });
+    });
 
     function clearCrossHighlight() {
       highlightedCode = null;
@@ -107,17 +149,26 @@
       return `<span class="metric-net ${cls}">${prefix}${formatAmount(v).text}</span>`;
     }
 
+    function stocksUrl(code) {
+      const q = new URLSearchParams({
+        sector: code,
+        kind: currentKind,
+        days: daysEl.value,
+        sort: sortEl.value,
+      });
+      return `/sector-stocks.html?${q}`;
+    }
+
     function renderCard(sector) {
       const code = sector.sector_code;
       const cls = highlightedCode === code ? 'sector-card highlighted' : 'sector-card';
       const name = escapeHtml(formatSectorName(sector.sector_name));
-      const stocksUrl = `/sector-stocks.html?sector=${encodeURIComponent(code)}&days=${encodeURIComponent(daysEl.value)}&sort=${encodeURIComponent(sortEl.value)}`;
       const searchText = formatSectorName(sector.sector_name);
       return `
         <article class="${cls}" data-sector-code="${escapeAttr(code)}" data-search-text="${escapeAttr(searchText)}" tabindex="0">
           <div class="sector-card-head">
             <span class="sector-rank">#${sector.rank}</span>
-            <a class="sector-name" href="${stocksUrl}">${name}</a>
+            <a class="sector-name" href="${stocksUrl(code)}">${name}</a>
           </div>
           <dl class="sector-metrics">
             <div><dt>成交</dt><dd>${fmtMoney(sector.turnover)} <span class="metric-pct">${fmtPct(sector.turnover_pct)}</span></dd></div>
@@ -166,7 +217,8 @@
     async function load() {
       boardEl.innerHTML = '<p class="loading">加载中…</p>';
       stickyDatesInner.innerHTML = '';
-      const data = await apiGet(`/api/sectors/table?days=${daysEl.value}&sort=${sortEl.value}`);
+      syncKindUi();
+      const data = await apiGet(`/api/sectors/table?kind=${encodeURIComponent(currentKind)}&days=${daysEl.value}&sort=${sortEl.value}`);
       const columns = data.columns || [];
       if (!columns.length) {
         boardEl.innerHTML = '<p class="loading">暂无数据</p>';
@@ -193,6 +245,7 @@
 
     sortEl.addEventListener('change', () => load().catch(e => alert(e.message)));
     daysEl.addEventListener('change', () => load().catch(e => alert(e.message)));
+    syncKindUi();
     load().catch(e => { boardEl.innerHTML = `<p class="loading status-fail">${escapeHtml(e.message)}</p>`; });
   </script>
 </body>

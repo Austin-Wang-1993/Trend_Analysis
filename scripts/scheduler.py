@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
@@ -14,6 +17,15 @@ if TYPE_CHECKING:
 
 CST = ZoneInfo("Asia/Shanghai")
 _scheduler: BackgroundScheduler | None = None
+_SCRIPTS = Path(__file__).resolve().parent
+
+
+def _run_mapping_refresh() -> None:
+    subprocess.run(
+        [sys.executable, str(_SCRIPTS / "refresh_sector_mappings.py")],
+        cwd=str(_SCRIPTS.parent),
+        check=False,
+    )
 
 
 def _parse_time(s: str) -> tuple[int, int]:
@@ -84,6 +96,14 @@ def start_scheduler(store: "HistoryStore", run_callback) -> BackgroundScheduler:
             id="daily_fetch",
             replace_existing=True,
         )
+    if settings.get("mapping_refresh_enabled", "true").lower() == "true":
+        map_hour, map_minute = _parse_time(settings.get("mapping_refresh_time", "02:00"))
+        _scheduler.add_job(
+            _run_mapping_refresh,
+            CronTrigger(hour=map_hour, minute=map_minute, timezone=tz),
+            id="mapping_refresh",
+            replace_existing=True,
+        )
     _scheduler.start()
     return _scheduler
 
@@ -108,5 +128,18 @@ def reload_scheduler(store: "HistoryStore", run_callback) -> None:
             run_callback,
             CronTrigger(hour=hour, minute=minute, timezone=tz),
             id="daily_fetch",
+            replace_existing=True,
+        )
+
+    try:
+        _scheduler.remove_job("mapping_refresh")
+    except Exception:
+        pass
+    if settings.get("mapping_refresh_enabled", "true").lower() == "true":
+        map_hour, map_minute = _parse_time(settings.get("mapping_refresh_time", "02:00"))
+        _scheduler.add_job(
+            _run_mapping_refresh,
+            CronTrigger(hour=map_hour, minute=map_minute, timezone=tz),
+            id="mapping_refresh",
             replace_existing=True,
         )

@@ -32,6 +32,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from by_common import (
     TYPE2_SW_L1,
     TYPE2_SW_L2,
+    TYPE2_HOT,
+    TYPE2_BOARD,
     aggregate_market_summary,
     aggregate_sector_fund_flow,
     build_sector_mapping,
@@ -50,6 +52,11 @@ from by_common import (
 
 from sector_config import DEFAULT_SECTOR_LEVEL, primary_type2_for_level
 from history_store import HistoryStore
+from concept_common import (
+    aggregate_concept_sectors,
+    apply_turnover_pct,
+    load_or_build_concept_mapping,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
@@ -423,6 +430,23 @@ def main() -> int:
             market_row = None
             if include_fund_flow and not market_df.empty:
                 market_row = market_df.iloc[0].to_dict()
+
+            concept_sector_dfs: dict[int, pd.DataFrame] = {}
+            if not args.turnover_only and tree_df is not None and not tree_df.empty:
+                for concept_type, label in ((TYPE2_HOT, "热门概念"), (TYPE2_BOARD, "概念板块")):
+                    print(f"  ③b {label} 映射与聚合 (type2={concept_type})...")
+                    cmap, catalog = load_or_build_concept_mapping(
+                        licence,
+                        tree_df,
+                        concept_type,
+                        refresh=args.refresh_mapping,
+                    )
+                    store.replace_concept_stock_map(concept_type, cmap)
+                    cdf = aggregate_concept_sectors(stock_df, cmap, catalog)
+                    cdf = apply_turnover_pct(cdf, market_total)
+                    concept_sector_dfs[concept_type] = cdf
+                    print(f"     {label}: {len(catalog)} 板块，有成交聚合 {int((cdf['turnover'] > 0).sum())} 个")
+
             store.upsert_snapshot(
                 trade_date=trade_date,
                 stock_df=stock_df,
@@ -431,6 +455,7 @@ def main() -> int:
                 market_row=market_row,
                 etf_df=etf_df if include_etf else None,
                 snapshot_time=snapshot_time.isoformat(),
+                concept_sector_dfs=concept_sector_dfs or None,
             )
             print(f"     已落库 trade_date={trade_date}")
 
