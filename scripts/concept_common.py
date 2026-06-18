@@ -71,7 +71,10 @@ def aggregate_concept_sectors(
         return out
 
     present = [c for c in FLOW_SUM_COLUMNS if c in stock_df.columns]
-    merged = mapping_df.merge(stock_df, on="stock_code", how="inner")
+    map_df = mapping_df[["sector_code", "sector_name", "stock_code"]].copy()
+    stock_cols = ["stock_code"] + present
+    stock_slim = stock_df[[c for c in stock_cols if c in stock_df.columns]].copy()
+    merged = map_df.merge(stock_slim, on="stock_code", how="inner")
     if merged.empty:
         out = catalog.copy()
         for col in FLOW_SUM_COLUMNS:
