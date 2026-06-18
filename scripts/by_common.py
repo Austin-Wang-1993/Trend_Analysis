@@ -230,9 +230,21 @@ def filter_sectors(tree_df: pd.DataFrame, type2: int | None = TYPE2_SW_L1, leave
     return df.reset_index(drop=True)
 
 
-def fetch_sector_constituents(licence: str, sector_code: str) -> list[dict[str, str]]:
-    """板块成份股 hszg/gg/{code}。"""
-    rows = _get(f"{API_BASE}/hszg/gg/{sector_code}/{licence}")
+def fetch_sector_constituents(
+    licence: str,
+    sector_code: str,
+    *,
+    ignore_not_found: bool = True,
+) -> list[dict[str, str]]:
+    """板块成份股 hszg/gg/{code}。ignore_not_found=True 时 404 返回空列表并继续。"""
+    try:
+        rows = _get(f"{API_BASE}/hszg/gg/{sector_code}/{licence}")
+    except RuntimeError as exc:
+        msg = str(exc)
+        if ignore_not_found and ("HTTP 404" in msg or "404 Not Found" in msg):
+            print(f"         警告: 成份不可用 (404)，跳过 {sector_code}")
+            return []
+        raise
     if not isinstance(rows, list):
         return []
     result = []
@@ -250,14 +262,23 @@ def fetch_sector_constituents(licence: str, sector_code: str) -> list[dict[str, 
     return result
 
 
-def build_sector_mapping(licence: str, sectors_df: pd.DataFrame) -> pd.DataFrame:
+def build_sector_mapping(
+    licence: str,
+    sectors_df: pd.DataFrame,
+    *,
+    ignore_not_found: bool = True,
+) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
+    skipped = 0
     total = len(sectors_df)
     for idx, sector in sectors_df.iterrows():
         code = sector["code"]
         name = sector["name"]
         print(f"     [{idx + 1}/{total}] {name} ({code}) ...")
-        for item in fetch_sector_constituents(licence, code):
+        constituents = fetch_sector_constituents(licence, code, ignore_not_found=ignore_not_found)
+        if not constituents and ignore_not_found:
+            skipped += 1
+        for item in constituents:
             rows.append(
                 {
                     "sector_code": code,
@@ -270,6 +291,8 @@ def build_sector_mapping(licence: str, sectors_df: pd.DataFrame) -> pd.DataFrame
                 }
             )
         time.sleep(0.05)
+    if skipped:
+        print(f"     跳过无成份板块: {skipped}/{total}")
     if not rows:
         raise RuntimeError("板块成份映射为空")
     return pd.DataFrame(rows)
