@@ -659,8 +659,8 @@ class HistoryStore:
                     )
                 kept_sectors = set(sector["sector_code"].astype(str).str.strip()) - {""}
                 self._prune_sector_daily(conn, trade_date, kept_sectors)
-                self.rebuild_concept_aggregates_for_date(trade_date)
                 conn.commit()
+            self.rebuild_concept_aggregates_for_date(trade_date)
 
     def get_market_series(self, days: int = 5) -> dict[str, list[dict[str, Any]]]:
         trade_dates = self.list_trading_days(days)
