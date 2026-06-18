@@ -2,6 +2,11 @@
 """根据 stock_daily 重算 market/sector_daily、concept_sector_daily，并清理僵尸行。
 
 无需重打必盈 API；适用于 L1→L2 迁移后、概念映射更新后或修复 sector/stock 不一致。
+
+若报 database is locked，请先停止看板/API 服务再执行，例如：
+  sudo systemctl stop trend-analysis
+  python scripts/rebuild_sector_aggregates.py
+  sudo systemctl start trend-analysis
 """
 
 from __future__ import annotations

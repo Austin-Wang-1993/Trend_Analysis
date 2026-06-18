@@ -90,7 +90,7 @@ def aggregate_concept_sectors(
     out = catalog.merge(grouped, on=["sector_code", "sector_name"], how="left")
     for col in present:
         if col in out.columns:
-            out[col] = out[col].fillna(0.0)
+            out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0.0)
     if "stock_count" in out.columns:
         out["stock_count"] = out["stock_count"].fillna(0).astype(int)
     else:
