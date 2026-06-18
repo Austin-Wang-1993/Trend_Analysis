@@ -707,8 +707,11 @@ class HistoryStore:
         extra_params: tuple[Any, ...],
     ) -> dict[str, Any]:
         trade_dates = self.list_trading_days(days)
+        kind_label = "sw_l2"
+        if table == "concept_sector_daily" and extra_params:
+            kind_label = "hot" if extra_params[0] == 2 else "board"
         if not trade_dates:
-            return {"days": days, "sort": sort, "trade_dates": [], "columns": []}
+            return {"days": days, "sort": sort, "kind": kind_label, "trade_dates": [], "columns": []}
 
         sort = self._normalize_sector_table_sort(sort)
         placeholders = ",".join("?" * len(trade_dates))
@@ -780,6 +783,9 @@ class HistoryStore:
             "trade_dates": dates_new_to_old,
             "columns": columns,
         }
+
+    @staticmethod
+    def _normalize_sector_table_sort(sort: str) -> str:
         aliases = {
             "pct_desc": "turnover_pct_desc",
             "pct_asc": "turnover_pct_asc",
