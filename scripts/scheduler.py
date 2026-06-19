@@ -100,7 +100,7 @@ def start_scheduler(store: "HistoryStore", run_callback) -> BackgroundScheduler:
         map_hour, map_minute = _parse_time(settings.get("mapping_refresh_time", "02:00"))
         _scheduler.add_job(
             _run_mapping_refresh,
-            CronTrigger(hour=map_hour, minute=map_minute, timezone=tz),
+            CronTrigger(day_of_week="sun", hour=map_hour, minute=map_minute, timezone=tz),
             id="mapping_refresh",
             replace_existing=True,
         )
@@ -139,7 +139,7 @@ def reload_scheduler(store: "HistoryStore", run_callback) -> None:
         map_hour, map_minute = _parse_time(settings.get("mapping_refresh_time", "02:00"))
         _scheduler.add_job(
             _run_mapping_refresh,
-            CronTrigger(hour=map_hour, minute=map_minute, timezone=tz),
+            CronTrigger(day_of_week="sun", hour=map_hour, minute=map_minute, timezone=tz),
             id="mapping_refresh",
             replace_existing=True,
         )

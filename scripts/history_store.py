@@ -35,7 +35,26 @@ ATOMIC_FLOW_AMOUNT_FIELDS = (
     "zmszdcje",
     "zmsxdcje",
 )
-STOCK_FLOW_METRICS = ("turnover", "active_buy", "active_sell", "net_active", *ATOMIC_FLOW_AMOUNT_FIELDS)
+STOCK_FLOW_METRICS = (
+    "turnover",
+    "active_buy",
+    "active_sell",
+    "net_active",
+    "main_buy",
+    "main_sell",
+    *ATOMIC_FLOW_AMOUNT_FIELDS,
+)
+
+SECTOR_EXTRA_COLS = (
+    "main_buy",
+    "main_sell",
+    "up_count",
+    "down_count",
+    "flat_count",
+    "up_ratio",
+    "down_ratio",
+    "flat_ratio",
+)
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS market_daily (
@@ -209,6 +228,101 @@ class HistoryStore:
             CREATE INDEX IF NOT EXISTS idx_concept_sector_date ON concept_sector_daily(trade_date, concept_type);
             """
         )
+        self._migrate_schema_v4(conn)
+
+    def _migrate_schema_v4(self, conn: sqlite3.Connection) -> None:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS industry_stock_map (
+                kind TEXT NOT NULL,
+                sector_code TEXT NOT NULL,
+                sector_name TEXT NOT NULL,
+                sector_path TEXT,
+                stock_code TEXT NOT NULL,
+                PRIMARY KEY (kind, sector_code, stock_code)
+            );
+            CREATE INDEX IF NOT EXISTS idx_industry_map_stock ON industry_stock_map(kind, stock_code);
+            CREATE TABLE IF NOT EXISTS stock_industry (
+                stock_code TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                sector_code TEXT,
+                sector_name TEXT,
+                sector_path TEXT,
+                PRIMARY KEY (stock_code, kind)
+            );
+            """
+        )
+        stock_cols = {row[1] for row in conn.execute("PRAGMA table_info(stock_daily)").fetchall()}
+        for col in ("pct_chg", "main_buy", "main_sell"):
+            if col not in stock_cols:
+                conn.execute(f"ALTER TABLE stock_daily ADD COLUMN {col} REAL")
+        market_cols = {row[1] for row in conn.execute("PRAGMA table_info(market_daily)").fetchall()}
+        for col in ("main_buy", "main_sell"):
+            if col not in market_cols:
+                conn.execute(f"ALTER TABLE market_daily ADD COLUMN {col} REAL")
+        etf_cols = {row[1] for row in conn.execute("PRAGMA table_info(etf_daily)").fetchall()}
+        for col in ("pct_chg", "total_share", "share_change"):
+            if col not in etf_cols:
+                conn.execute(f"ALTER TABLE etf_daily ADD COLUMN {col} REAL")
+
+        sector_cols = {row[1] for row in conn.execute("PRAGMA table_info(sector_daily)").fetchall()}
+        if sector_cols and "kind" not in sector_cols:
+            conn.executescript(
+                """
+                ALTER TABLE sector_daily RENAME TO _sector_daily_legacy;
+                CREATE TABLE sector_daily (
+                    trade_date TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    sector_code TEXT NOT NULL,
+                    sector_name TEXT NOT NULL,
+                    sector_path TEXT,
+                    turnover REAL NOT NULL DEFAULT 0,
+                    turnover_pct REAL,
+                    active_buy REAL,
+                    active_sell REAL,
+                    net_active REAL,
+                    main_buy REAL,
+                    main_sell REAL,
+                    up_count INTEGER,
+                    down_count INTEGER,
+                    flat_count INTEGER,
+                    up_ratio REAL,
+                    down_ratio REAL,
+                    flat_ratio REAL,
+                    zmbtdcje REAL, zmbddcje REAL, zmbzdcje REAL, zmbxdcje REAL,
+                    zmstdcje REAL, zmsddcje REAL, zmszdcje REAL, zmsxdcje REAL,
+                    stock_count INTEGER,
+                    PRIMARY KEY (trade_date, kind, sector_code)
+                );
+                INSERT INTO sector_daily(
+                    trade_date, kind, sector_code, sector_name, turnover, turnover_pct,
+                    active_buy, active_sell, net_active, stock_count)
+                SELECT trade_date, 'sw_l3', sector_code, sector_name, turnover, turnover_pct,
+                    active_buy, active_sell, net_active, stock_count
+                FROM _sector_daily_legacy;
+                DROP TABLE _sector_daily_legacy;
+                CREATE INDEX IF NOT EXISTS idx_sector_daily_kind_date ON sector_daily(trade_date, kind);
+                """
+            )
+        elif sector_cols:
+            for col, typ in (
+                ("kind", "TEXT"),
+                ("sector_path", "TEXT"),
+                ("main_buy", "REAL"),
+                ("main_sell", "REAL"),
+                ("up_count", "INTEGER"),
+                ("down_count", "INTEGER"),
+                ("flat_count", "INTEGER"),
+                ("up_ratio", "REAL"),
+                ("down_ratio", "REAL"),
+                ("flat_ratio", "REAL"),
+                *[(c, "REAL") for c in ATOMIC_FLOW_AMOUNT_FIELDS],
+            ):
+                if col not in sector_cols:
+                    conn.execute(f"ALTER TABLE sector_daily ADD COLUMN {col} {typ}")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_sector_daily_kind_date ON sector_daily(trade_date, kind)"
+            )
 
     def get_settings(self) -> dict[str, str]:
         with self._connect() as conn:
@@ -253,16 +367,85 @@ class HistoryStore:
             ).fetchall()
         return sorted([r["trade_date"] for r in rows])
 
+    def replace_industry_stock_map(self, kind: str, mapping_df: pd.DataFrame) -> None:
+        with self._connect() as conn:
+            conn.execute("DELETE FROM industry_stock_map WHERE kind=?", (kind,))
+            for _, row in mapping_df.iterrows():
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO industry_stock_map(
+                        kind, sector_code, sector_name, sector_path, stock_code)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        kind,
+                        str(row.get("sector_code", "")),
+                        str(row.get("sector_name", "")),
+                        str(row.get("sector_path", "") or row.get("sector_name", "")),
+                        str(row.get("stock_code", "")),
+                    ),
+                )
+            conn.commit()
+        self._refresh_stock_industry(kind, mapping_df)
+
+    def _refresh_stock_industry(self, kind: str, mapping_df: pd.DataFrame) -> None:
+        if mapping_df.empty:
+            return
+        primary = (
+            mapping_df.sort_values("sector_code")
+            .drop_duplicates(subset=["stock_code"], keep="first")
+        )
+        with self._connect() as conn:
+            conn.execute("DELETE FROM stock_industry WHERE kind=?", (kind,))
+            for _, row in primary.iterrows():
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO stock_industry(
+                        stock_code, kind, sector_code, sector_name, sector_path)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        str(row["stock_code"]),
+                        kind,
+                        str(row.get("sector_code", "")),
+                        str(row.get("sector_name", "")),
+                        str(row.get("sector_path", "") or row.get("sector_name", "")),
+                    ),
+                )
+            conn.commit()
+
+    def get_stock_industries(self, stock_code: str) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT kind, sector_code, sector_name, sector_path FROM stock_industry WHERE stock_code=?",
+                (stock_code,),
+            ).fetchall()
+        from sector_config import KIND_LABELS
+
+        return [
+            {
+                "kind": r["kind"],
+                "kind_label": KIND_LABELS.get(r["kind"], r["kind"]),
+                "sector_code": r["sector_code"],
+                "sector_name": r["sector_name"],
+                "sector_path": r["sector_path"],
+            }
+            for r in rows
+        ]
+
     @staticmethod
-    def _prune_sector_daily(conn: sqlite3.Connection, trade_date: str, kept_codes: set[str]) -> int:
-        """删除当日不在 kept_codes 中的 sector_daily 行（清理 L1→L2 迁移残留等）。"""
+    def _prune_sector_daily(conn: sqlite3.Connection, trade_date: str, kept_codes: set[str], kind: str = "sw_l3") -> int:
+        """删除当日不在 kept_codes 中的 sector_daily 行。"""
         if not kept_codes:
-            cur = conn.execute("DELETE FROM sector_daily WHERE trade_date=?", (trade_date,))
+            cur = conn.execute(
+                "DELETE FROM sector_daily WHERE trade_date=? AND kind=?",
+                (trade_date, kind),
+            )
             return cur.rowcount
         placeholders = ",".join("?" * len(kept_codes))
         cur = conn.execute(
-            f"DELETE FROM sector_daily WHERE trade_date=? AND sector_code NOT IN ({placeholders})",
-            (trade_date, *sorted(kept_codes)),
+            f"DELETE FROM sector_daily WHERE trade_date=? AND kind=? AND sector_code NOT IN ({placeholders})",
+            (trade_date, kind, *sorted(kept_codes)),
         )
         return cur.rowcount
 
@@ -379,6 +562,264 @@ class HistoryStore:
         }
         self._prune_concept_sector_daily(conn, trade_date, concept_type, kept)
 
+    def _upsert_industry_sector_rows(
+        self,
+        conn: sqlite3.Connection,
+        trade_date: str,
+        kind: str,
+        sector_df: pd.DataFrame,
+        market: dict[str, float],
+    ) -> None:
+        if sector_df.empty:
+            return
+        df = sector_df.copy()
+        mkt_turn = float(market.get("turnover") or 0)
+        mkt_buy = float(market.get("active_buy") or 0)
+        mkt_sell = float(market.get("active_sell") or 0)
+        mkt_main_buy = float(market.get("main_buy") or 0)
+        mkt_main_sell = float(market.get("main_sell") or 0)
+        mkt_net = mkt_buy - mkt_sell
+        if mkt_turn > 0 and "turnover" in df.columns:
+            df["turnover_pct"] = df["turnover"] / mkt_turn
+        for _, row in df.iterrows():
+            buy = float(row.get("active_buy") or 0)
+            sell = float(row.get("active_sell") or 0)
+            net = buy - sell
+            conn.execute(
+                """
+                INSERT INTO sector_daily(
+                    trade_date, kind, sector_code, sector_name, sector_path,
+                    turnover, turnover_pct, active_buy, active_sell, net_active,
+                    main_buy, main_sell,
+                    up_count, down_count, flat_count, up_ratio, down_ratio, flat_ratio,
+                    zmbtdcje, zmbddcje, zmbzdcje, zmbxdcje,
+                    zmstdcje, zmsddcje, zmszdcje, zmsxdcje,
+                    stock_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(trade_date, kind, sector_code) DO UPDATE SET
+                    sector_name=excluded.sector_name, sector_path=excluded.sector_path,
+                    turnover=excluded.turnover, turnover_pct=excluded.turnover_pct,
+                    active_buy=excluded.active_buy, active_sell=excluded.active_sell,
+                    net_active=excluded.net_active,
+                    main_buy=excluded.main_buy, main_sell=excluded.main_sell,
+                    up_count=excluded.up_count, down_count=excluded.down_count,
+                    flat_count=excluded.flat_count,
+                    up_ratio=excluded.up_ratio, down_ratio=excluded.down_ratio,
+                    flat_ratio=excluded.flat_ratio,
+                    zmbtdcje=excluded.zmbtdcje, zmbddcje=excluded.zmbddcje,
+                    zmbzdcje=excluded.zmbzdcje, zmbxdcje=excluded.zmbxdcje,
+                    zmstdcje=excluded.zmstdcje, zmsddcje=excluded.zmsddcje,
+                    zmszdcje=excluded.zmszdcje, zmsxdcje=excluded.zmsxdcje,
+                    stock_count=excluded.stock_count
+                """,
+                (
+                    trade_date,
+                    kind,
+                    str(row.get("sector_code", "")),
+                    str(row.get("sector_name", "")),
+                    str(row.get("sector_path", "") or row.get("sector_name", "")),
+                    float(row.get("turnover") or 0),
+                    row.get("turnover_pct"),
+                    row.get("active_buy"),
+                    row.get("active_sell"),
+                    net,
+                    row.get("main_buy"),
+                    row.get("main_sell"),
+                    int(row.get("up_count") or 0),
+                    int(row.get("down_count") or 0),
+                    int(row.get("flat_count") or 0),
+                    row.get("up_ratio"),
+                    row.get("down_ratio"),
+                    row.get("flat_ratio"),
+                    row.get("zmbtdcje"),
+                    row.get("zmbddcje"),
+                    row.get("zmbzdcje"),
+                    row.get("zmbxdcje"),
+                    row.get("zmstdcje"),
+                    row.get("zmsddcje"),
+                    row.get("zmszdcje"),
+                    row.get("zmsxdcje"),
+                    int(row.get("stock_count") or 0),
+                ),
+            )
+        kept = {str(row.get("sector_code", "")) for _, row in df.iterrows() if str(row.get("sector_code", "")).strip()}
+        self._prune_sector_daily(conn, trade_date, kept, kind=kind)
+
+    def upsert_ts_snapshot(
+        self,
+        trade_date: str,
+        stock_df: pd.DataFrame,
+        sector_by_kind: dict[str, pd.DataFrame],
+        market_row: dict[str, Any],
+        etf_df: pd.DataFrame | None,
+        snapshot_time: str,
+    ) -> None:
+        from industry_common import display_sector_name
+
+        m = dict(market_row)
+        m.setdefault("trade_date", trade_date)
+        m.setdefault("snapshot_time", snapshot_time)
+        market = {
+            "turnover": float(m.get("turnover") or 0),
+            "active_buy": float(m.get("active_buy") or 0),
+            "active_sell": float(m.get("active_sell") or 0),
+            "main_buy": float(m.get("main_buy") or 0),
+            "main_sell": float(m.get("main_sell") or 0),
+        }
+        sw_primary = {}
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT stock_code, sector_code, sector_name, sector_path FROM industry_stock_map WHERE kind='sw_l3'"
+            ).fetchall()
+            for r in rows:
+                sw_primary[r["stock_code"]] = (r["sector_code"], r["sector_name"])
+
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO market_daily(
+                    trade_date, turnover, active_buy, active_sell, net_active,
+                    main_buy, main_sell, stock_count, snapshot_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(trade_date) DO UPDATE SET
+                    turnover=excluded.turnover, active_buy=excluded.active_buy,
+                    active_sell=excluded.active_sell, net_active=excluded.net_active,
+                    main_buy=excluded.main_buy, main_sell=excluded.main_sell,
+                    stock_count=excluded.stock_count, snapshot_time=excluded.snapshot_time
+                """,
+                (
+                    trade_date,
+                    market["turnover"],
+                    market["active_buy"],
+                    market["active_sell"],
+                    market["active_buy"] - market["active_sell"],
+                    market["main_buy"],
+                    market["main_sell"],
+                    int(m.get("stock_count") or len(stock_df)),
+                    snapshot_time,
+                ),
+            )
+            for _, row in stock_df.iterrows():
+                sc = str(row.get("stock_code", ""))
+                pri = sw_primary.get(sc, (None, None))
+                conn.execute(
+                    """
+                    INSERT INTO stock_daily(
+                        trade_date, stock_code, stock_name, sector_code, sector_name,
+                        turnover, active_buy, active_sell, net_active, main_buy, main_sell, pct_chg,
+                        zmbtdcje, zmbddcje, zmbzdcje, zmbxdcje,
+                        zmstdcje, zmsddcje, zmszdcje, zmsxdcje)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(trade_date, stock_code) DO UPDATE SET
+                        stock_name=excluded.stock_name, sector_code=excluded.sector_code,
+                        sector_name=excluded.sector_name, turnover=excluded.turnover,
+                        active_buy=excluded.active_buy, active_sell=excluded.active_sell,
+                        net_active=excluded.net_active, main_buy=excluded.main_buy,
+                        main_sell=excluded.main_sell, pct_chg=excluded.pct_chg,
+                        zmbtdcje=excluded.zmbtdcje, zmbddcje=excluded.zmbddcje,
+                        zmbzdcje=excluded.zmbzdcje, zmbxdcje=excluded.zmbxdcje,
+                        zmstdcje=excluded.zmstdcje, zmsddcje=excluded.zmsddcje,
+                        zmszdcje=excluded.zmszdcje, zmsxdcje=excluded.zmsxdcje
+                    """,
+                    (
+                        trade_date,
+                        sc,
+                        row.get("stock_name"),
+                        pri[0],
+                        pri[1],
+                        row.get("turnover"),
+                        row.get("active_buy"),
+                        row.get("active_sell"),
+                        row.get("net_active"),
+                        row.get("main_buy"),
+                        row.get("main_sell"),
+                        row.get("pct_chg"),
+                        row.get("zmbtdcje"),
+                        row.get("zmbddcje"),
+                        row.get("zmbzdcje"),
+                        row.get("zmbxdcje"),
+                        row.get("zmstdcje"),
+                        row.get("zmsddcje"),
+                        row.get("zmszdcje"),
+                        row.get("zmsxdcje"),
+                    ),
+                )
+            for kind, sdf in sector_by_kind.items():
+                if sdf is not None and not sdf.empty:
+                    sdf = sdf.copy()
+                    sdf["sector_name"] = sdf.apply(
+                        lambda r: display_sector_name(r) if kind in ("sw_l3", "ci_l3") else r.get("sector_name"),
+                        axis=1,
+                    )
+                self._upsert_industry_sector_rows(conn, trade_date, kind, sdf, market)
+            if etf_df is not None and not etf_df.empty:
+                mkt = market["turnover"]
+                for _, row in etf_df.iterrows():
+                    pct = (float(row.get("turnover") or 0) / mkt) if mkt else None
+                    conn.execute(
+                        """
+                        INSERT INTO etf_daily(
+                            trade_date, etf_code, etf_name, exchange, turnover, turnover_pct,
+                            pct_chg, total_share, share_change)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(trade_date, etf_code) DO UPDATE SET
+                            etf_name=excluded.etf_name, exchange=excluded.exchange,
+                            turnover=excluded.turnover, turnover_pct=excluded.turnover_pct,
+                            pct_chg=excluded.pct_chg, total_share=excluded.total_share,
+                            share_change=excluded.share_change
+                        """,
+                        (
+                            trade_date,
+                            str(row.get("etf_code", "")),
+                            str(row.get("etf_name", "")),
+                            row.get("exchange"),
+                            float(row.get("turnover") or 0),
+                            pct,
+                            row.get("pct_chg"),
+                            row.get("total_share"),
+                            row.get("share_change"),
+                        ),
+                    )
+            conn.commit()
+
+    def rebuild_industry_aggregates_for_date(self, trade_date: str) -> None:
+        from industry_common import aggregate_industry_sectors, assign_unmapped, sector_catalog
+        from sector_config import SECTOR_TABLE_KINDS
+
+        with self._connect() as conn:
+            stocks = pd.read_sql_query(
+                "SELECT * FROM stock_daily WHERE trade_date = ?",
+                conn,
+                params=(trade_date,),
+            )
+        if stocks.empty:
+            return
+        market = {
+            "turnover": float(stocks["turnover"].fillna(0).sum()),
+            "active_buy": float(stocks["active_buy"].fillna(0).sum()),
+            "active_sell": float(stocks["active_sell"].fillna(0).sum()),
+            "main_buy": float(stocks["main_buy"].fillna(0).sum()) if "main_buy" in stocks else 0.0,
+            "main_sell": float(stocks["main_sell"].fillna(0).sum()) if "main_sell" in stocks else 0.0,
+        }
+        for kind in SECTOR_TABLE_KINDS:
+            with self._connect() as conn:
+                mapping = pd.read_sql_query(
+                    """
+                    SELECT sector_code, sector_name, sector_path, stock_code
+                    FROM industry_stock_map WHERE kind=?
+                    """,
+                    conn,
+                    params=(kind,),
+                )
+            if mapping.empty:
+                continue
+            catalog = sector_catalog(mapping)
+            sector_df = aggregate_industry_sectors(stocks, mapping, catalog)
+            sector_df = assign_unmapped(stocks, mapping, sector_df)
+            with self._connect() as conn:
+                self._upsert_industry_sector_rows(conn, trade_date, kind, sector_df, market)
+                conn.commit()
+
     def rebuild_concept_aggregates_for_date(self, trade_date: str) -> None:
         from concept_common import aggregate_concept_sectors, sectors_for_concept_type
         from by_common import TYPE2_BOARD, TYPE2_HOT
@@ -475,10 +916,11 @@ class HistoryStore:
             for _, row in sector.iterrows():
                 conn.execute(
                     """
-                    INSERT INTO sector_daily(trade_date, sector_code, sector_name, turnover, turnover_pct,
+                    INSERT INTO sector_daily(
+                        trade_date, kind, sector_code, sector_name, turnover, turnover_pct,
                         active_buy, active_sell, net_active, stock_count)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(trade_date, sector_code) DO UPDATE SET
+                    VALUES (?, 'sw_l3', ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(trade_date, kind, sector_code) DO UPDATE SET
                         sector_name=excluded.sector_name, turnover=excluded.turnover,
                         turnover_pct=excluded.turnover_pct, active_buy=excluded.active_buy,
                         active_sell=excluded.active_sell, net_active=excluded.net_active,
@@ -501,7 +943,7 @@ class HistoryStore:
                 for _, row in sector.iterrows()
                 if str(row.get("sector_code", "")).strip()
             }
-            self._prune_sector_daily(conn, trade_date, kept_sectors)
+            self._prune_sector_daily(conn, trade_date, kept_sectors, kind="sw_l3")
             for _, row in stock_df.iterrows():
                 conn.execute(
                     """
@@ -583,84 +1025,7 @@ class HistoryStore:
 
     def rebuild_aggregates_for_dates(self, dates: set[str]) -> None:
         for trade_date in sorted(dates):
-            with self._connect() as conn:
-                stocks = pd.read_sql_query(
-                    "SELECT * FROM stock_daily WHERE trade_date = ?",
-                    conn,
-                    params=(trade_date,),
-                )
-            if stocks.empty:
-                continue
-            market_turnover = float(stocks["turnover"].fillna(0).sum())
-            market = {
-                "turnover": market_turnover,
-                "active_buy": float(stocks["active_buy"].fillna(0).sum()) if "active_buy" in stocks else None,
-                "active_sell": float(stocks["active_sell"].fillna(0).sum()) if "active_sell" in stocks else None,
-                "net_active": float(stocks["net_active"].fillna(0).sum()) if "net_active" in stocks else None,
-                "stock_count": len(stocks),
-            }
-            sector = (
-                stocks.dropna(subset=["sector_code"])
-                .groupby(["sector_code", "sector_name"], dropna=False)
-                .agg(
-                    turnover=("turnover", "sum"),
-                    active_buy=("active_buy", "sum"),
-                    active_sell=("active_sell", "sum"),
-                    net_active=("net_active", "sum"),
-                    stock_count=("stock_code", "count"),
-                )
-                .reset_index()
-            )
-            if market_turnover > 0:
-                sector["turnover_pct"] = sector["turnover"] / market_turnover
-            with self._connect() as conn:
-                conn.execute(
-                    """
-                    INSERT INTO market_daily(trade_date, turnover, active_buy, active_sell, net_active, stock_count, snapshot_time)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(trade_date) DO UPDATE SET
-                        turnover=excluded.turnover, active_buy=excluded.active_buy,
-                        active_sell=excluded.active_sell, net_active=excluded.net_active,
-                        stock_count=excluded.stock_count, snapshot_time=excluded.snapshot_time
-                    """,
-                    (
-                        trade_date,
-                        market["turnover"],
-                        market["active_buy"],
-                        market["active_sell"],
-                        market["net_active"],
-                        market["stock_count"],
-                        datetime.now(CST).isoformat(),
-                    ),
-                )
-                for _, row in sector.iterrows():
-                    conn.execute(
-                        """
-                        INSERT INTO sector_daily(trade_date, sector_code, sector_name, turnover, turnover_pct,
-                            active_buy, active_sell, net_active, stock_count)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(trade_date, sector_code) DO UPDATE SET
-                            sector_name=excluded.sector_name, turnover=excluded.turnover,
-                            turnover_pct=excluded.turnover_pct, active_buy=excluded.active_buy,
-                            active_sell=excluded.active_sell, net_active=excluded.net_active,
-                            stock_count=excluded.stock_count
-                        """,
-                        (
-                            trade_date,
-                            str(row["sector_code"]),
-                            str(row["sector_name"]),
-                            float(row["turnover"] or 0),
-                            row.get("turnover_pct"),
-                            row.get("active_buy"),
-                            row.get("active_sell"),
-                            row.get("net_active"),
-                            int(row["stock_count"]),
-                        ),
-                    )
-                kept_sectors = set(sector["sector_code"].astype(str).str.strip()) - {""}
-                self._prune_sector_daily(conn, trade_date, kept_sectors)
-                conn.commit()
-            self.rebuild_concept_aggregates_for_date(trade_date)
+            self.rebuild_industry_aggregates_for_date(trade_date)
 
     def get_market_series(self, days: int = 5) -> dict[str, list[dict[str, Any]]]:
         trade_dates = self.list_trading_days(days)
@@ -679,24 +1044,18 @@ class HistoryStore:
             "active_sell_series": [{"trade_date": r["trade_date"], "value": r["active_sell"] or 0} for r in rows],
         }
 
-    def get_sector_table(self, days: int = 5, sort: str = "turnover_pct_desc", kind: str = "sw_l2") -> dict[str, Any]:
-        if kind == "sw_l2":
-            return self._get_rank_table_from_sql(
-                days,
-                sort,
-                table="sector_daily",
-                extra_where="",
-                extra_params=(),
-            )
-        from sector_config import concept_type_for_kind
+    def get_sector_table(self, days: int = 5, sort: str = "turnover_pct_desc", kind: str = "sw_l3") -> dict[str, Any]:
+        from sector_config import DEFAULT_SECTOR_KIND, SECTOR_TABLE_KINDS
 
-        concept_type = concept_type_for_kind(kind)
+        if kind not in SECTOR_TABLE_KINDS:
+            kind = DEFAULT_SECTOR_KIND
         return self._get_rank_table_from_sql(
             days,
             sort,
-            table="concept_sector_daily",
-            extra_where=" AND concept_type=?",
-            extra_params=(concept_type,),
+            table="sector_daily",
+            extra_where=" AND kind=?",
+            extra_params=(kind,),
+            kind=kind,
         )
 
     def _get_rank_table_from_sql(
@@ -707,21 +1066,20 @@ class HistoryStore:
         table: str,
         extra_where: str,
         extra_params: tuple[Any, ...],
+        kind: str = "sw_l3",
     ) -> dict[str, Any]:
         trade_dates = self.list_trading_days(days)
-        kind_label = "sw_l2"
-        if table == "concept_sector_daily" and extra_params:
-            kind_label = "hot" if extra_params[0] == 2 else "board"
         if not trade_dates:
-            return {"days": days, "sort": sort, "kind": kind_label, "trade_dates": [], "columns": []}
+            return {"days": days, "sort": sort, "kind": kind, "trade_dates": [], "columns": []}
 
         sort = self._normalize_sector_table_sort(sort)
         placeholders = ",".join("?" * len(trade_dates))
         with self._connect() as conn:
             sector_df = pd.read_sql_query(
                 f"""
-                SELECT trade_date, sector_code, sector_name, turnover, turnover_pct,
-                       active_buy, active_sell
+                SELECT trade_date, sector_code, sector_name, sector_path, turnover, turnover_pct,
+                       active_buy, active_sell, main_buy, main_sell,
+                       up_count, down_count, flat_count, up_ratio, down_ratio
                 FROM {table} WHERE trade_date IN ({placeholders}){extra_where}
                 """,
                 conn,
@@ -729,7 +1087,7 @@ class HistoryStore:
             )
             market_df = pd.read_sql_query(
                 f"""
-                SELECT trade_date, turnover, active_buy, active_sell
+                SELECT trade_date, turnover, active_buy, active_sell, main_buy, main_sell
                 FROM market_daily WHERE trade_date IN ({placeholders})
                 """,
                 conn,
@@ -741,6 +1099,8 @@ class HistoryStore:
                 "turnover": float(r["turnover"] or 0),
                 "active_buy": float(r["active_buy"] or 0) if r["active_buy"] is not None else 0.0,
                 "active_sell": float(r["active_sell"] or 0) if r["active_sell"] is not None else 0.0,
+                "main_buy": float(r["main_buy"] or 0) if r.get("main_buy") is not None else 0.0,
+                "main_sell": float(r["main_sell"] or 0) if r.get("main_sell") is not None else 0.0,
             }
             for _, r in market_df.iterrows()
         }
@@ -750,24 +1110,38 @@ class HistoryStore:
         for d in dates_new_to_old:
             day_sectors: list[dict[str, Any]] = []
             sub = sector_df[sector_df["trade_date"] == d]
-            mkt = market_by_date.get(d, {"turnover": 0, "active_buy": 0, "active_sell": 0})
+            mkt = market_by_date.get(
+                d, {"turnover": 0, "active_buy": 0, "active_sell": 0, "main_buy": 0, "main_sell": 0}
+            )
+            market_net = mkt["active_buy"] - mkt["active_sell"]
             for _, r in sub.iterrows():
                 buy = float(r["active_buy"]) if pd.notna(r["active_buy"]) else None
                 sell = float(r["active_sell"]) if pd.notna(r["active_sell"]) else None
+                main_buy = float(r["main_buy"]) if pd.notna(r.get("main_buy")) else None
+                main_sell = float(r["main_sell"]) if pd.notna(r.get("main_sell")) else None
                 net = (buy - sell) if buy is not None and sell is not None else None
-                market_net = mkt["active_buy"] - mkt["active_sell"]
+                display = str(r.get("sector_path") or r.get("sector_name") or "")
                 day_sectors.append(
                     {
                         "sector_code": str(r["sector_code"]),
-                        "sector_name": str(r["sector_name"]),
+                        "sector_name": display,
+                        "sector_path": str(r.get("sector_path") or ""),
                         "turnover": float(r["turnover"] or 0),
                         "turnover_pct": float(r["turnover_pct"] or 0),
                         "active_buy": buy,
                         "active_sell": sell,
+                        "main_buy": main_buy,
+                        "main_sell": main_sell,
                         "buy_pct": (buy / mkt["active_buy"]) if buy is not None and mkt["active_buy"] > 0 else None,
                         "sell_pct": (sell / mkt["active_sell"]) if sell is not None and mkt["active_sell"] > 0 else None,
+                        "main_buy_pct": (main_buy / mkt["main_buy"]) if main_buy is not None and mkt["main_buy"] > 0 else None,
+                        "main_sell_pct": (main_sell / mkt["main_sell"]) if main_sell is not None and mkt["main_sell"] > 0 else None,
                         "net_value": net,
                         "net_pct": (net / market_net) if net is not None and market_net != 0 else None,
+                        "up_count": int(r.get("up_count") or 0),
+                        "down_count": int(r.get("down_count") or 0),
+                        "up_ratio": float(r.get("up_ratio") or 0),
+                        "down_ratio": float(r.get("down_ratio") or 0),
                     }
                 )
             self._sort_sector_table_day(day_sectors, sort)
@@ -775,13 +1149,10 @@ class HistoryStore:
                 sec["rank"] = rank
             columns.append({"trade_date": d, "sectors": day_sectors})
 
-        kind_label = "sw_l2"
-        if table == "concept_sector_daily" and extra_params:
-            kind_label = "hot" if extra_params[0] == 2 else "board"
         return {
             "days": days,
             "sort": sort,
-            "kind": kind_label,
+            "kind": kind,
             "trade_dates": dates_new_to_old,
             "columns": columns,
         }
@@ -804,6 +1175,33 @@ class HistoryStore:
             "sell_pct_asc",
             "net_desc",
             "net_asc",
+            "main_buy_pct_desc",
+            "main_sell_pct_desc",
+            "up_ratio_desc",
+            "down_ratio_desc",
+        }
+        return sort if sort in allowed else "turnover_pct_desc"
+
+    @staticmethod
+    def _normalize_stock_table_sort(sort: str) -> str:
+        aliases = {
+            "pct_desc": "turnover_pct_desc",
+            "pct_asc": "turnover_pct_asc",
+            "up_ratio_desc": "pct_chg_desc",
+            "down_ratio_desc": "pct_chg_asc",
+        }
+        sort = aliases.get(sort, sort)
+        allowed = {
+            "turnover_pct_desc",
+            "turnover_pct_asc",
+            "buy_pct_desc",
+            "buy_pct_asc",
+            "sell_pct_desc",
+            "sell_pct_asc",
+            "net_desc",
+            "net_asc",
+            "pct_chg_desc",
+            "pct_chg_asc",
         }
         return sort if sort in allowed else "turnover_pct_desc"
 
@@ -822,6 +1220,12 @@ class HistoryStore:
             "sell_pct_asc": ("sell_pct", False),
             "net_desc": ("net_value", True),
             "net_asc": ("net_value", False),
+            "main_buy_pct_desc": ("main_buy_pct", True),
+            "main_sell_pct_desc": ("main_sell_pct", True),
+            "up_ratio_desc": ("up_ratio", True),
+            "down_ratio_desc": ("down_ratio", True),
+            "pct_chg_desc": ("pct_chg", True),
+            "pct_chg_asc": ("pct_chg", False),
         }
         field, desc = key_map.get(sort, ("turnover_pct", True))
 
@@ -837,7 +1241,11 @@ class HistoryStore:
     def _sort_sector_table_day(sectors: list[dict[str, Any]], sort: str) -> None:
         HistoryStore._sort_rank_cards(sectors, sort, "sector_name")
 
-    def get_sector_charts(self, days: int = 5) -> list[dict[str, Any]]:
+    def get_sector_charts(self, days: int = 5, kind: str = "sw_l3", top: int = 50) -> list[dict[str, Any]]:
+        from sector_config import DEFAULT_SECTOR_KIND, SECTOR_TABLE_KINDS
+
+        if kind not in SECTOR_TABLE_KINDS:
+            kind = DEFAULT_SECTOR_KIND
         trade_dates = self.list_trading_days(days)
         if not trade_dates:
             return []
@@ -845,22 +1253,38 @@ class HistoryStore:
         with self._connect() as conn:
             df = pd.read_sql_query(
                 f"""
-                SELECT * FROM sector_daily WHERE trade_date IN ({placeholders})
+                SELECT * FROM sector_daily
+                WHERE trade_date IN ({placeholders}) AND kind=?
                 ORDER BY sector_code, trade_date
                 """,
                 conn,
-                params=trade_dates,
+                params=(*trade_dates, kind),
             )
+        if df.empty:
+            return []
+        latest = trade_dates[-1]
+        latest_df = df[df["trade_date"] == latest].sort_values("turnover_pct", ascending=False)
+        top_codes = latest_df.head(top)["sector_code"].tolist()
+        df = df[df["sector_code"].isin(top_codes)]
+
         out = []
         for (code, name), grp in df.groupby(["sector_code", "sector_name"]):
             g = grp.set_index("trade_date").reindex(trade_dates)
+            display = str(g.iloc[0].get("sector_path") or name) if len(g) else name
             out.append({
                 "sector_code": code,
-                "sector_name": name,
+                "sector_name": display,
                 "turnover_series": [{"trade_date": d, "value": float(g.loc[d, "turnover"] or 0) if d in g.index else 0} for d in trade_dates],
                 "active_buy_series": [{"trade_date": d, "value": float(g.loc[d, "active_buy"] or 0) if d in g.index else 0} for d in trade_dates],
                 "active_sell_series": [{"trade_date": d, "value": float(g.loc[d, "active_sell"] or 0) if d in g.index else 0} for d in trade_dates],
             })
+        out.sort(
+            key=lambda x: next(
+                (float(v["value"]) for v in reversed(x["turnover_series"]) if v["value"]),
+                0.0,
+            ),
+            reverse=True,
+        )
         return out
 
     def get_sector_stocks(
@@ -868,8 +1292,13 @@ class HistoryStore:
         sector_code: str,
         days: int = 5,
         sort: str = "turnover_pct_desc",
-        kind: str = "sw_l2",
+        kind: str = "sw_l3",
     ) -> dict[str, Any]:
+        from sector_config import DEFAULT_SECTOR_KIND, SECTOR_TABLE_KINDS, UNMAPPED_SECTOR_CODE
+
+        if kind not in SECTOR_TABLE_KINDS:
+            kind = DEFAULT_SECTOR_KIND
+
         trade_dates = self.list_trading_days(days)
         if not trade_dates:
             return {
@@ -882,64 +1311,67 @@ class HistoryStore:
                 "columns": [],
             }
 
-        sort = self._normalize_rank_table_sort(sort)
+        sort = self._normalize_stock_table_sort(sort)
         placeholders = ",".join("?" * len(trade_dates))
         with self._connect() as conn:
-            if kind in ("hot", "board"):
-                from sector_config import concept_type_for_kind
-
-                concept_type = concept_type_for_kind(kind)
+            meta = conn.execute(
+                """
+                SELECT sector_name, sector_path FROM industry_stock_map
+                WHERE kind=? AND sector_code=? LIMIT 1
+                """,
+                (kind, sector_code),
+            ).fetchone()
+            if not meta:
                 meta = conn.execute(
                     """
-                    SELECT sector_name FROM concept_stock_map
-                    WHERE concept_type=? AND sector_code=? LIMIT 1
+                    SELECT sector_name, sector_path FROM sector_daily
+                    WHERE kind=? AND sector_code=? LIMIT 1
                     """,
-                    (concept_type, sector_code),
+                    (kind, sector_code),
                 ).fetchone()
-                if not meta:
-                    meta = conn.execute(
-                        """
-                        SELECT sector_name FROM concept_sector_daily
-                        WHERE concept_type=? AND sector_code=? LIMIT 1
-                        """,
-                        (concept_type, sector_code),
-                    ).fetchone()
+            if sector_code == UNMAPPED_SECTOR_CODE:
                 df = pd.read_sql_query(
                     f"""
                     SELECT s.* FROM stock_daily s
-                    INNER JOIN concept_stock_map m
-                      ON m.stock_code = s.stock_code AND m.concept_type = ? AND m.sector_code = ?
+                    WHERE s.trade_date IN ({placeholders})
+                      AND s.stock_code NOT IN (
+                        SELECT stock_code FROM industry_stock_map WHERE kind=?
+                      )
+                    ORDER BY s.stock_code, s.trade_date
+                    """,
+                    conn,
+                    params=(*trade_dates, kind),
+                )
+            else:
+                df = pd.read_sql_query(
+                    f"""
+                    SELECT s.* FROM stock_daily s
+                    INNER JOIN industry_stock_map m
+                      ON m.stock_code = s.stock_code AND m.kind = ? AND m.sector_code = ?
                     WHERE s.trade_date IN ({placeholders})
                     ORDER BY s.stock_code, s.trade_date
                     """,
                     conn,
-                    params=(concept_type, sector_code, *trade_dates),
+                    params=(kind, sector_code, *trade_dates),
                 )
-            else:
-                meta = conn.execute(
-                    "SELECT sector_name FROM sector_daily WHERE sector_code=? LIMIT 1",
-                    (sector_code,),
-                ).fetchone()
-                df = pd.read_sql_query(
-                    f"""
-                    SELECT * FROM stock_daily
-                    WHERE sector_code=? AND trade_date IN ({placeholders})
-                    ORDER BY stock_code, trade_date
-                    """,
-                    conn,
-                    params=(sector_code, *trade_dates),
-                )
-        sector_name = meta["sector_name"] if meta else sector_code
+        if meta:
+            sector_name = str(meta["sector_path"] or meta["sector_name"] or sector_code)
+        else:
+            sector_name = sector_code
 
         sector_totals_by_date: dict[str, dict[str, float]] = {}
         if not df.empty:
             for d, grp in df.groupby("trade_date"):
                 buy_sum = grp["active_buy"].fillna(0).astype(float).sum()
                 sell_sum = grp["active_sell"].fillna(0).astype(float).sum()
+                main_buy_sum = grp["main_buy"].fillna(0).astype(float).sum() if "main_buy" in grp else 0.0
+                main_sell_sum = grp["main_sell"].fillna(0).astype(float).sum() if "main_sell" in grp else 0.0
                 sector_totals_by_date[str(d)] = {
                     "turnover": float(grp["turnover"].fillna(0).astype(float).sum()),
                     "active_buy": float(buy_sum),
                     "active_sell": float(sell_sum),
+                    "main_buy": float(main_buy_sum),
+                    "main_sell": float(main_sell_sum),
                     "net": float(buy_sum - sell_sum),
                 }
 
@@ -949,13 +1381,16 @@ class HistoryStore:
             day_stocks: list[dict[str, Any]] = []
             sub = df[df["trade_date"] == d] if not df.empty else df
             totals = sector_totals_by_date.get(
-                d, {"turnover": 0.0, "active_buy": 0.0, "active_sell": 0.0, "net": 0.0}
+                d, {"turnover": 0.0, "active_buy": 0.0, "active_sell": 0.0, "main_buy": 0.0, "main_sell": 0.0, "net": 0.0}
             )
             for _, r in sub.iterrows():
                 buy = float(r["active_buy"]) if pd.notna(r["active_buy"]) else None
                 sell = float(r["active_sell"]) if pd.notna(r["active_sell"]) else None
+                main_buy = float(r["main_buy"]) if pd.notna(r.get("main_buy")) else None
+                main_sell = float(r["main_sell"]) if pd.notna(r.get("main_sell")) else None
                 net = (buy - sell) if buy is not None and sell is not None else None
                 turnover = float(r["turnover"] or 0)
+                pct_chg = float(r["pct_chg"]) if pd.notna(r.get("pct_chg")) else None
                 day_stocks.append(
                     {
                         "stock_code": str(r["stock_code"]),
@@ -964,10 +1399,15 @@ class HistoryStore:
                         "turnover_pct": (turnover / totals["turnover"]) if totals["turnover"] > 0 else None,
                         "active_buy": buy,
                         "active_sell": sell,
+                        "main_buy": main_buy,
+                        "main_sell": main_sell,
                         "buy_pct": (buy / totals["active_buy"]) if buy is not None and totals["active_buy"] > 0 else None,
                         "sell_pct": (sell / totals["active_sell"]) if sell is not None and totals["active_sell"] > 0 else None,
+                        "main_buy_pct": (main_buy / totals["main_buy"]) if main_buy is not None and totals["main_buy"] > 0 else None,
+                        "main_sell_pct": (main_sell / totals["main_sell"]) if main_sell is not None and totals["main_sell"] > 0 else None,
                         "net_value": net,
                         "net_pct": (net / totals["net"]) if net is not None and totals["net"] != 0 else None,
+                        "pct_chg": pct_chg,
                     }
                 )
             self._sort_rank_cards(day_stocks, sort, "stock_code")
@@ -1058,6 +1498,7 @@ class HistoryStore:
             "sector_code": sec_code or sector_code,
             "sector_name": sector_name,
             "days": days,
+            "industries": self.get_stock_industries(stock_code),
             "series": series,
         }
 

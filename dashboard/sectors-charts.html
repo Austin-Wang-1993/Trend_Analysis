@@ -10,8 +10,23 @@
 <body>
   <nav></nav>
   <main>
-    <h1>申万二级板块 — 近 5 日图表</h1>
-    <p class="footnote">点击展开查看成交额 / 主买 / 主卖</p>
+    <div class="sector-kind-tabs" role="tablist">
+      <a href="#" class="sector-kind-tab active" data-kind="sw_l3" role="tab">申万三级</a>
+      <a href="#" class="sector-kind-tab" data-kind="ci_l3" role="tab">中信三级</a>
+      <a href="#" class="sector-kind-tab" data-kind="dc_ind" role="tab">东财行业</a>
+      <a href="#" class="sector-kind-tab" data-kind="ths_ind" role="tab">同花顺行业</a>
+    </div>
+    <h1 id="pageTitle">申万三级板块 — 近 5 日图表</h1>
+    <div class="toolbar">
+      <label>天数
+        <select id="days">
+          <option value="5" selected>近 5 日</option>
+          <option value="15">近 15 日</option>
+          <option value="30">近 30 日</option>
+        </select>
+      </label>
+    </div>
+    <p class="footnote">点击展开查看成交额 / 主买 / 主卖（默认展示成交占比 Top 50）</p>
     <div id="list"></div>
   </main>
   <script src="/static/js/format.js"></script>
@@ -20,11 +35,46 @@
   <script src="/static/js/nav.js"></script>
   <script>
     initNav();
+    const params = new URLSearchParams(location.search);
+    const KIND_META = {
+      sw_l3: '申万三级板块',
+      ci_l3: '中信三级板块',
+      dc_ind: '东财行业',
+      ths_ind: '同花顺行业',
+    };
+    let currentKind = params.get('kind') || 'sw_l3';
+    if (!KIND_META[currentKind]) currentKind = 'sw_l3';
+    const daysEl = document.getElementById('days');
+    const pageTitle = document.getElementById('pageTitle');
     const charts = {};
-    (async () => {
-      const items = await apiGet('/api/sectors/charts?days=5');
+    if (params.get('days')) daysEl.value = params.get('days');
+
+    function syncUi() {
+      document.querySelectorAll('.sector-kind-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.kind === currentKind);
+      });
+      pageTitle.textContent = `${KIND_META[currentKind]} — 近 ${daysEl.value} 日图表`;
+      const q = new URLSearchParams({ kind: currentKind, days: daysEl.value });
+      history.replaceState(null, '', `/sectors-charts.html?${q}`);
+    }
+
+    document.querySelectorAll('.sector-kind-tab').forEach(tab => {
+      tab.addEventListener('click', e => {
+        e.preventDefault();
+        currentKind = tab.dataset.kind;
+        syncUi();
+        load().catch(err => alert(err.message));
+      });
+    });
+
+    async function load() {
+      syncUi();
       const list = document.getElementById('list');
+      list.innerHTML = '<p class="loading">加载中…</p>';
+      Object.keys(charts).forEach(k => delete charts[k]);
+      const items = await apiGet(`/api/sectors/charts?kind=${encodeURIComponent(currentKind)}&days=${daysEl.value}&top=50`);
       if (!items.length) { list.innerHTML = '<p class="loading">暂无数据</p>'; return; }
+      list.innerHTML = '';
       items.forEach((item, i) => {
         const dates = item.turnover_series.map(x => x.trade_date);
         const div = document.createElement('div');
@@ -33,7 +83,7 @@
           <div class="accordion-head">
             <span>${formatSectorName(item.sector_name)}</span>
             <span class="accordion-actions">
-              <a class="sector-name" href="/sector-stocks.html?sector=${encodeURIComponent(item.sector_code)}&days=5" onclick="event.stopPropagation()">查看个股</a>
+              <a class="sector-name" href="/sector-stocks.html?sector=${encodeURIComponent(item.sector_code)}&kind=${encodeURIComponent(currentKind)}&days=${encodeURIComponent(daysEl.value)}" onclick="event.stopPropagation()">查看个股</a>
               <span>▶</span>
             </span>
           </div>
@@ -54,7 +104,10 @@
           }
         });
       });
-    })().catch(e => { document.querySelector('main').innerHTML = `<p class="loading">${e.message}</p>`; });
+    }
+
+    daysEl.addEventListener('change', () => load().catch(e => alert(e.message)));
+    load().catch(e => { document.querySelector('main').innerHTML = `<p class="loading">${e.message}</p>`; });
   </script>
 </body>
 </html>
