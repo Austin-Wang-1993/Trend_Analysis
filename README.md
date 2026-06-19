@@ -1,16 +1,20 @@
 # Trend_Analysis
 
-A 股**申万二级行业**成交额 + 买卖分析 + Web 看板（近 5 交易日）。
+A 股**四套细分行业**成交额 + 买卖分析 + Web 看板（5/15/30 交易日）。
+
+> **v4.0 规划：** Tushare 换源 — 见 [docs/TUSHARE_SECTOR_DESIGN.md](docs/TUSHARE_SECTOR_DESIGN.md)
 
 ## 文档
 
 | 文档 | 说明 |
 |------|------|
 | [文档索引](docs/README.md) | 全部文档入口 |
-| [**分支与部署规则**](docs/BRANCHING.md) | **只跟 main**、服务器 `fetch` + `merge FETCH_HEAD` |
-| [需求文档](docs/REQUIREMENTS.md) | **v3.6** 目标、看板、概念 Tab |
+| [**v4.0 Tushare 行业设计**](docs/TUSHARE_SECTOR_DESIGN.md) | **四套行业 Tab、指标、验收（已确认）** |
+| [**Tushare API 归档**](docs/TUSHARE_API.md) | v4.0 主数据源接口 |
+| [**分支与部署规则**](docs/BRANCHING.md) | 只跟 `main` |
+| [需求文档](docs/REQUIREMENTS.md) | v4.0 / v3.6 需求 |
 | [实现方案](docs/IMPLEMENTATION_PLAN.md) | 架构、API、部署 |
-| [**必盈 API 归档**](docs/BIYING_API.md) | 接口、L2 映射、命令 |
+| [必盈 API 归档](docs/BIYING_API.md) | v3.6 归档 |
 
 **必盈官方文档**：https://www.biyingapi.com/doc_hs
 

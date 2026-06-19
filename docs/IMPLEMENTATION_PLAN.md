@@ -1,10 +1,20 @@
 # 实现方案：历史落库 + Web 看板 + 管理页
 
-> 版本：**v3.6**  
+> 版本：**v4.0（规划中）** / 线上 v3.6  
+> **v4.0 设计：** [TUSHARE_SECTOR_DESIGN.md](./TUSHARE_SECTOR_DESIGN.md)  
+> Tushare 接口：[TUSHARE_API.md](./TUSHARE_API.md)  
 > 前置：[REQUIREMENTS.md](./REQUIREMENTS.md)  
-> 必盈接口：[BIYING_API.md](./BIYING_API.md)
+> 必盈归档：[BIYING_API.md](./BIYING_API.md)
 
-**v3.6 变更**：页面 2 **概念 Tab**；`concept_stock_map` / `concept_sector_daily`；`stock_daily` 8 档原子资金流；`refresh_sector_mappings.py`（02:00）；补数 **≤400 交易日**；`GET /api/sectors/table?kind=`.
+**v4.0 变更（已确认，待开发）：**
+
+- 数据源 **Tushare Pro**；`scripts/ts_common.py` + `fetch_ts_daily.py`
+- 页面 2/3：**4 Tab**（`sw_l3|ci_l3|dc_ind|ths_ind`），移除 hot/board
+- 指标扩展：主力买卖、涨跌家数；时间 **5/15/30** 日
+- `history.db` **清空重拉**；映射 **每周** + 日采 **21:35**（`moneyflow` 19:00 后）
+- ETF：`fund_daily` + `etf_share_size`（无 ETF moneyflow）
+
+**v3.6 变更**：页面 2 概念 Tab；`concept_*` 表；必盈 8 档原子字段；补数 ≤400 日。
 
 **v3.5 变更**：管理页 **区间补数**（开始+结束必填，相等=单日）；`fetch_by_range.py`；`transaction` / 日 K **`st/et` 按股拉取**；不跳过已有数据；**移除强制补数**。
 
