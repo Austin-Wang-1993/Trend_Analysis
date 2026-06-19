@@ -38,13 +38,19 @@ if [[ "${SKIP_GIT:-0}" != "1" ]]; then
   echo "==> 拉取代码分支: $BRANCH"
   # 已在目标分支时，不能 fetch 到 refs/heads/当前分支，统一用 FETCH_HEAD
   git fetch origin "$BRANCH" || git fetch origin "+refs/heads/${BRANCH}:refs/remotes/origin/${BRANCH}"
+  # 项目根目录勿留名为 FETCH_HEAD 的文件，会与 git 伪引用冲突
+  rm -f "$ROOT/FETCH_HEAD" 2>/dev/null || true
+  FETCH_COMMIT=""
+  if [[ -f .git/FETCH_HEAD ]]; then
+    FETCH_COMMIT="$(awk 'NR==1 {print $1}' .git/FETCH_HEAD)"
+  fi
   if git show-ref --verify --quiet "refs/remotes/origin/${BRANCH}"; then
     git checkout -B "$BRANCH" "origin/${BRANCH}" 2>/dev/null || git checkout "$BRANCH"
     git reset --hard "origin/${BRANCH}"
-  elif git rev-parse --verify refs/FETCH_HEAD >/dev/null 2>&1; then
-    echo "    使用 refs/FETCH_HEAD 更新（origin/${BRANCH} 未创建）"
-    git checkout -B "$BRANCH" refs/FETCH_HEAD
-    git reset --hard refs/FETCH_HEAD
+  elif [[ -n "$FETCH_COMMIT" ]]; then
+    echo "    使用 .git/FETCH_HEAD → ${FETCH_COMMIT:0:12}"
+    git checkout -B "$BRANCH"
+    git reset --hard "$FETCH_COMMIT"
   else
     echo "错误: 无法拉取分支 ${BRANCH}" >&2
     exit 1
