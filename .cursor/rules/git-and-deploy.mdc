@@ -1,0 +1,29 @@
+---
+description: Trend_Analysis 分支与服务器部署强制规则（开发/Agent 必读）
+alwaysApply: true
+---
+
+# Git 分支与部署规则（强制）
+
+## 分支
+
+1. **开发 / 部署只跟 `main`** — 唯一发布分支，服务器与生产环境不得长期停留在 feature 分支。
+2. **临时分支命名**：`cursor/<简述>-df9e`（Cloud Agent 专用）。
+3. **合并后立刻删除**临时分支（本地 + 远程 `git push origin --delete cursor/...`）。
+4. 新功能从 `main` 拉分支，完成后 fast-forward / merge 进 `main`，再删临时分支。
+
+## 服务器更新（固定命令）
+
+```bash
+cd ~/Trend_Analysis
+git fetch origin main
+git merge FETCH_HEAD
+```
+
+- 必须 `git fetch origin main`（不要裸 `git fetch` 后盲目 merge 错误 FETCH_HEAD）。
+- 等价写法：`git pull origin main`。
+- **不要**在服务器上 `git merge origin/main`（若无远程跟踪分支会失败）。
+
+## 参考文档
+
+- 完整说明与 PR 归档：`docs/BRANCHING.md`

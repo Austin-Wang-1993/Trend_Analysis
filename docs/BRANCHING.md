@@ -5,6 +5,28 @@
 
 ---
 
+## 0. 强制规则（长期有效）
+
+> 开发、部署、Cloud Agent 均须遵守；细则亦见仓库根目录 `.cursor/rules/git-and-deploy.mdc`。
+
+| # | 规则 |
+|---|------|
+| 1 | **开发 / 部署只跟 `main`** |
+| 2 | 临时分支：`cursor/<简述>-df9e`，**合并后立刻删**（本地 + 远程） |
+| 3 | 服务器更新**固定用**下面三行（不要换写法、不要合错分支） |
+
+```bash
+cd ~/Trend_Analysis
+git fetch origin main
+git merge FETCH_HEAD
+```
+
+- 必须写 `git fetch origin main`，再 `git merge FETCH_HEAD`。
+- 可用等价命令：`git pull origin main`。
+- **不要**使用 `git merge origin/main`（未 fetch 跟踪分支时会失败）。
+
+---
+
 ## 1. 当前状态（整理后）
 
 | 分支 | 状态 | 说明 |
@@ -66,7 +88,7 @@ cursor/xxx-df9e   ← Cloud Agent 临时开发，合并后立即删除
 | `3b7cf37` | rebuild 先 commit sector 再写 concept（自锁） |
 | `114bd2f` | rebuild 打印映射条数、board 为空提示 |
 
-**当前 `main` 顶端：`114bd2f`**
+**当前 `main` 顶端：`0dbc9bf`（含本文档与分支规则）**
 
 ---
 
