@@ -36,9 +36,21 @@ echo "==> 工作目录: $ROOT"
 
 if [[ "${SKIP_GIT:-0}" != "1" ]]; then
   echo "==> 拉取代码分支: $BRANCH"
-  git fetch origin "$BRANCH"
-  git checkout "$BRANCH"
-  git merge --ff-only "origin/$BRANCH" 2>/dev/null || git reset --hard "origin/$BRANCH"
+  # 显式 refspec，避免部分镜像/旧版 git 只更新 FETCH_HEAD 而不创建 origin/分支
+  if ! git fetch origin "+refs/heads/${BRANCH}:refs/remotes/origin/${BRANCH}"; then
+    git fetch origin "$BRANCH" || true
+  fi
+  if git show-ref --verify --quiet "refs/remotes/origin/${BRANCH}"; then
+    git checkout -B "$BRANCH" "origin/${BRANCH}"
+    git reset --hard "origin/${BRANCH}"
+  elif git rev-parse --verify FETCH_HEAD >/dev/null 2>&1; then
+    echo "    使用 FETCH_HEAD 检出（未找到 origin/${BRANCH}）"
+    git checkout -B "$BRANCH" FETCH_HEAD
+    git reset --hard FETCH_HEAD
+  else
+    echo "错误: 无法拉取分支 ${BRANCH}，请检查 git remote 与网络" >&2
+    exit 1
+  fi
 fi
 
 echo "==> 写入 .env（TUSHARE_TOKEN，不提交 Git）"
