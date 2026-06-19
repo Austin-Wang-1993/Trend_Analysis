@@ -60,7 +60,11 @@ class FetchRequest(BaseModel):
     end_date: str
 
 
+from sector_config import DEFAULT_SECTOR_KIND, SECTOR_TABLE_KINDS, VIEW_DAYS_OPTIONS  # noqa: E402
+
 MAX_FETCH_TRADING_DAYS = 400
+_KIND_PATTERN = "^(" + "|".join(SECTOR_TABLE_KINDS) + ")$"
+_MAX_VIEW_DAYS = max(VIEW_DAYS_OPTIONS)
 
 
 def _validate_fetch_range(start_date: str, end_date: str) -> tuple[str, str, list[str]]:
@@ -145,7 +149,7 @@ def on_startup() -> None:
 # --- 公共 API ---
 
 @app.get("/api/meta/trading-days")
-def api_trading_days(days: int = Query(5, ge=1, le=30)) -> dict[str, Any]:
+def api_trading_days(days: int = Query(5, ge=1, le=_MAX_VIEW_DAYS)) -> dict[str, Any]:
     store = get_store()
     trade_dates = store.list_trading_days(days)
     return {
@@ -156,30 +160,34 @@ def api_trading_days(days: int = Query(5, ge=1, le=30)) -> dict[str, Any]:
 
 
 @app.get("/api/market")
-def api_market(days: int = Query(5, ge=1, le=30)) -> dict[str, Any]:
+def api_market(days: int = Query(5, ge=1, le=_MAX_VIEW_DAYS)) -> dict[str, Any]:
     return get_store().get_market_series(days)
 
 
 @app.get("/api/sectors/table")
 def api_sectors_table(
-    days: int = Query(5, ge=1, le=30),
+    days: int = Query(5, ge=1, le=_MAX_VIEW_DAYS),
     sort: str = Query("turnover_pct_desc"),
-    kind: str = Query("sw_l2", pattern="^(sw_l2|hot|board)$"),
+    kind: str = Query(DEFAULT_SECTOR_KIND, pattern=_KIND_PATTERN),
 ) -> dict[str, Any]:
     return get_store().get_sector_table(days, sort=sort, kind=kind)
 
 
 @app.get("/api/sectors/charts")
-def api_sectors_charts(days: int = Query(5, ge=1, le=30)) -> list[dict[str, Any]]:
-    return get_store().get_sector_charts(days)
+def api_sectors_charts(
+    days: int = Query(5, ge=1, le=_MAX_VIEW_DAYS),
+    kind: str = Query(DEFAULT_SECTOR_KIND, pattern=_KIND_PATTERN),
+    top: int = Query(50, ge=1, le=500),
+) -> list[dict[str, Any]]:
+    return get_store().get_sector_charts(days, kind=kind, top=top)
 
 
 @app.get("/api/sectors/{sector_code}/stocks")
 def api_sector_stocks(
     sector_code: str,
-    days: int = Query(5, ge=1, le=30),
+    days: int = Query(5, ge=1, le=_MAX_VIEW_DAYS),
     sort: str = Query("turnover_pct_desc"),
-    kind: str = Query("sw_l2", pattern="^(sw_l2|hot|board)$"),
+    kind: str = Query(DEFAULT_SECTOR_KIND, pattern=_KIND_PATTERN),
 ) -> dict[str, Any]:
     return get_store().get_sector_stocks(sector_code, days, sort=sort, kind=kind)
 
@@ -187,15 +195,20 @@ def api_sector_stocks(
 @app.get("/api/stocks/{stock_code}/series")
 def api_stock_series(
     stock_code: str,
-    days: int = Query(5, ge=1, le=30),
+    days: int = Query(5, ge=1, le=_MAX_VIEW_DAYS),
     sector: str | None = Query(None),
 ) -> dict[str, Any]:
     return get_store().get_stock_series(stock_code, days, sector_code=sector)
 
 
+@app.get("/api/stocks/{stock_code}/industries")
+def api_stock_industries(stock_code: str) -> list[dict[str, Any]]:
+    return get_store().get_stock_industries(stock_code)
+
+
 @app.get("/api/etf/table")
 def api_etf_table(
-    days: int = Query(5, ge=1, le=30),
+    days: int = Query(5, ge=1, le=_MAX_VIEW_DAYS),
     sort: str = Query("turnover_pct_desc"),
 ) -> dict[str, Any]:
     return get_store().get_etf_table(days, sort=sort)
@@ -204,14 +217,14 @@ def api_etf_table(
 @app.get("/api/etfs/{etf_code}/series")
 def api_etf_series(
     etf_code: str,
-    days: int = Query(5, ge=1, le=30),
+    days: int = Query(5, ge=1, le=_MAX_VIEW_DAYS),
 ) -> dict[str, Any]:
     return get_store().get_etf_series(etf_code, days)
 
 
 @app.get("/api/etf/charts")
 def api_etf_charts(
-    days: int = Query(5, ge=1, le=30),
+    days: int = Query(5, ge=1, le=_MAX_VIEW_DAYS),
     top: int = Query(50, ge=1, le=500),
     q: str = Query(""),
 ) -> list[dict[str, Any]]:

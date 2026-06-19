@@ -37,6 +37,8 @@
             <option value="sell_pct_asc">卖出占比 ↑</option>
             <option value="net_desc">净值 ↓</option>
             <option value="net_asc">净值 ↑</option>
+            <option value="up_ratio_desc">涨跌幅 ↓（强势优先）</option>
+            <option value="down_ratio_desc">涨跌幅 ↑（弱势优先）</option>
           </select>
         </label>
         <label>天数
@@ -66,7 +68,7 @@
     initNav();
     const params = new URLSearchParams(location.search);
     const sector = params.get('sector');
-    const kind = params.get('kind') || 'sw_l2';
+    const kind = params.get('kind') || 'sw_l3';
     const sortEl = document.getElementById('sort');
     const daysEl = document.getElementById('days');
     const boardEl = document.getElementById('board');
@@ -131,7 +133,14 @@
     }
 
     function stockDetailUrl(code) {
-      return `/stock-detail.html?stock=${encodeURIComponent(code)}&sector=${encodeURIComponent(sector)}&days=${encodeURIComponent(daysEl.value)}&sort=${encodeURIComponent(sortEl.value)}`;
+      const q = new URLSearchParams({
+        stock: code,
+        sector,
+        kind,
+        days: daysEl.value,
+        sort: sortEl.value,
+      });
+      return `/stock-detail.html?${q}`;
     }
 
     function renderCard(stock) {

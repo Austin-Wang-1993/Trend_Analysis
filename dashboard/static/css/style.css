@@ -117,3 +117,18 @@ button.secondary { background: transparent; }
 .accordion-body { display: none; padding-bottom: 0.75rem; }
 .accordion-item.open .accordion-body { display: block; }
 .loading { color: var(--muted); padding: 2rem; text-align: center; }
+.industry-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  margin: 0.25rem 0 1rem;
+}
+.industry-tag {
+  font-size: 0.85rem;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.35rem 0.6rem;
+}
+.industry-tag strong { color: var(--text); margin-right: 0.35rem; }

@@ -74,14 +74,11 @@ def run_job(
             proc = subprocess.Popen(
                 [
                     sys.executable,
-                    str(SCRIPTS / "fetch_by_range.py"),
+                    str(SCRIPTS / "fetch_ts_range.py"),
                     "--start",
                     start_date,
                     "--end",
                     end,
-                    "--no-all-turnover",
-                    "--level",
-                    "l2",
                     "--job-id",
                     job_id,
                 ],

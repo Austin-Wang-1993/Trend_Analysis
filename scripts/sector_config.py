@@ -1,39 +1,37 @@
-"""板块层级默认配置（看板展示用申万二级）。"""
+"""板块 kind 配置（v4.0 Tushare 四套细分行业）。"""
 
 from __future__ import annotations
 
-from by_common import TYPE2_SW_L1, TYPE2_SW_L2, TYPE2_HOT, TYPE2_BOARD
+# 页面 2/3 Tab 顺序
+SECTOR_TABLE_KINDS = ("sw_l3", "ci_l3", "dc_ind", "ths_ind")
 
-DEFAULT_SECTOR_LEVEL = "l2"
+DEFAULT_SECTOR_KIND = "sw_l3"
 
-SECTOR_TABLE_KINDS = ("sw_l2", "hot", "board")
+KIND_LABELS: dict[str, str] = {
+    "sw_l3": "申万三级",
+    "ci_l3": "中信三级",
+    "dc_ind": "东财行业",
+    "ths_ind": "同花顺行业",
+}
 
+UNMAPPED_SECTOR_CODE = "UNMAPPED"
+UNMAPPED_SECTOR_NAME = "未分类"
 
-def mapping_cache_name(level: str | None = None) -> str:
-    lv = level or DEFAULT_SECTOR_LEVEL
-    return f"sector_mapping_{lv}.json"
+VIEW_DAYS_OPTIONS = (5, 15, 30)
+DEFAULT_VIEW_DAYS = 5
 
-
-def concept_mapping_cache_name(concept_type: int) -> str:
-    if concept_type == TYPE2_HOT:
-        return "concept_mapping_hot.json"
-    if concept_type == TYPE2_BOARD:
-        return "concept_mapping_board.json"
-    raise ValueError(f"unsupported concept_type: {concept_type}")
-
-
-def concept_type_for_kind(kind: str) -> int | None:
-    if kind == "sw_l2":
-        return None
-    if kind == "hot":
-        return TYPE2_HOT
-    if kind == "board":
-        return TYPE2_BOARD
-    raise ValueError(f"unsupported kind: {kind}")
+MAX_FETCH_TRADING_DAYS = 400
 
 
-def primary_type2_for_level(level: str | None = None) -> int:
-    lv = level or DEFAULT_SECTOR_LEVEL
-    if lv == "l1":
-        return TYPE2_SW_L1
-    return TYPE2_SW_L2
+def kind_label(kind: str) -> str:
+    return KIND_LABELS.get(kind, kind)
+
+
+def mapping_cache_name(kind: str) -> str:
+    return f"industry_mapping_{kind}.json"
+
+
+def validate_kind(kind: str) -> str:
+    if kind not in SECTOR_TABLE_KINDS:
+        raise ValueError(f"unsupported kind: {kind}")
+    return kind

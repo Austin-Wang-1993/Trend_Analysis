@@ -12,11 +12,12 @@
   <main class="main-wide sector-page">
     <div class="sector-page-fixed">
       <div class="sector-kind-tabs" role="tablist">
-        <a href="#" class="sector-kind-tab active" data-kind="sw_l2" role="tab">申万二级</a>
-        <a href="#" class="sector-kind-tab" data-kind="hot" role="tab">热门概念</a>
-        <a href="#" class="sector-kind-tab" data-kind="board" role="tab">概念板块</a>
+        <a href="#" class="sector-kind-tab active" data-kind="sw_l3" role="tab">申万三级</a>
+        <a href="#" class="sector-kind-tab" data-kind="ci_l3" role="tab">中信三级</a>
+        <a href="#" class="sector-kind-tab" data-kind="dc_ind" role="tab">东财行业</a>
+        <a href="#" class="sector-kind-tab" data-kind="ths_ind" role="tab">同花顺行业</a>
       </div>
-      <h1 id="pageTitle">申万二级板块 — 每日排行</h1>
+      <h1 id="pageTitle">申万三级板块 — 每日排行</h1>
       <div class="toolbar">
         <div class="card-search-toolbar">
           <label>搜索
@@ -38,6 +39,10 @@
             <option value="sell_pct_asc">卖出占比 ↑</option>
             <option value="net_desc">净值 ↓</option>
             <option value="net_asc">净值 ↑</option>
+            <option value="main_buy_pct_desc">主力买入占比 ↓</option>
+            <option value="main_sell_pct_desc">主力卖出占比 ↓</option>
+            <option value="up_ratio_desc">上涨家数占比 ↓</option>
+            <option value="down_ratio_desc">下跌家数占比 ↓</option>
           </select>
         </label>
         <label>天数
@@ -48,7 +53,7 @@
           </select>
         </label>
       </div>
-      <p class="footnote sector-board-hint" id="boardHint">左新右旧；点击卡片高亮同板块各列；点击板块名称查看成份股。</p>
+      <p class="footnote sector-board-hint" id="boardHint">左新右旧；点击卡片高亮同板块各列；点击板块名称查看成份股。未归入四套行业的股票汇总在「未分类」行。</p>
       <div class="sector-dates-bar" id="stickyDates">
         <div class="sector-dates-inner" id="stickyDatesInner"></div>
       </div>
@@ -67,12 +72,13 @@
     initNav();
     const params = new URLSearchParams(location.search);
     const KIND_META = {
-      sw_l2: { title: '申万二级板块 — 每日排行', hint: '左新右旧；点击卡片高亮同板块各列；点击板块名称查看成份股。' },
-      hot: { title: '热门概念 — 每日排行', hint: '概念成份存在重叠，各板块占比之和不必等于 100%。占比分母为当日全 A。' },
-      board: { title: '概念板块 — 每日排行', hint: '概念成份存在重叠，各板块占比之和不必等于 100%。占比分母为当日全 A。' },
+      sw_l3: { title: '申万三级板块 — 每日排行', hint: '左新右旧；申万/中信展示 L1 > L2 > L3 路径。未映射股票见「未分类」。' },
+      ci_l3: { title: '中信三级板块 — 每日排行', hint: '左新右旧；申万/中信展示 L1 > L2 > L3 路径。未映射股票见「未分类」。' },
+      dc_ind: { title: '东财行业 — 每日排行', hint: '左新右旧；点击板块名称查看成份股。未映射股票见「未分类」。' },
+      ths_ind: { title: '同花顺行业 — 每日排行', hint: '左新右旧；点击板块名称查看成份股。未映射股票见「未分类」。' },
     };
-    let currentKind = params.get('kind') || 'sw_l2';
-    if (!KIND_META[currentKind]) currentKind = 'sw_l2';
+    let currentKind = params.get('kind') || 'sw_l3';
+    if (!KIND_META[currentKind]) currentKind = 'sw_l3';
 
     const sortEl = document.getElementById('sort');
     const daysEl = document.getElementById('days');
@@ -159,6 +165,13 @@
       return `/sector-stocks.html?${q}`;
     }
 
+    function fmtUpDown(up, down, upRatio) {
+      const u = up != null ? up : '—';
+      const d = down != null ? down : '—';
+      const r = upRatio != null && !Number.isNaN(upRatio) ? formatPct(upRatio) : '—';
+      return `${u} / ${d} <span class="metric-pct">(${r})</span>`;
+    }
+
     function renderCard(sector) {
       const code = sector.sector_code;
       const cls = highlightedCode === code ? 'sector-card highlighted' : 'sector-card';
@@ -175,6 +188,9 @@
             <div><dt>买入</dt><dd>${fmtMoney(sector.active_buy)} <span class="metric-pct">${fmtPct(sector.buy_pct)}</span></dd></div>
             <div><dt>卖出</dt><dd>${fmtMoney(sector.active_sell)} <span class="metric-pct">${fmtPct(sector.sell_pct)}</span></dd></div>
             <div><dt>净值</dt><dd>${fmtNet(sector.net_value)} <span class="metric-pct">${fmtPct(sector.net_pct)}</span></dd></div>
+            <div><dt>主力买</dt><dd>${fmtMoney(sector.main_buy)} <span class="metric-pct">${fmtPct(sector.main_buy_pct)}</span></dd></div>
+            <div><dt>主力卖</dt><dd>${fmtMoney(sector.main_sell)} <span class="metric-pct">${fmtPct(sector.main_sell_pct)}</span></dd></div>
+            <div><dt>涨/跌</dt><dd>${fmtUpDown(sector.up_count, sector.down_count, sector.up_ratio)}</dd></div>
           </dl>
         </article>`;
     }

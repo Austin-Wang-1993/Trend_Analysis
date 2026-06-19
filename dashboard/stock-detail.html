@@ -16,6 +16,7 @@
       <p class="breadcrumb" id="breadcrumb"></p>
     </div>
     <h1 id="title">个股详情</h1>
+    <div id="industries" class="industry-tags"></div>
     <div class="toolbar">
       <label>天数
         <select id="days">
@@ -37,11 +38,13 @@
     const params = new URLSearchParams(location.search);
     const stock = params.get('stock');
     const sector = params.get('sector');
+    const kind = params.get('kind') || 'sw_l3';
     const sort = params.get('sort') || 'turnover_pct_desc';
     const daysEl = document.getElementById('days');
     const backStocks = document.getElementById('backStocks');
     const breadcrumbEl = document.getElementById('breadcrumb');
     const titleEl = document.getElementById('title');
+    const industriesEl = document.getElementById('industries');
     const chartEl = document.getElementById('chart');
     let chart;
 
@@ -85,12 +88,30 @@
     }
 
     function stocksUrl(sectorName) {
-      const base = `/sector-stocks.html?sector=${encodeURIComponent(sector || '')}&days=${encodeURIComponent(daysEl.value)}&sort=${encodeURIComponent(sort)}`;
-      return base;
+      const q = new URLSearchParams({
+        sector: sector || '',
+        kind,
+        days: daysEl.value,
+        sort,
+      });
+      return `/sector-stocks.html?${q}`;
     }
 
     function tableUrl() {
-      return `/sectors-table.html?days=${encodeURIComponent(daysEl.value)}&sort=${encodeURIComponent(sort)}`;
+      const q = new URLSearchParams({ kind, days: daysEl.value, sort });
+      return `/sectors-table.html?${q}`;
+    }
+
+    function renderIndustries(items) {
+      if (!items || !items.length) {
+        industriesEl.innerHTML = '';
+        return;
+      }
+      industriesEl.innerHTML = items.map(it => {
+        const label = escapeHtml(it.kind_label || it.kind);
+        const name = escapeHtml(formatSectorName(it.sector_path || it.sector_name || '—'));
+        return `<span class="industry-tag"><strong>${label}</strong> ${name}</span>`;
+      }).join('');
     }
 
     function syncNav(data) {
@@ -122,6 +143,7 @@
       if (sector) q.set('sector', sector);
       const data = await apiGet(`/api/stocks/${encodeURIComponent(stock)}/series?${q}`);
       syncNav(data);
+      renderIndustries(data.industries);
       const series = data.series || [];
       if (!series.length) {
         chartEl.innerHTML = '<p class="loading">暂无数据</p>';
