@@ -36,19 +36,17 @@ echo "==> 工作目录: $ROOT"
 
 if [[ "${SKIP_GIT:-0}" != "1" ]]; then
   echo "==> 拉取代码分支: $BRANCH"
-  # 显式 refspec，避免部分镜像/旧版 git 只更新 FETCH_HEAD 而不创建 origin/分支
-  if ! git fetch origin "+refs/heads/${BRANCH}:refs/remotes/origin/${BRANCH}"; then
-    git fetch origin "$BRANCH" || true
-  fi
+  # 已在目标分支时，不能 fetch 到 refs/heads/当前分支，统一用 FETCH_HEAD
+  git fetch origin "$BRANCH" || git fetch origin "+refs/heads/${BRANCH}:refs/remotes/origin/${BRANCH}"
   if git show-ref --verify --quiet "refs/remotes/origin/${BRANCH}"; then
-    git checkout -B "$BRANCH" "origin/${BRANCH}"
+    git checkout -B "$BRANCH" "origin/${BRANCH}" 2>/dev/null || git checkout "$BRANCH"
     git reset --hard "origin/${BRANCH}"
   elif git rev-parse --verify FETCH_HEAD >/dev/null 2>&1; then
-    echo "    使用 FETCH_HEAD 检出（未找到 origin/${BRANCH}）"
+    echo "    使用 FETCH_HEAD 更新（origin/${BRANCH} 未创建）"
     git checkout -B "$BRANCH" FETCH_HEAD
     git reset --hard FETCH_HEAD
   else
-    echo "错误: 无法拉取分支 ${BRANCH}，请检查 git remote 与网络" >&2
+    echo "错误: 无法拉取分支 ${BRANCH}" >&2
     exit 1
   fi
 fi
