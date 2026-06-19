@@ -41,10 +41,10 @@ if [[ "${SKIP_GIT:-0}" != "1" ]]; then
   if git show-ref --verify --quiet "refs/remotes/origin/${BRANCH}"; then
     git checkout -B "$BRANCH" "origin/${BRANCH}" 2>/dev/null || git checkout "$BRANCH"
     git reset --hard "origin/${BRANCH}"
-  elif git rev-parse --verify FETCH_HEAD >/dev/null 2>&1; then
-    echo "    使用 FETCH_HEAD 更新（origin/${BRANCH} 未创建）"
-    git checkout -B "$BRANCH" FETCH_HEAD
-    git reset --hard FETCH_HEAD
+  elif git rev-parse --verify refs/FETCH_HEAD >/dev/null 2>&1; then
+    echo "    使用 refs/FETCH_HEAD 更新（origin/${BRANCH} 未创建）"
+    git checkout -B "$BRANCH" refs/FETCH_HEAD
+    git reset --hard refs/FETCH_HEAD
   else
     echo "错误: 无法拉取分支 ${BRANCH}" >&2
     exit 1
