@@ -95,7 +95,7 @@ set -a
 # shellcheck disable=SC1090
 source "$ENV_FILE"
 set +a
-python3 scripts/refresh_sector_mappings.py
+python3 scripts/refresh_sector_mappings.py --continue-on-error
 
 if [[ "${SKIP_BACKFILL:-0}" == "1" ]]; then
   echo "==> 跳过历史补数（SKIP_BACKFILL=1）"

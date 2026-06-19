@@ -91,21 +91,76 @@ def build_ci_l3_mapping(pro=None) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _dc_trade_date_candidates(explicit: str | None = None) -> list[str]:
+    """东财 dc_index 需有效交易日；勿用 trade_cal limit=5（易取到错误日期）。"""
+    if explicit:
+        return [explicit.replace("-", "")]
+    from trading_calendar import get_recent_trading_days
+
+    return [d.replace("-", "") for d in reversed(get_recent_trading_days(30))]
+
+
+def _fetch_dc_index_industry(pro, trade_date: str) -> pd.DataFrame:
+    """拉取东财行业板块列表，兼容 idx_type 参数与客户端过滤。"""
+    idx = _call(
+        pro,
+        "dc_index",
+        trade_date=trade_date,
+        idx_type="行业板块",
+        fields="ts_code,name,idx_type,level",
+    )
+    if idx.empty:
+        raw = _call(pro, "dc_index", trade_date=trade_date, fields="ts_code,name,idx_type,level")
+        if not raw.empty and "idx_type" in raw.columns:
+            idx = raw[raw["idx_type"].astype(str) == "行业板块"].copy()
+    if idx.empty:
+        return idx
+    if "level" in idx.columns:
+        levels = idx["level"].astype(str).str.strip()
+        if (levels != "").any():
+            # 优先最细层级（常见为 L3 或数字最大）
+            uniq = sorted({lv for lv in levels.unique() if lv and lv.lower() != "nan"})
+            if uniq:
+                finest = uniq[-1]
+                finer = idx[levels == finest]
+                if not finer.empty:
+                    idx = finer
+    return idx.drop_duplicates(subset=["ts_code"], keep="first")
+
+
 def build_dc_ind_mapping(pro=None, trade_date: str | None = None) -> pd.DataFrame:
     pro = pro or get_pro()
-    td = trade_date.replace("-", "") if trade_date else None
-    if not td:
-        cal = _call(pro, "trade_cal", exchange="SSE", is_open="1", fields="cal_date", limit=5)
-        if not cal.empty:
-            td = str(cal["cal_date"].iloc[-1])
-    idx = _call(pro, "dc_index", trade_date=td, idx_type="行业板块", fields="ts_code,name")
+    idx = pd.DataFrame()
+    td_used = ""
+    for td in _dc_trade_date_candidates(trade_date):
+        idx = _fetch_dc_index_industry(pro, td)
+        if not idx.empty:
+            td_used = td
+            break
     if idx.empty:
-        raise RuntimeError("东财 dc_index 行业板块为空")
+        cached = load_mapping_cache("dc_ind")
+        if not cached.empty:
+            print("    警告: dc_index 行业板块为空，回退使用本地缓存", flush=True)
+            return cached
+        tried = ", ".join(_dc_trade_date_candidates(trade_date)[:5])
+        raise RuntimeError(
+            f"东财 dc_index 行业板块为空（已尝试交易日: {tried} …）。"
+            "可指定 --trade-date YYYY-MM-DD 或稍后重试"
+        )
+    print(f"    东财 dc_index 使用 trade_date={td_used}，板块 {len(idx)} 个", flush=True)
     rows: list[dict[str, Any]] = []
     for _, sec in idx.iterrows():
         sc = str(sec["ts_code"])
         name = str(sec["name"])
-        mem = _call(pro, "dc_member", trade_date=td, ts_code=sc, fields="con_code")
+        mem = _call(pro, "dc_member", trade_date=td_used, ts_code=sc, fields="con_code")
+        if mem.empty:
+            # 成份接口偶发缺当日数据，再试前一交易日
+            for alt in _dc_trade_date_candidates(trade_date):
+                if alt == td_used:
+                    continue
+                mem = _call(pro, "dc_member", trade_date=alt, ts_code=sc, fields="con_code")
+                if not mem.empty:
+                    break
         if mem.empty:
             continue
         for _, m in mem.iterrows():
@@ -122,7 +177,11 @@ def build_dc_ind_mapping(pro=None, trade_date: str | None = None) -> pd.DataFram
                 }
             )
     if not rows:
-        raise RuntimeError("东财 dc_member 成份为空")
+        cached = load_mapping_cache("dc_ind")
+        if not cached.empty:
+            print("    警告: dc_member 成份为空，回退使用本地缓存", flush=True)
+            return cached
+        raise RuntimeError(f"东财 dc_member 成份为空（trade_date={td_used}）")
     return pd.DataFrame(rows)
 
 
