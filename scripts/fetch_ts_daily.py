@@ -49,8 +49,8 @@ def _trading_days_in_range(start: str, end: str) -> list[str]:
     return sorted(cal["cal_date"].astype(str))
 
 
-def fetch_stock_day(trade_date: str) -> pd.DataFrame:
-    """daily + moneyflow → 个股当日指标（元）。"""
+def fetch_stock_day(trade_date: str, name_map: dict[str, str] | None = None) -> pd.DataFrame:
+    """daily + moneyflow → 个股当日指标（元）。name_map 补个股名称。"""
     daily = tc.daily_to_turnover(tc.call_api("daily", trade_date=trade_date, fields="ts_code,amount,pct_chg"))
     mf = tc.moneyflow_to_stock_flow(tc.call_api("moneyflow", trade_date=trade_date))
     if "trade_date" in mf.columns:
@@ -60,6 +60,8 @@ def fetch_stock_day(trade_date: str) -> pd.DataFrame:
     stock = daily.drop(columns=[c for c in ("trade_date",) if c in daily.columns]).merge(
         mf, on="stock_code", how="left"
     )
+    if name_map:
+        stock["stock_name"] = stock["stock_code"].map(name_map)
     return stock
 
 
@@ -95,9 +97,9 @@ def load_mappings(store: TsStore, trade_date: str, *, refresh: bool, kinds=None)
     return out
 
 
-def process_day(store: TsStore, trade_date: str, mappings, *, do_etf: bool, etf_basic) -> None:
+def process_day(store: TsStore, trade_date: str, mappings, *, do_etf: bool, etf_basic, name_map=None) -> None:
     print(f"==> 采集 {trade_date}", flush=True)
-    stock = fetch_stock_day(trade_date)
+    stock = fetch_stock_day(trade_date, name_map)
     if stock.empty:
         print(f"  {trade_date} 无 daily 数据（休市或未更新），跳过", flush=True)
         return
@@ -153,6 +155,12 @@ def main() -> int:
     print("==> 构建行业映射", flush=True)
     mappings = load_mappings(store, dates[-1], refresh=args.refresh_mapping, kinds=kinds)
 
+    name_map = {}
+    sb = tc.call_api("stock_basic", exchange="", list_status="L", fields="ts_code,name")
+    if sb is not None and not sb.empty:
+        name_map = dict(zip(sb["ts_code"].map(tc.ts_code_to_code6), sb["name"]))
+    print(f"==> 个股名称 {len(name_map)} 条", flush=True)
+
     etf_basic = None
     if not args.no_etf:
         eb = tc.call_api("fund_basic", market="E", fields="ts_code,name")
@@ -160,7 +168,7 @@ def main() -> int:
             etf_basic = pd.DataFrame({"etf_code": eb["ts_code"].map(tc.ts_code_to_code6), "etf_name": eb["name"]})
 
     for d in dates:
-        process_day(store, d, mappings, do_etf=not args.no_etf, etf_basic=etf_basic)
+        process_day(store, d, mappings, do_etf=not args.no_etf, etf_basic=etf_basic, name_map=name_map)
     print("==> 完成", flush=True)
     return 0
 
