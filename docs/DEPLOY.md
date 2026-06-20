@@ -88,7 +88,13 @@ bash deploy/remote_deploy.sh
 - `git reset --hard origin/main` 会丢弃服务器上对**已跟踪文件**的本地改动；`.env`、`data/`、`.venv/`、`logs/` 均被 `.gitignore` 忽略，不受影响。
 - 服务器只跟随 `main`（见 [BRANCHING.md](./BRANCHING.md)）。
 - `TUSHARE_TOKEN` 只存在服务器 `.env`，**绝不进入 CI 或 Git**。
-- v4.0 换源后首次需重建历史库：`fetch_ts_daily`（开发中）→ 区间补数 ≤400 日。
+- v4.0 换源后首次建库（方案 A 清空重拉）：
+  ```bash
+  source .venv/bin/activate && set -a && source .env && set +a
+  python3 scripts/fetch_ts_daily.py --mapping-only                    # 四套行业映射（含同花顺，约 8 分钟）
+  python3 scripts/fetch_ts_daily.py --start 20250101 --end 20250613   # 区间补数（≤400 交易日）
+  ```
+  之后每日 21:35 自动采集（缓存映射，约 8 秒）、每周日 02:00 自动刷新映射。
 
 ## 4. 排错
 
