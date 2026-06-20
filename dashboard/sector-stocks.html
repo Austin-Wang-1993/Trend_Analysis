@@ -31,12 +31,10 @@
           <select id="sort">
             <option value="turnover_pct_desc">成交占比 ↓</option>
             <option value="turnover_pct_asc">成交占比 ↑</option>
-            <option value="buy_pct_desc">买入占比 ↓</option>
-            <option value="buy_pct_asc">买入占比 ↑</option>
-            <option value="sell_pct_desc">卖出占比 ↓</option>
-            <option value="sell_pct_asc">卖出占比 ↑</option>
-            <option value="net_desc">净值 ↓</option>
-            <option value="net_asc">净值 ↑</option>
+            <option value="up_ratio_desc">涨幅 ↓</option>
+            <option value="down_ratio_desc">跌幅 ↓</option>
+            <option value="net_desc">净流入 ↓</option>
+            <option value="net_asc">净流入 ↑</option>
           </select>
         </label>
         <label>天数
@@ -66,7 +64,7 @@
     initNav();
     const params = new URLSearchParams(location.search);
     const sector = params.get('sector');
-    const kind = params.get('kind') || 'sw_l2';
+    const kind = params.get('kind') || 'sw_l3';
     const sortEl = document.getElementById('sort');
     const daysEl = document.getElementById('days');
     const boardEl = document.getElementById('board');
@@ -131,7 +129,14 @@
     }
 
     function stockDetailUrl(code) {
-      return `/stock-detail.html?stock=${encodeURIComponent(code)}&sector=${encodeURIComponent(sector)}&days=${encodeURIComponent(daysEl.value)}&sort=${encodeURIComponent(sortEl.value)}`;
+      return `/stock-detail.html?stock=${encodeURIComponent(code)}&sector=${encodeURIComponent(sector)}&kind=${encodeURIComponent(kind)}&days=${encodeURIComponent(daysEl.value)}&sort=${encodeURIComponent(sortEl.value)}`;
+    }
+
+    function fmtPctChg(v) {
+      if (v == null || Number.isNaN(v)) return '—';
+      const cls = v > 0 ? 'positive' : v < 0 ? 'negative' : '';
+      const prefix = v > 0 ? '+' : '';
+      return `<span class="metric-net ${cls}">${prefix}${v.toFixed(2)}%</span>`;
     }
 
     function renderCard(stock) {
@@ -147,9 +152,9 @@
           </div>
           <dl class="sector-metrics">
             <div><dt>成交</dt><dd>${fmtMoney(stock.turnover)} <span class="metric-pct">${fmtPct(stock.turnover_pct)}</span></dd></div>
-            <div><dt>买入</dt><dd>${fmtMoney(stock.active_buy)} <span class="metric-pct">${fmtPct(stock.buy_pct)}</span></dd></div>
-            <div><dt>卖出</dt><dd>${fmtMoney(stock.active_sell)} <span class="metric-pct">${fmtPct(stock.sell_pct)}</span></dd></div>
-            <div><dt>净值</dt><dd>${fmtNet(stock.net_value)} <span class="metric-pct">${fmtPct(stock.net_pct)}</span></dd></div>
+            <div><dt>涨跌</dt><dd>${fmtPctChg(stock.pct_chg)}</dd></div>
+            <div><dt>净流入</dt><dd>${fmtNet(stock.net_active)}</dd></div>
+            <div><dt>主力净</dt><dd>${fmtNet(stock.main_net)}</dd></div>
           </dl>
         </article>`;
     }
