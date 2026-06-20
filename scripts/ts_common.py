@@ -195,7 +195,7 @@ def moneyflow_to_stock_flow(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(
             columns=[
                 "stock_code", "active_buy", "active_sell", "net_active",
-                "main_buy", "main_sell", *ATOMIC_FROM_MONEYFLOW.keys(),
+                "main_buy", "main_sell", "main_net", *ATOMIC_FROM_MONEYFLOW.keys(),
             ]
         )
     out = pd.DataFrame()
@@ -212,9 +212,15 @@ def moneyflow_to_stock_flow(df: pd.DataFrame) -> pd.DataFrame:
     main_sell = df.apply(lambda r: _row_sum(r, MAIN_SELL_FIELDS), axis=1) * WAN_TO_YUAN
     out["active_buy"] = active_buy
     out["active_sell"] = active_sell
-    out["net_active"] = active_buy - active_sell
+    # 注意：sum(buy 四档) == sum(sell 四档)（每笔成交买卖两边金额相等），故 active_buy-active_sell 恒为 0、无意义。
+    # 总净流入用 Tushare 的 net_mf_amount（万元→元）；主力净流入 = 大单+特大单净额。
+    if "net_mf_amount" in df.columns:
+        out["net_active"] = pd.to_numeric(df["net_mf_amount"], errors="coerce") * WAN_TO_YUAN
+    else:
+        out["net_active"] = active_buy - active_sell
     out["main_buy"] = main_buy
     out["main_sell"] = main_sell
+    out["main_net"] = main_buy - main_sell
     for atomic_col, mf_col in ATOMIC_FROM_MONEYFLOW.items():
         if mf_col in df.columns:
             out[atomic_col] = pd.to_numeric(df[mf_col], errors="coerce").fillna(0.0) * WAN_TO_YUAN

@@ -42,6 +42,7 @@ def test_moneyflow_aggregation() -> None:
                 "ts_code": "000001.SZ", "trade_date": "20250613",
                 "buy_sm_amount": 1, "buy_md_amount": 2, "buy_lg_amount": 3, "buy_elg_amount": 4,
                 "sell_sm_amount": 5, "sell_md_amount": 6, "sell_lg_amount": 7, "sell_elg_amount": 8,
+                "net_mf_amount": -2.5,
             }
         ]
     )
@@ -50,9 +51,11 @@ def test_moneyflow_aggregation() -> None:
     assert row["stock_code"] == "000001"
     assert row["active_buy"] == 10 * tc.WAN_TO_YUAN
     assert row["active_sell"] == 26 * tc.WAN_TO_YUAN
-    assert row["net_active"] == (10 - 26) * tc.WAN_TO_YUAN
+    # 净流入取 net_mf_amount（不是 buy-sell，那个恒为 0）
+    assert row["net_active"] == -2.5 * tc.WAN_TO_YUAN
     assert row["main_buy"] == 7 * tc.WAN_TO_YUAN
     assert row["main_sell"] == 15 * tc.WAN_TO_YUAN
+    assert row["main_net"] == (7 - 15) * tc.WAN_TO_YUAN
     # 8 档原子字段：特大单买 = buy_elg=4 万 → 4e4
     assert row["zmbtdcje"] == 4 * tc.WAN_TO_YUAN
     assert row["zmbxdcje"] == 1 * tc.WAN_TO_YUAN
