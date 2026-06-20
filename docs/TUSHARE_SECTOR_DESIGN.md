@@ -246,12 +246,19 @@ market_daily                → 全 A 汇总（含主力买卖合计，供占比
 
 ### 5.2 脚本规划
 
-| 脚本 | 职责 |
-|------|------|
-| `scripts/ts_common.py` | Token、限频、通用请求 |
-| `scripts/fetch_ts_daily.py` | 替代 `fetch_by_daily.py`：daily + moneyflow + 四套聚合 |
-| `scripts/refresh_sector_mappings.py` | 改为拉 Tushare 四套映射（删概念/hot） |
-| `scripts/rebuild_sector_aggregates.py` | 按 kind 重算（保留） |
+| 脚本 | 职责 | 状态 |
+|------|------|------|
+| `scripts/ts_common.py` | Token/.env、限频重试、换算、moneyflow 聚合（含 `net_mf_amount` 净流入） | ✅ |
+| `scripts/ts_sectors.py` | 四套行业映射归一化 + 联网拉取（分页/缓存） | ✅ |
+| `scripts/ts_aggregate.py` | 行业聚合（净流入/主力净/涨跌家数/各占比/未分类/零成份占位） | ✅ |
+| `scripts/ts_store.py` | v4 SQLite 层（`*_v4` 表）+ 看板读取 | ✅ |
+| `scripts/fetch_ts_daily.py` | 采集编排：daily+moneyflow+四套聚合+ETF；`--start/--end`、`--kinds`、`--mapping-only`、`--refresh-mapping` | ✅ |
+
+**调度接线（`api/job_worker.py` + `scripts/scheduler.py`）：**
+
+- 每日 **21:35**：`job_worker` spawn `fetch_ts_daily`（缓存映射，约 8 秒），管理页补数同路径。
+- 每周日 **02:00**：`scheduler` 调 `fetch_ts_daily --mapping-only` 刷新四套映射（含同花顺，约 8 分钟）。
+- 首次/换源建库：`fetch_ts_daily --mapping-only` 后 `fetch_ts_daily --start --end`（≤400 交易日）。
 
 ### 5.3 换源迁移（方案 A）
 
