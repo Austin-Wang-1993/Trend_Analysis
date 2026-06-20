@@ -269,7 +269,7 @@ market_daily                → 全 A 汇总（含主力买卖合计，供占比
 
 | 端点 | 变更 |
 |------|------|
-| `GET /api/market/series?days=5|15|30` | 扩展 days |
+| `GET /api/market?days=5|15|30` | 扩展 days（沿用现网端点名，不新增 `/series`） |
 | `GET /api/sectors/table?kind=sw_l3|ci_l3|dc_ind|ths_ind&days=&sort=` | 新 kind；响应含新指标 |
 | `GET /api/sectors/{code}/stocks` | 新 sort；仅当前 kind |
 | `GET /api/stocks/{code}` | 返回四套行业归属 |

@@ -422,7 +422,7 @@ python3 scripts/backfill_history.py --days 5 --no-all-turnover
 
 **说明**：ETF 无 `history/transaction`，**5 日 ETF 数据主要靠每日 cron 积累**；A 股买卖可通过 `lt=5` 一次回填。
 
-### 3.8 定时调度（默认 21:35，默认交易日）
+### 3.10 定时调度（默认 21:35，默认交易日）
 
 由 **`scheduler.py` + `app_settings`** 驱动，不再依赖系统 crontab 为唯一入口。
 
@@ -840,6 +840,10 @@ fastapi>=0.110
 uvicorn[standard]>=0.27
 apscheduler>=3.10
 pandas_market_calendars>=5.4.0
+tushare>=1.4.0          # v4.0 主数据源
+```
+
+前端（CDN，无需打包）：
 
 ```html
 <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
@@ -892,11 +896,11 @@ python3 scripts/serve_dashboard.py
 | 页面 5 1480 行卡顿 | 分页 API + 前端分页；禁止一次渲染全表 |
 | 页面 6 1480 图内存爆炸 | 默认 Top 50 + 懒加载 |
 | 买卖 vs 成交 trade_date 偏移 | 默认 21:35 采集 |
-| 必盈无交易日历 API | 日 K 间接同步；见 BIYING_API.md §9 |
+| 必盈无交易日历 API | 日 K 间接同步；见 BIYING_API.md §8 |
 | 自然日模式非交易日空跑 | 管理页标注；job 可能 skipped 或 partial |
 | 长任务浏览器超时 | 异步 job + 轮询，不阻塞 HTTP |
 | 指定日 ETF 无法补 | job 警告 + calendar partial；文档说明 |
-| Admin 误暴露 | 独立 token；/api/admin 中间件校验 |
+| Admin 误暴露 | 当前个人自用、无鉴权；如需加固可加独立 token 中间件 |
 
 ---
 
@@ -913,10 +917,10 @@ python3 scripts/serve_dashboard.py
 | PUT schedule_time=22:00 | next_run_at 更新 |
 | schedule_run_mode=calendar_day | 周末也触发 |
 | is_trading_day(春节) | false（来自 trading_calendar） |
-| POST /api/admin/calendar/sync | 返回同步条数 > 0 |
+| POST /api/admin/calendar/sync-db | 返回同步条数 > 0 |
 | POST fetch 重复 running | 409 |
-| export 无数据日期 | 404 |
-| admin 无 token | 401 |
+| export 无数据日期 | 返回仅含表头的空 zip（当前实现不返回 404） |
+| admin 接口鉴权 | **当前无鉴权**（个人自用）；如需加固再引入 token 中间件 |
 
 ---
 
