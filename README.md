@@ -46,17 +46,17 @@ python3 scripts/serve_dashboard.py
 # http://127.0.0.1:8080
 ```
 
-生产部署：`bash deploy/install.sh`
+生产部署：首次 `bash deploy/install.sh`；之后**推送到 `main` 自动部署**（GitHub Actions → 腾讯云），见 [docs/DEPLOY.md](docs/DEPLOY.md)。
 
-### 服务器更新代码（固定）
+### 服务器更新代码（手动，不经 CI）
 
 ```bash
 cd ~/Trend_Analysis
-git fetch origin main
-git merge FETCH_HEAD
+git fetch origin main && git reset --hard origin/main
+bash deploy/remote_deploy.sh
 ```
 
-详见 [docs/BRANCHING.md](docs/BRANCHING.md)。
+详见 [docs/DEPLOY.md](docs/DEPLOY.md)、[docs/BRANCHING.md](docs/BRANCHING.md)。
 
 | 页面 | 路径 |
 |------|------|
