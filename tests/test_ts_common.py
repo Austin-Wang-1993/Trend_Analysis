@@ -1,0 +1,126 @@
+"""ts_common 纯函数离线测试（无需 TUSHARE_TOKEN / 网络）。
+
+运行：python3 tests/test_ts_common.py   或   pytest tests/test_ts_common.py
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+
+import ts_common as tc  # noqa: E402
+
+
+def test_unit_constants() -> None:
+    assert tc.QIAN_TO_YUAN == 1000.0
+    assert tc.WAN_TO_YUAN == 10000.0
+
+
+def test_ts_code_to_code6() -> None:
+    assert tc.ts_code_to_code6("000001.SZ") == "000001"
+    assert tc.ts_code_to_code6("600519.SH") == "600519"
+    assert tc.ts_code_to_code6("430047.BJ") == "430047"
+
+
+def test_code6_to_ts_code() -> None:
+    assert tc.code6_to_ts_code("000001") == "000001.SZ"
+    assert tc.code6_to_ts_code("600519") == "600519.SH"
+    assert tc.code6_to_ts_code("688981") == "688981.SH"
+    assert tc.code6_to_ts_code("000001", "SZSE") == "000001.SZ"
+    assert tc.code6_to_ts_code("600519.SH") == "600519.SH"  # 已带后缀原样返回
+
+
+def test_moneyflow_aggregation() -> None:
+    # 单位万元；active_buy = (1+2+3+4)*1e4=1e5；main_buy=(3+4)*1e4=7e4
+    df = pd.DataFrame(
+        [
+            {
+                "ts_code": "000001.SZ", "trade_date": "20250613",
+                "buy_sm_amount": 1, "buy_md_amount": 2, "buy_lg_amount": 3, "buy_elg_amount": 4,
+                "sell_sm_amount": 5, "sell_md_amount": 6, "sell_lg_amount": 7, "sell_elg_amount": 8,
+            }
+        ]
+    )
+    out = tc.moneyflow_to_stock_flow(df)
+    row = out.iloc[0]
+    assert row["stock_code"] == "000001"
+    assert row["active_buy"] == 10 * tc.WAN_TO_YUAN
+    assert row["active_sell"] == 26 * tc.WAN_TO_YUAN
+    assert row["net_active"] == (10 - 26) * tc.WAN_TO_YUAN
+    assert row["main_buy"] == 7 * tc.WAN_TO_YUAN
+    assert row["main_sell"] == 15 * tc.WAN_TO_YUAN
+    # 8 档原子字段：特大单买 = buy_elg=4 万 → 4e4
+    assert row["zmbtdcje"] == 4 * tc.WAN_TO_YUAN
+    assert row["zmbxdcje"] == 1 * tc.WAN_TO_YUAN
+    assert row["zmstdcje"] == 8 * tc.WAN_TO_YUAN
+
+
+def test_moneyflow_empty() -> None:
+    out = tc.moneyflow_to_stock_flow(pd.DataFrame())
+    assert out.empty
+    assert "active_buy" in out.columns
+
+
+def test_daily_to_turnover() -> None:
+    df = pd.DataFrame(
+        [
+            {"ts_code": "600519.SH", "trade_date": "20250613", "amount": 1234.5, "pct_chg": 1.23},
+            {"ts_code": "000001.SZ", "trade_date": "20250613", "amount": None, "pct_chg": -0.5},
+        ]
+    )
+    out = tc.daily_to_turnover(df)
+    assert out.iloc[0]["turnover"] == 1234.5 * tc.QIAN_TO_YUAN
+    assert out.iloc[0]["stock_code"] == "600519"
+    assert pd.isna(out.iloc[1]["turnover"])  # amount 缺失 → NaN
+
+
+def test_fund_daily_to_turnover() -> None:
+    df = pd.DataFrame([{"ts_code": "510300.SH", "trade_date": "20250613", "amount": 100.0, "pct_chg": 0.4}])
+    out = tc.fund_daily_to_turnover(df)
+    assert out.iloc[0]["etf_code"] == "510300"
+    assert out.iloc[0]["exchange"] == "SH"
+    assert out.iloc[0]["turnover"] == 100.0 * tc.QIAN_TO_YUAN
+
+
+def test_count_up_down() -> None:
+    s = pd.Series([1.0, -2.0, 0.0, 3.0, None])
+    up, down, flat = tc.count_up_down(s)
+    assert up == 2
+    assert down == 1
+    assert flat == 2  # 0.0 与 None 均计平盘
+
+
+def test_load_dotenv(tmp_path: Path = None) -> None:  # type: ignore[assignment]
+    import os
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as d:
+        env = Path(d) / ".env"
+        env.write_text('export FOO_TS_TEST="bar baz"  # comment\nBAZ_TS_TEST=qux\n', encoding="utf-8")
+        os.environ.pop("FOO_TS_TEST", None)
+        os.environ.pop("BAZ_TS_TEST", None)
+        tc.load_dotenv(env)
+        assert os.environ["FOO_TS_TEST"] == "bar baz"
+        assert os.environ["BAZ_TS_TEST"] == "qux"
+
+
+def _run_all() -> int:
+    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
+    failed = 0
+    for fn in fns:
+        try:
+            fn()
+            print(f"PASS {fn.__name__}")
+        except Exception as exc:  # noqa: BLE001
+            failed += 1
+            print(f"FAIL {fn.__name__}: {exc}")
+    print(f"\n{len(fns) - failed}/{len(fns)} passed")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_run_all())
