@@ -12,7 +12,7 @@
 - 页面 2/3：**4 Tab**（`sw_l3|ci_l3|dc_ind|ths_ind`），移除 hot/board
 - 指标扩展：主力买卖、涨跌家数；时间 **5/15/30** 日
 - `history.db` **清空重拉**；映射 **每周** + 日采 **21:35**（`moneyflow` 19:00 后）
-- ETF：`fund_daily` + `etf_share_size`（无 ETF moneyflow）
+- ETF：`fund_daily` + `fund_share`（`fd_share` 万份；无 ETF moneyflow）
 
 **v3.6 变更**：页面 2 概念 Tab；`concept_*` 表；必盈 8 档原子字段；补数 ≤400 日。
 

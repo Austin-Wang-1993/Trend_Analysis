@@ -69,7 +69,7 @@
 |------|------|------|------|------|
 | ETF 列表 | `fund_basic`（market=E） | — | 2000 | — |
 | 日线成交 | `fund_daily` | [doc](https://tushare.pro/wctapi/documents/127.md) | 5000 | `amount` 千元→元 |
-| 份额/规模 | `etf_share_size` | [doc](https://tushare.pro/wctapi/documents/408.md) | 8000 | 份额变化作资金 proxy |
+| 份额/规模 | `fund_share` | [doc](https://tushare.pro/document/2?doc_id=207) | 2000 | 输出 `fd_share`（万份）；份额变化作资金 proxy |
 
 **无** ETF 版 `moneyflow`；ETF 页不提供 A 股同款主买/主卖四档。
 

@@ -96,9 +96,9 @@
 | 定位 | 与行业 Tab **分离**，仍为 ETF 专用页 |
 | 历史成交 | Tushare [`fund_daily`](https://tushare.pro/wctapi/documents/127.md)（`amount` 千元 → 元） |
 | 列表 | [`fund_basic`](https://tushare.pro/document/2) 过滤 ETF |
-| 份额/规模 | [`etf_share_size`](https://tushare.pro/wctapi/documents/408.md)（10100 积分可用；**8000 积分起**） |
+| 份额/规模 | [`fund_share`](https://tushare.pro/document/2?doc_id=207)（**2000 积分起**；输出 `fd_share` 单位「万份」，差分作资金 proxy） |
 | **主买/主卖/大单** | **Tushare 无 ETF 版 `moneyflow`**，**不提供**与 A 股一致的四档主动买卖 |
-| 替代指标 | 成交额、涨跌幅、`pct_chg`、份额日变化（`total_share` 差分）、占全 A 比 |
+| 替代指标 | 成交额、涨跌幅、`pct_chg`、份额日变化（`fd_share` 差分）、占全 A 比 |
 | 时间范围 | 5 / 15 / 30 日（与页面 1 对齐） |
 
 > 若后续 Tushare 上线 ETF 资金流接口，在 `etf_daily` 表扩展字段即可；当前规格 **不阻塞 v4.0**。
@@ -136,6 +136,8 @@
 
 **四档原子字段（可选落库）：** 继续保留 8 档 `zmb*`/`zms*` 映射至 Tushare 四档买卖，供详情页与导出；汇总规则与 v3.6 一致。
 
+> **⚠ 口径迁移提示（主买/主卖语义变化）：** v3.6 的 `active_buy/active_sell` 来自必盈 **L2 真实主动性买/卖盘**；v4.0 改为 Tushare `moneyflow` 四档买/卖金额之和。Tushare `buy_*` 已按主买方向分档，口径上可称「主动买入」，但二者**数量级关系不同**：v4.0 下 `active_buy + active_sell ≈ 当日成交额`（每笔成交分入买方或卖方）。因「方案 A 清空重拉」，新旧不会混库，但**看板「主买/主卖」的业务含义已迁移**，前端文案与导出说明应同步更新，避免沿用 v3.6 的理解解读数值。
+
 ---
 
 ## 4. 四套行业数据源
@@ -147,7 +149,9 @@
 | `sw_l3` | 申万 2021 | `index_classify` | `index_member_all` | L3（约 346） | 2000 |
 | `ci_l3` | 中信 2020 | —（从 member 反推） | `ci_index_member` | L3（约 285） | 5000 |
 | `dc_ind` | 东财 | `dc_index`（`idx_type=行业板块`） | `dc_member` | 行业板块最细层 | 6000 |
-| `ths_ind` | 同花顺 | `ths_index`（`type=I` **仅行业**） | `ths_member` | 行业指数最细层 | 6000 |
+| `ths_ind` | 同花顺 | `ths_index`（`type=I` **仅行业**） | `ths_member`（见注） | 行业指数最细层 | 6000 |
+
+> **注（`ths_member`）：** 官方文档（261）标题为「概念板块成分」，示例用概念指数；用于 `type=I` 行业指数成份属可行但未被官方明确背书。**开发第 1 步须先做连通性验证**：传一个行业指数 `ts_code` 确认能返回成份，否则改用 `ths_index` 列表 + 逐板块拉取或回退到其它三套。
 
 **明确排除：**
 
@@ -161,6 +165,17 @@
 - 东财 / 同花顺：每体系 **一股一个主行业板块**（从 member 取当前归属）
 - 无归属 → 归入 **`未分类`**（`sector_code=UNMAPPED`），汇总单独一行，页脚提示数量
 
+**历史归属的口径与局限（重要）：**
+
+| 体系 | 历史成份字段 | 历史回溯能力 |
+|------|-------------|-------------|
+| 申万 `index_member_all` | 含 `in_date/out_date` | 可按时点回溯，但官方数据存在**部分个股历史区间缺失/不连贯**（已知 issue），需对缺口做兜底 |
+| 中信 `ci_index_member` | 含 `in_date/out_date` | 可按时点回溯 |
+| 东财 `dc_member` | 支持 `trade_date` 历史查询 | 可按交易日回溯 |
+| 同花顺 `ths_member` | `in_date/out_date/weight` 官方标注 **「暂无」**，仅 `is_new` 当前快照 | **无法按时点回溯**，400 日补数只能用**当前成份近似历史**（存在幸存者偏差） |
+
+> 即：v4.0 的「行业归属」整体采用**当前快照映射**（每周刷新）作为主口径；申万/中信/东财可选做历史时点修正，**同花顺仅有当前快照**。看板页脚或文档需说明历史区间的归属为近似值。
+
 **路径字段（申万/中信）：** 落库 `sector_path` 或拼接 `l1_name > l2_name > l3_name` 供前端展示。
 
 ---
@@ -170,13 +185,15 @@
 ```
 daily(trade_date)           → 个股 turnover、pct_chg
 moneyflow(trade_date)       → 个股四档买卖（19:00 后完整）
-index_member_all / …        → 行业归属（每周刷新，含 in_date/out_date）
+member 接口（每周刷新）      → 行业归属（当前快照为主口径，见 §4.1 历史局限表）
         ↓ 本地聚合
 sector_daily(kind=…)        → 四套行业各自一张逻辑表（或 sector_kind 列）
 market_daily                → 全 A 汇总（含主力买卖合计，供占比分母）
 ```
 
 **不采用**板块指数自带成交额（`ci_daily`/`ths_daily`）作为主数据，仅作校验抽样。
+
+**涨跌家数校验：** 本地按成份股 `daily.pct_chg` 聚合 `up_count/down_count`。东财 `dc_index` 自带官方 `up_num/down_num`，可作抽样校验；因停牌、成份口径、当日新上市等差异，**本地值与官方值允许小幅偏差**（建议阈值 ±2 家或 ±2%），不强制完全一致。
 
 ---
 
@@ -212,7 +229,7 @@ market_daily                → 全 A 汇总（含主力买卖合计，供占比
 | `daily` | 交易日 **15:00–17:00** | 最早 **17:30** 后拉取 |
 | `moneyflow` | 交易日 **19:00** 后 | 最早 **19:30** 后拉取 |
 | `fund_daily` | 盘后 | **19:30** 后与 A 股同批或略晚 |
-| `etf_share_size` | 次日 **08:30** 左右（交易所） | **09:00** 单独 job 或并入次日晨间 |
+| `fund_share` | 次日 **08:30** 左右（交易所） | **09:00** 单独 job 或并入次日晨间 |
 | 行业映射 | 低频 | **每周日 02:00** `refresh_sector_mappings.py` |
 
 **默认日采 cron：** **21:35**（与 v3.6 相同，已覆盖 moneyflow 就绪时间）。  
@@ -243,7 +260,7 @@ market_daily                → 全 A 汇总（含主力买卖合计，供占比
 | `sector_daily` | 增加 `kind`（`sw_l3|ci_l3|dc_ind|ths_ind`）；扩展 `main_buy/main_sell/up_count/down_count/…`；`sector_path` |
 | `stock_daily` | 增加 `main_buy/main_sell/pct_chg`；四套行业 code/name 字段或 JSON `industry_tags` |
 | `concept_*` | **停用**（不再写入） |
-| `etf_daily` | 用 `fund_daily` + 可选 `etf_share_size` 字段 |
+| `etf_daily` | 用 `fund_daily` + 可选 `fund_share`（`fd_share` 万份）字段 |
 | `app_settings` | 默认 `days` 选项支持 5/15/30 |
 
 ---
