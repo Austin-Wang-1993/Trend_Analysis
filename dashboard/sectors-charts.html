@@ -10,37 +10,68 @@
 <body>
   <nav></nav>
   <main>
-    <h1>申万二级板块 — 近 5 日图表</h1>
-    <p class="footnote">点击展开查看成交额 / 主买 / 主卖</p>
+    <div class="sector-kind-tabs" role="tablist">
+      <a href="#" class="sector-kind-tab active" data-kind="sw_l3">申万三级</a>
+      <a href="#" class="sector-kind-tab" data-kind="ci_l3">中信三级</a>
+      <a href="#" class="sector-kind-tab" data-kind="dc_ind">东财行业</a>
+      <a href="#" class="sector-kind-tab" data-kind="ths_ind">同花顺行业</a>
+    </div>
+    <h1 id="pageTitle">申万三级行业 — 图表</h1>
+    <div class="toolbar">
+      <label>天数
+        <select id="days">
+          <option value="5" selected>近 5 日</option>
+          <option value="15">近 15 日</option>
+          <option value="30">近 30 日</option>
+        </select>
+      </label>
+    </div>
+    <p class="footnote">点击展开查看 成交额 / 净流入 / 主力净流入</p>
     <div id="list"></div>
   </main>
+  <link rel="stylesheet" href="/static/css/sectors-table.css?v=20260623" />
   <script src="/static/js/format.js"></script>
   <script src="/static/js/api.js"></script>
   <script src="/static/js/charts.js?v=20260621"></script>
   <script src="/static/js/nav.js"></script>
   <script>
     initNav();
-    const charts = {};
-    (async () => {
-      const items = await apiGet('/api/sectors/charts?days=5');
+    const params = new URLSearchParams(location.search);
+    const TITLES = { sw_l3: '申万三级行业', ci_l3: '中信三级行业', dc_ind: '东财行业', ths_ind: '同花顺行业' };
+    let currentKind = TITLES[params.get('kind')] ? params.get('kind') : 'sw_l3';
+    const daysEl = document.getElementById('days');
+    if (params.get('days')) daysEl.value = params.get('days');
+
+    function syncUi() {
+      document.querySelectorAll('.sector-kind-tab').forEach(t => t.classList.toggle('active', t.dataset.kind === currentKind));
+      document.getElementById('pageTitle').textContent = `${TITLES[currentKind]} — 图表`;
+    }
+
+    async function load() {
+      syncUi();
+      const charts = {};
       const list = document.getElementById('list');
+      list.innerHTML = '<p class="loading">加载中…</p>';
+      const items = await apiGet(`/api/sectors/charts?kind=${currentKind}&days=${daysEl.value}`);
       if (!items.length) { list.innerHTML = '<p class="loading">暂无数据</p>'; return; }
+      list.innerHTML = '';
       items.forEach((item, i) => {
-        const dates = item.turnover_series.map(x => x.trade_date);
+        const dates = item.turnover_series.map(x => shortDate(x.trade_date));
         const div = document.createElement('div');
         div.className = 'card accordion-item';
+        const link = `/sector-stocks.html?sector=${encodeURIComponent(item.sector_code)}&kind=${currentKind}&days=${daysEl.value}`;
         div.innerHTML = `
           <div class="accordion-head">
-            <span>${formatSectorName(item.sector_name)}</span>
+            <span>${item.sector_name}</span>
             <span class="accordion-actions">
-              <a class="sector-name" href="/sector-stocks.html?sector=${encodeURIComponent(item.sector_code)}&days=5" onclick="event.stopPropagation()">查看个股</a>
+              <a class="sector-name" href="${link}" onclick="event.stopPropagation()">查看个股</a>
               <span>▶</span>
             </span>
           </div>
           <div class="accordion-body">
             <div id="c-t-${i}" class="chart"></div>
-            <div id="c-b-${i}" class="chart"></div>
-            <div id="c-s-${i}" class="chart"></div>
+            <div id="c-n-${i}" class="chart"></div>
+            <div id="c-m-${i}" class="chart"></div>
           </div>`;
         list.appendChild(div);
         div.querySelector('.accordion-head').addEventListener('click', () => {
@@ -48,13 +79,24 @@
           if (div.classList.contains('open') && !charts[i]) {
             charts[i] = [
               renderBar(document.getElementById(`c-t-${i}`), barChartOption('成交额', dates, item.turnover_series.map(x => x.value))),
-              renderBar(document.getElementById(`c-b-${i}`), barChartOption('主买', dates, item.active_buy_series.map(x => x.value), '#22c55e')),
-              renderBar(document.getElementById(`c-s-${i}`), barChartOption('主卖', dates, item.active_sell_series.map(x => x.value), '#ef4444')),
+              renderBar(document.getElementById(`c-n-${i}`), barChartOption('净流入', dates, (item.net_active_series||[]).map(x => x.value), '#f59e0b')),
+              renderBar(document.getElementById(`c-m-${i}`), barChartOption('主力净流入', dates, (item.main_net_series||[]).map(x => x.value), '#8b5cf6')),
             ];
           }
         });
       });
-    })().catch(e => { document.querySelector('main').innerHTML = `<p class="loading">${e.message}</p>`; });
+    }
+
+    document.querySelectorAll('.sector-kind-tab').forEach(tab => {
+      tab.addEventListener('click', e => {
+        e.preventDefault();
+        if (tab.dataset.kind === currentKind) return;
+        currentKind = tab.dataset.kind;
+        load().catch(err => { document.getElementById('list').innerHTML = `<p class="loading">${err.message}</p>`; });
+      });
+    });
+    daysEl.addEventListener('change', () => load().catch(e => { document.getElementById('list').innerHTML = `<p class="loading">${e.message}</p>`; }));
+    load().catch(e => { document.querySelector('main').innerHTML = `<p class="loading">${e.message}</p>`; });
   </script>
 </body>
 </html>
