@@ -129,9 +129,20 @@ def main() -> int:
     ap.add_argument("--refresh-mapping", action="store_true", help="强制刷新四套映射")
     ap.add_argument("--no-etf", action="store_true", help="跳过 ETF")
     ap.add_argument("--kinds", help="仅处理指定体系（逗号分隔，如 sw_l3,ci_l3）；默认四套全做")
+    ap.add_argument("--mapping-only", action="store_true", help="只刷新四套行业映射（不采集当日行情）")
     args = ap.parse_args()
 
     tc.get_pro()  # 触发 token 校验
+
+    if args.mapping_only:
+        store = TsStore(DB_PATH)
+        td = args.date or _latest_trade_date()
+        mk = [k.strip() for k in args.kinds.split(",")] if args.kinds else None
+        mk = [k for k in mk if k in tsec.KINDS] if mk else None
+        print(f"==> 仅刷新行业映射（trade_date={td}，kinds={mk or '全部'}）", flush=True)
+        load_mappings(store, td, refresh=True, kinds=mk)
+        print("==> 映射刷新完成", flush=True)
+        return 0
 
     if args.start and args.end:
         dates = _trading_days_in_range(args.start, args.end)
