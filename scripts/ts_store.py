@@ -94,6 +94,8 @@ _SECTOR_SORTS = {
     "net_pct_asc": ("net_pct", False),
     "net_desc": ("net_active", True),
     "net_asc": ("net_active", False),
+    "main_net_desc": ("main_net", True),
+    "main_net_asc": ("main_net", False),
     "up_ratio_desc": ("up_ratio", True),
     "down_ratio_desc": ("down_ratio", True),
 }

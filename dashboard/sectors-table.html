@@ -12,11 +12,12 @@
   <main class="main-wide sector-page">
     <div class="sector-page-fixed">
       <div class="sector-kind-tabs" role="tablist">
-        <a href="#" class="sector-kind-tab active" data-kind="sw_l2" role="tab">申万二级</a>
-        <a href="#" class="sector-kind-tab" data-kind="hot" role="tab">热门概念</a>
-        <a href="#" class="sector-kind-tab" data-kind="board" role="tab">概念板块</a>
+        <a href="#" class="sector-kind-tab active" data-kind="sw_l3" role="tab">申万三级</a>
+        <a href="#" class="sector-kind-tab" data-kind="ci_l3" role="tab">中信三级</a>
+        <a href="#" class="sector-kind-tab" data-kind="dc_ind" role="tab">东财行业</a>
+        <a href="#" class="sector-kind-tab" data-kind="ths_ind" role="tab">同花顺行业</a>
       </div>
-      <h1 id="pageTitle">申万二级板块 — 每日排行</h1>
+      <h1 id="pageTitle">申万三级行业 — 每日排行</h1>
       <div class="toolbar">
         <div class="card-search-toolbar">
           <label>搜索
@@ -32,12 +33,12 @@
           <select id="sort">
             <option value="turnover_pct_desc">成交占比 ↓</option>
             <option value="turnover_pct_asc">成交占比 ↑</option>
-            <option value="buy_pct_desc">买入占比 ↓</option>
-            <option value="buy_pct_asc">买入占比 ↑</option>
-            <option value="sell_pct_desc">卖出占比 ↓</option>
-            <option value="sell_pct_asc">卖出占比 ↑</option>
-            <option value="net_desc">净值 ↓</option>
-            <option value="net_asc">净值 ↑</option>
+            <option value="net_desc">净流入 ↓</option>
+            <option value="net_asc">净流入 ↑</option>
+            <option value="main_net_desc">主力净流入 ↓</option>
+            <option value="main_net_asc">主力净流入 ↑</option>
+            <option value="up_ratio_desc">上涨比例 ↓</option>
+            <option value="down_ratio_desc">下跌比例 ↓</option>
           </select>
         </label>
         <label>天数
@@ -66,13 +67,15 @@
   <script>
     initNav();
     const params = new URLSearchParams(location.search);
+    const HINT = '左新右旧；净流入取 net_mf_amount、主力净=大单+特大单净额；点击卡片高亮同行业各列，点击名称查看成份股。';
     const KIND_META = {
-      sw_l2: { title: '申万二级板块 — 每日排行', hint: '左新右旧；点击卡片高亮同板块各列；点击板块名称查看成份股。' },
-      hot: { title: '热门概念 — 每日排行', hint: '概念成份存在重叠，各板块占比之和不必等于 100%。占比分母为当日全 A。' },
-      board: { title: '概念板块 — 每日排行', hint: '概念成份存在重叠，各板块占比之和不必等于 100%。占比分母为当日全 A。' },
+      sw_l3: { title: '申万三级行业 — 每日排行', hint: HINT },
+      ci_l3: { title: '中信三级行业 — 每日排行', hint: HINT },
+      dc_ind: { title: '东财行业 — 每日排行', hint: HINT },
+      ths_ind: { title: '同花顺行业 — 每日排行', hint: HINT },
     };
-    let currentKind = params.get('kind') || 'sw_l2';
-    if (!KIND_META[currentKind]) currentKind = 'sw_l2';
+    let currentKind = params.get('kind') || 'sw_l3';
+    if (!KIND_META[currentKind]) currentKind = 'sw_l3';
 
     const sortEl = document.getElementById('sort');
     const daysEl = document.getElementById('days');
@@ -162,19 +165,21 @@
     function renderCard(sector) {
       const code = sector.sector_code;
       const cls = highlightedCode === code ? 'sector-card highlighted' : 'sector-card';
-      const name = escapeHtml(formatSectorName(sector.sector_name));
-      const searchText = formatSectorName(sector.sector_name);
+      const title = sector.sector_path || sector.sector_name || '';
+      const name = escapeHtml(title);
+      const up = sector.up_count || 0;
+      const down = sector.down_count || 0;
       return `
-        <article class="${cls}" data-sector-code="${escapeAttr(code)}" data-search-text="${escapeAttr(searchText)}" tabindex="0">
+        <article class="${cls}" data-sector-code="${escapeAttr(code)}" data-search-text="${escapeAttr(title)}" tabindex="0">
           <div class="sector-card-head">
             <span class="sector-rank">#${sector.rank}</span>
             <a class="sector-name" href="${stocksUrl(code)}">${name}</a>
           </div>
           <dl class="sector-metrics">
             <div><dt>成交</dt><dd>${fmtMoney(sector.turnover)} <span class="metric-pct">${fmtPct(sector.turnover_pct)}</span></dd></div>
-            <div><dt>买入</dt><dd>${fmtMoney(sector.active_buy)} <span class="metric-pct">${fmtPct(sector.buy_pct)}</span></dd></div>
-            <div><dt>卖出</dt><dd>${fmtMoney(sector.active_sell)} <span class="metric-pct">${fmtPct(sector.sell_pct)}</span></dd></div>
-            <div><dt>净值</dt><dd>${fmtNet(sector.net_value)} <span class="metric-pct">${fmtPct(sector.net_pct)}</span></dd></div>
+            <div><dt>净流入</dt><dd>${fmtNet(sector.net_active)} <span class="metric-pct">${fmtPct(sector.net_pct)}</span></dd></div>
+            <div><dt>主力净</dt><dd>${fmtNet(sector.main_net)}</dd></div>
+            <div><dt>涨跌</dt><dd><span class="updown-count">${up}/${down}</span> <span class="metric-pct">${fmtPct(sector.up_ratio)}</span></dd></div>
           </dl>
         </article>`;
     }

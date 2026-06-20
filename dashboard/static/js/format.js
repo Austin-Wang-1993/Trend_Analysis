@@ -21,8 +21,10 @@ function formatSectorName(name) {
 
 function shortDate(iso) {
   if (!iso) return '';
-  const p = iso.split('-');
-  return p.length >= 3 ? `${p[1]}-${p[2]}` : iso;
+  const s = String(iso);
+  if (/^\d{8}$/.test(s)) return `${s.slice(4, 6)}-${s.slice(6, 8)}`; // YYYYMMDD（Tushare）
+  const p = s.split('-');
+  return p.length >= 3 ? `${p[1]}-${p[2]}` : s;
 }
 
 function formatNetValue(v) {
