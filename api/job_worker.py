@@ -153,6 +153,10 @@ def enqueue_job(
     end_date: str | None = None,
 ) -> str:
     global _running
+    from train_track_runner import is_train_track_scan_running
+
+    if is_train_track_scan_running():
+        raise RuntimeError("火车轨扫描运行中，请稍后再试")
     end = end_date or start_date
     with _lock:
         if _running:

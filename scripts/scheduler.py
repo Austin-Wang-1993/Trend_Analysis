@@ -40,7 +40,7 @@ def _run_dividend_refresh() -> None:
 
 def _run_train_track_scan() -> None:
     subprocess.run(
-        [sys.executable, str(_SCRIPTS / "train_track_scanner.py"), "--scan"],
+        [sys.executable, str(_SCRIPTS / "train_track_runner.py"), "--scheduled"],
         cwd=str(_SCRIPTS.parent),
         check=False,
     )

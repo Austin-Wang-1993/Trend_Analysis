@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ts_common as tc
 import ts_sectors as tsec
 import ts_aggregate as agg
+from train_track_store import TrainTrackStore, cache_rows_from_daily, turnover_map_from_basic
 from ts_store import TsStore
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -49,20 +50,25 @@ def _trading_days_in_range(start: str, end: str) -> list[str]:
     return sorted(cal["cal_date"].astype(str))
 
 
-def fetch_stock_day(trade_date: str, name_map: dict[str, str] | None = None) -> pd.DataFrame:
-    """daily + moneyflow → 个股当日指标（元）。name_map 补个股名称。"""
-    daily = tc.daily_to_turnover(tc.call_api("daily", trade_date=trade_date, fields="ts_code,amount,pct_chg"))
+def fetch_stock_day(trade_date: str, name_map: dict[str, str] | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """daily + moneyflow → 个股当日指标（元）。返回 (stock, daily_raw)。"""
+    daily_raw = tc.call_api(
+        "daily",
+        trade_date=trade_date,
+        fields="ts_code,open,high,low,close,vol,amount,pct_chg",
+    )
+    daily = tc.daily_to_turnover(daily_raw)
     mf = tc.moneyflow_to_stock_flow(tc.call_api("moneyflow", trade_date=trade_date))
     if "trade_date" in mf.columns:
         mf = mf.drop(columns=["trade_date"])
     if daily.empty:
-        return daily
+        return daily, daily_raw if daily_raw is not None else pd.DataFrame()
     stock = daily.drop(columns=[c for c in ("trade_date",) if c in daily.columns]).merge(
         mf, on="stock_code", how="left"
     )
     if name_map:
         stock["stock_name"] = stock["stock_code"].map(name_map)
-    return stock
+    return stock, daily_raw if daily_raw is not None else pd.DataFrame()
 
 
 def fetch_etf_day(trade_date: str, market_turnover: float, basic: pd.DataFrame) -> pd.DataFrame:
@@ -130,9 +136,18 @@ def load_mappings(store: TsStore, trade_date: str, *, refresh: bool, kinds=None)
     return out
 
 
-def process_day(store: TsStore, trade_date: str, mappings, *, do_etf: bool, etf_basic, name_map=None) -> None:
+def process_day(
+    store: TsStore,
+    trade_date: str,
+    mappings,
+    *,
+    do_etf: bool,
+    etf_basic,
+    name_map=None,
+    tt_store: TrainTrackStore | None = None,
+) -> None:
     print(f"==> 采集 {trade_date}", flush=True)
-    stock = fetch_stock_day(trade_date, name_map)
+    stock, daily_raw = fetch_stock_day(trade_date, name_map)
     if stock.empty:
         print(f"  {trade_date} 无 daily 数据（休市或未更新），跳过", flush=True)
         return
@@ -148,13 +163,21 @@ def process_day(store: TsStore, trade_date: str, mappings, *, do_etf: bool, etf_
         store.upsert_sectors(trade_date, kind, sector_df)
     print(f"  全A 成交 {market['turnover']/1e8:.0f}亿 涨/跌 {up}/{down}；四套行业已聚合", flush=True)
 
-    # 估值指标（股票清单页用）
-    metrics = tc.daily_basic_to_metrics(
-        tc.call_api("daily_basic", trade_date=trade_date,
-                    fields="ts_code,close,total_mv,pe,pe_ttm,pb,dv_ratio,dv_ttm")
+    # 估值指标（股票清单页用）+ 火车轨缓存换手
+    basic_raw = tc.call_api(
+        "daily_basic",
+        trade_date=trade_date,
+        fields="ts_code,close,total_mv,pe,pe_ttm,pb,dv_ratio,dv_ttm,turnover_rate",
     )
+    metrics = tc.daily_basic_to_metrics(basic_raw)
     store.upsert_valuation(trade_date, metrics, name_map)
     print(f"  估值指标 {len(metrics)} 只已落库", flush=True)
+
+    if tt_store is not None:
+        tr_map = turnover_map_from_basic(basic_raw)
+        tt_rows = cache_rows_from_daily(daily_raw, tr_map, trade_date)
+        tt_store.upsert_cache_rows(tt_rows)
+        print(f"  火车轨缓存 {len(tt_rows)} 只已落库", flush=True)
 
     if do_etf:
         etf = fetch_etf_day(trade_date, market["turnover"], etf_basic)
@@ -216,6 +239,7 @@ def main() -> int:
             return 1
 
     store = TsStore(DB_PATH)
+    tt_store = TrainTrackStore(DB_PATH)
     print("==> 构建行业映射", flush=True)
     mappings = load_mappings(store, dates[-1], refresh=args.refresh_mapping, kinds=kinds)
 
@@ -232,7 +256,15 @@ def main() -> int:
             etf_basic = pd.DataFrame({"etf_code": eb["ts_code"].map(tc.ts_code_to_code6), "etf_name": eb["name"]})
 
     for d in dates:
-        process_day(store, d, mappings, do_etf=not args.no_etf, etf_basic=etf_basic, name_map=name_map)
+        process_day(
+            store,
+            d,
+            mappings,
+            do_etf=not args.no_etf,
+            etf_basic=etf_basic,
+            name_map=name_map,
+            tt_store=tt_store,
+        )
     print("==> 完成", flush=True)
     return 0
 

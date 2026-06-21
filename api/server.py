@@ -31,6 +31,7 @@ from scheduler import compute_next_run, reload_scheduler, start_scheduler  # noq
 from signal_runner import run_scan_once, start_signal_runner  # noqa: E402
 from signal_scanner import SignalScanner  # noqa: E402
 from train_track_scanner import TrainTrackScanner  # noqa: E402
+from train_track_runner import enqueue_train_track_scan, get_scan_status  # noqa: E402
 from trading_calendar import compare_with_biying, get_trading_days, is_trading_day, normalize_date, sync_pmc_to_sqlite, today_cst  # noqa: E402
 
 CST = ZoneInfo("Asia/Shanghai")
@@ -340,15 +341,18 @@ def api_train_track_picks(
     return {"trade_date": td, "items": items, "meta": meta}
 
 
+@app.get("/api/train-track/scan/status")
+def api_train_track_scan_status(job_id: str | None = Query(None)) -> dict[str, Any]:
+    return get_scan_status(job_id)
+
+
 @app.post("/api/admin/train-track/scan")
 def admin_train_track_scan() -> dict[str, Any]:
     try:
-        result = get_train_track_scanner().scan()
-        return {
-            "ok": not result.get("skipped", False),
-            "count": result.get("pick_count", 0),
-            **result,
-        }
+        result = enqueue_train_track_scan(trigger_type="manual")
+        return {"ok": True, **result}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

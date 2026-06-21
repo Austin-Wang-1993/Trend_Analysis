@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import sqlite3
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
+
+import pandas as pd
+
+import ts_common as tc
 
 CST = ZoneInfo("Asia/Shanghai")
 
@@ -95,6 +100,20 @@ CREATE TABLE IF NOT EXISTS train_track_scan_log (
     universe_count INTEGER,
     error_message TEXT
 );
+CREATE TABLE IF NOT EXISTS train_track_scan_jobs (
+    job_id TEXT PRIMARY KEY,
+    trade_date TEXT NOT NULL,
+    trigger_type TEXT NOT NULL,
+    status TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT,
+    duration_sec REAL,
+    progress TEXT,
+    error_message TEXT,
+    pick_count INTEGER,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_tt_scan_jobs_created ON train_track_scan_jobs(created_at DESC);
 """
 
 
@@ -241,3 +260,99 @@ class TrainTrackStore:
 
     def get_settings_meta(self) -> dict[str, str]:
         return dict(TRAIN_TRACK_SETTINGS_META)
+
+    def create_scan_job(self, trade_date: str, trigger_type: str) -> str:
+        job_id = str(uuid.uuid4())
+        now = datetime.now(CST).isoformat()
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO train_track_scan_jobs(
+                       job_id, trade_date, trigger_type, status, created_at
+                   ) VALUES (?, ?, ?, 'pending', ?)""",
+                (job_id, trade_date, trigger_type, now),
+            )
+        return job_id
+
+    def update_scan_job(self, job_id: str, **fields: Any) -> None:
+        if not fields:
+            return
+        cols = ", ".join(f"{k}=?" for k in fields)
+        with self._conn() as conn:
+            conn.execute(
+                f"UPDATE train_track_scan_jobs SET {cols} WHERE job_id=?",
+                (*fields.values(), job_id),
+            )
+
+    def get_scan_job(self, job_id: str) -> dict[str, Any] | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM train_track_scan_jobs WHERE job_id=?", (job_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def get_active_scan_job(self) -> dict[str, Any] | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                """SELECT * FROM train_track_scan_jobs
+                   WHERE status IN ('pending', 'running')
+                   ORDER BY created_at DESC LIMIT 1"""
+            ).fetchone()
+        return dict(row) if row else None
+
+    def get_latest_scan_job(self) -> dict[str, Any] | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM train_track_scan_jobs ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()
+        return dict(row) if row else None
+
+
+def normalize_trade_date(value: str) -> str:
+    d = str(value).strip()
+    if len(d) == 8 and d.isdigit():
+        return f"{d[:4]}-{d[4:6]}-{d[6:8]}"
+    return d
+
+
+def turnover_map_from_basic(basic_df: pd.DataFrame | None) -> dict[str, float]:
+    out: dict[str, float] = {}
+    if basic_df is None or basic_df.empty:
+        return out
+    for _, r in basic_df.iterrows():
+        code = tc.ts_code_to_code6(str(r["ts_code"]))
+        if pd.notna(r.get("turnover_rate")):
+            out[code] = float(r["turnover_rate"])
+    return out
+
+
+def cache_rows_from_daily(
+    daily_df: pd.DataFrame | None,
+    turnover_by_code: dict[str, float],
+    trade_date: str,
+) -> list[dict[str, Any]]:
+    """由 Tushare daily + turnover 映射生成火车轨缓存行。"""
+    td = normalize_trade_date(trade_date)
+    rows: list[dict[str, Any]] = []
+    if daily_df is None or daily_df.empty:
+        return rows
+    for _, r in daily_df.iterrows():
+        code = tc.ts_code_to_code6(str(r["ts_code"]))
+        rows.append(
+            {
+                "trade_date": td,
+                "stock_code": code,
+                "open": float(r["open"]) if pd.notna(r.get("open")) else None,
+                "high": float(r["high"]) if pd.notna(r.get("high")) else None,
+                "low": float(r["low"]) if pd.notna(r.get("low")) else None,
+                "close": float(r["close"]) if pd.notna(r.get("close")) else None,
+                "vol": float(r["vol"]) if pd.notna(r.get("vol")) else None,
+                "turnover_rate": turnover_by_code.get(code),
+            }
+        )
+    return rows
+
+
+def format_scan_progress(phase: str, current: int, total: int) -> str:
+    if phase == "compute":
+        return "compute"
+    return f"cache:{current}/{total}"

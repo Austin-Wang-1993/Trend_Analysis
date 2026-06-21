@@ -70,21 +70,43 @@ if (saveTtBtn) {
   };
 }
 
+function formatTrainTrackProgress(job) {
+  if (!job) return '';
+  const p = job.progress || '';
+  if (p.startsWith('cache:')) return `补缓存 ${p.slice(6)} 日`;
+  if (p === 'compute') return '计算 RPS/SXHCG…';
+  if (p === 'done') return '完成';
+  if (job.status === 'running') return '运行中…';
+  return p;
+}
+
+async function pollTrainTrackScan(jobId, el) {
+  while (true) {
+    const st = await apiGet(`/api/train-track/scan/status?job_id=${encodeURIComponent(jobId)}`);
+    const job = st.job;
+    if (el && job) el.textContent = `扫描中 · ${formatTrainTrackProgress(job)}`;
+    if (!st.active) {
+      if (job?.status === 'failed') throw new Error(job.error_message || '扫描失败');
+      if (el && job) {
+        el.textContent = job.progress && job.progress !== 'done'
+          ? `已结束：${formatTrainTrackProgress(job)}`
+          : `完成：${job.pick_count ?? 0} 条，扫描日 ${job.trade_date || ''}`;
+      }
+      return job;
+    }
+    await new Promise(r => setTimeout(r, 2000));
+  }
+}
+
 const runTtBtn = document.getElementById('runTrainTrackScan');
 if (runTtBtn) {
   runTtBtn.onclick = async () => {
     const el = document.getElementById('trainTrackScanResult');
-    if (!confirm('将拉取/补全约250日行情并扫描，首次可能需数分钟，继续？')) return;
-    if (el) el.textContent = '扫描中（全 A 首次可能 10–30 分钟）…';
+    if (!confirm('将补全缺失缓存并扫描；日常手动补数也会写入火车轨缓存，继续？')) return;
+    if (el) el.textContent = '提交任务…';
     try {
       const j = await apiPost('/api/admin/train-track/scan', {});
-      if (el) {
-        if (j.skipped) {
-          el.textContent = j.reason || '已跳过';
-        } else {
-          el.textContent = `完成：${j.pick_count ?? j.count ?? 0} 条，交易日 ${j.trade_date || ''}`;
-        }
-      }
+      await pollTrainTrackScan(j.job_id, el);
     } catch (e) {
       if (el) el.textContent = typeof e.message === 'string' ? e.message : '请求失败';
     }

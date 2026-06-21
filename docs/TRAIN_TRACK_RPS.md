@@ -91,9 +91,13 @@ RPS250 = percent_rank(ret_250) × 99
 |----|------|
 | 历史深度 | 至少 **250 交易日** `daily` |
 | 缓存表 | `train_track_daily_cache`（按日落库，增量更新） |
+| 缓存写入 | **日常手动补数 / 定时采集**（`fetch_ts_daily`）会同步写入 OHLC+换手；扫描仅补缺失日 |
 | 结果表 | `train_track_pick_v4`（每股扫描日一行） |
+| 任务表 | `train_track_scan_jobs`（后台扫描进度） |
 | 定时 | 默认 **16:30** 交易日（`train_track_enabled`） |
-| 手动 | 管理页「立即重算火车轨」 |
+| 手动 | 管理页 / 选股页「立即重算」（后台任务，可轮询进度） |
+
+**首次初始化建议**：在管理页「手动补数」选约 250 个交易日区间跑一遍（与看板数据一并更新），再在选股页点「立即重算」——此时多数日期已有缓存，进度会很快到「计算 RPS/SXHCG」。
 
 ---
 
@@ -103,7 +107,8 @@ RPS250 = percent_rank(ret_250) × 99
 |------|------|
 | GET | `/api/train-track/meta` |
 | GET | `/api/train-track/picks?limit=20&sort=rps250` |
-| POST | `/api/admin/train-track/scan` |
+| GET | `/api/train-track/scan/status?job_id=` |
+| POST | `/api/admin/train-track/scan` → `{ job_id, status }` |
 
 ---
 

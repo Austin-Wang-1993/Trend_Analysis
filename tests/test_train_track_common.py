@@ -17,6 +17,11 @@ from train_track_common import (  # noqa: E402
     ma_touch_tag,
     parse_train_track_params,
 )
+from train_track_store import (  # noqa: E402
+    cache_rows_from_daily,
+    format_scan_progress,
+    normalize_trade_date,
+)
 
 
 def _rising_closes(n: int, start: float = 10.0, step: float = 0.05) -> pd.Series:
@@ -86,3 +91,24 @@ def test_recent_calm_filter() -> None:
     )
     assert ev["hit_recent_calm"] == 0
     assert ev["pass"] == 0
+
+
+def test_cache_helpers() -> None:
+    assert normalize_trade_date("20250613") == "2025-06-13"
+    assert format_scan_progress("cache", 3, 250) == "cache:3/250"
+    assert format_scan_progress("compute", 1, 1) == "compute"
+    daily = pd.DataFrame(
+        {
+            "ts_code": ["600519.SH"],
+            "open": [10.0],
+            "high": [11.0],
+            "low": [9.5],
+            "close": [10.5],
+            "vol": [1000.0],
+        }
+    )
+    rows = cache_rows_from_daily(daily, {"600519": 1.2}, "20250613")
+    assert len(rows) == 1
+    assert rows[0]["stock_code"] == "600519"
+    assert rows[0]["trade_date"] == "2025-06-13"
+    assert rows[0]["turnover_rate"] == 1.2

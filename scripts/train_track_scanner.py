@@ -4,17 +4,24 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import pandas as pd
 
 import ts_common as tc
 from train_track_common import TrainTrackParams, evaluate_sxhcg, is_st_name, parse_train_track_params
-from train_track_store import TrainTrackStore
+from train_track_store import (
+    TrainTrackStore,
+    cache_rows_from_daily,
+    turnover_map_from_basic,
+)
 from trading_calendar import get_recent_trading_days, is_trading_day, today_cst
 
 logger = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parents[1]
+
+
+ProgressCallback = Callable[[str, int, int], None]
 
 
 class TrainTrackScanner:
@@ -67,10 +74,19 @@ class TrainTrackScanner:
             suspended = {tc.ts_code_to_code6(str(x)) for x in susp["ts_code"]}
         return names, suspended
 
-    def _ensure_cache(self, trade_dates: list[str]) -> None:
+    def _ensure_cache(
+        self,
+        trade_dates: list[str],
+        *,
+        progress: ProgressCallback | None = None,
+    ) -> None:
         cached = set(self.store.list_cached_dates())
         missing = [d for d in trade_dates if d not in cached]
-        for d in missing:
+        total = len(trade_dates)
+        done = len(cached)
+        if progress:
+            progress("cache", done, total)
+        for i, d in enumerate(missing, start=1):
             compact = d.replace("-", "")
             daily = tc.call_api(
                 "daily",
@@ -82,36 +98,29 @@ class TrainTrackScanner:
                 trade_date=compact,
                 fields="ts_code,turnover_rate",
             )
-            tr_map: dict[str, float] = {}
-            if basic is not None and not basic.empty:
-                for _, r in basic.iterrows():
-                    code = tc.ts_code_to_code6(str(r["ts_code"]))
-                    if pd.notna(r.get("turnover_rate")):
-                        tr_map[code] = float(r["turnover_rate"])
-            rows: list[dict[str, Any]] = []
-            if daily is not None and not daily.empty:
-                for _, r in daily.iterrows():
-                    code = tc.ts_code_to_code6(str(r["ts_code"]))
-                    rows.append(
-                        {
-                            "trade_date": d,
-                            "stock_code": code,
-                            "open": float(r["open"]) if pd.notna(r.get("open")) else None,
-                            "high": float(r["high"]) if pd.notna(r.get("high")) else None,
-                            "low": float(r["low"]) if pd.notna(r.get("low")) else None,
-                            "close": float(r["close"]) if pd.notna(r.get("close")) else None,
-                            "vol": float(r["vol"]) if pd.notna(r.get("vol")) else None,
-                            "turnover_rate": tr_map.get(code),
-                        }
-                    )
+            rows = cache_rows_from_daily(daily, turnover_map_from_basic(basic), d)
             self.store.upsert_cache_rows(rows)
             logger.info("train_track cache %s: %d rows", d, len(rows))
+            if progress:
+                progress("cache", done + i, total)
 
-    def scan(self, *, trade_date: str | None = None) -> dict[str, Any]:
+    def _resolve_scan_date(self, trade_date: str | None) -> str:
+        td = trade_date or today_cst()
+        if is_trading_day(td):
+            return td
+        recent = get_recent_trading_days(1, end=td)
+        return recent[-1] if recent else td
+
+    def scan(
+        self,
+        *,
+        trade_date: str | None = None,
+        progress: ProgressCallback | None = None,
+    ) -> dict[str, Any]:
         settings = self._settings()
         params = parse_train_track_params(settings)
         hist_days = int(settings.get("train_track_history_days", "250"))
-        td = trade_date or today_cst()
+        td = self._resolve_scan_date(trade_date)
         if not is_trading_day(td):
             return {"skipped": True, "reason": "non_trading_day", "trade_date": td}
 
@@ -122,9 +131,12 @@ class TrainTrackScanner:
             self.store.set_scan_log(td, pick_count=0, universe_count=0, error=msg)
             return {"skipped": True, "reason": msg, "trade_date": td}
 
-        self._ensure_cache(dates)
+        self._ensure_cache(dates, progress=progress)
         prune_before = dates[0]
         self.store.prune_cache_before(prune_before)
+
+        if progress:
+            progress("compute", 0, 1)
 
         rows = self.store.load_cache_panel(dates)
         if not rows:
@@ -191,6 +203,8 @@ class TrainTrackScanner:
             universe_count=len(names) - len(suspended),
             error=None,
         )
+        if progress:
+            progress("compute", 1, 1)
         return {
             "skipped": False,
             "trade_date": td,
@@ -201,11 +215,15 @@ class TrainTrackScanner:
 
     def meta(self) -> dict[str, Any]:
         settings = self._settings()
-        td = today_cst()
+        td = self._resolve_scan_date(None)
         log = self.store.get_scan_log(td) or {}
+        active = self.store.get_active_scan_job()
+        latest = self.store.get_latest_scan_job()
+        cache_dates = self.store.list_cached_dates()
+        hist_days = int(settings.get("train_track_history_days", "250"))
         return {
             "trade_date": td,
-            "is_trading_day": is_trading_day(td),
+            "is_trading_day": is_trading_day(today_cst()),
             "enabled": settings.get("train_track_enabled", "true").lower() == "true",
             "scan_time": settings.get("train_track_time", "16:30"),
             "default_limit": int(settings.get("train_track_default_limit", "20")),
@@ -213,6 +231,9 @@ class TrainTrackScanner:
             "pick_count": log.get("pick_count"),
             "universe_count": log.get("universe_count"),
             "last_error": log.get("error_message"),
+            "cache_day_count": len(cache_dates),
+            "cache_days_required": hist_days,
+            "scan_job": active or latest,
             "settings_meta": self.store.get_settings_meta(),
         }
 

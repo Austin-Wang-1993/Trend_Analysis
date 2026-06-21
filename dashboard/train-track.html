@@ -37,7 +37,7 @@
     <p class="legend">
       盘后扫描：全 A（排除 ST、停牌）须同时满足 SXHCG1–5，且近 20 日涨幅低于阈值（没大涨）。
       RPS 为全池 N 日涨幅百分位×99。回踩标签：现价距 MA5/MA10 在配置带宽内。
-      默认 16:30 自动更新；首次会缓存约 250 日 daily（较慢）。
+      <strong>日常「手动补数」会同步写入火车轨缓存</strong>；扫描时仅补缺失日期。进度见状态栏。
     </p>
     <div class="table-wrap" id="tableWrap"></div>
   </main>
@@ -88,13 +88,47 @@
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
     }
 
+    function formatJobProgress(job) {
+      if (!job) return '';
+      const p = job.progress || '';
+      if (p.startsWith('cache:')) {
+        const nums = p.slice(6);
+        return `补缓存 ${nums} 日`;
+      }
+      if (p === 'compute') return '计算 RPS/SXHCG…';
+      if (p === 'done') return '完成';
+      if (job.status === 'running') return '运行中…';
+      return p;
+    }
+
     function renderStatus(meta) {
+      const job = meta.scan_job;
+      const jobLine = job && (job.status === 'running' || job.status === 'pending')
+        ? `任务 ${formatJobProgress(job)}`
+        : '';
       statusEl.textContent = [
-        `交易日 ${meta.trade_date}`,
+        `扫描日 ${meta.trade_date}${meta.is_trading_day ? '' : '（非交易日，用最近交易日）'}`,
         meta.last_scan_at ? `最近扫描 ${meta.last_scan_at.replace('T',' ').slice(0,19)}` : '尚未扫描',
         `入选 ${meta.pick_count ?? 0} / 池 ${meta.universe_count ?? '—'}`,
+        meta.cache_day_count != null ? `缓存 ${meta.cache_day_count}/${meta.cache_days_required ?? 250} 日` : '',
+        jobLine,
         meta.last_error ? `错误: ${meta.last_error}` : '',
       ].filter(Boolean).join(' · ');
+    }
+
+    async function pollScan(jobId) {
+      while (true) {
+        const st = await apiGet(`/api/train-track/scan/status?job_id=${encodeURIComponent(jobId)}`);
+        const job = st.job;
+        if (job) {
+          statusEl.textContent = `扫描中 · ${formatJobProgress(job)}`;
+        }
+        if (!st.active) {
+          if (job?.status === 'failed') throw new Error(job.error_message || '扫描失败');
+          return job;
+        }
+        await new Promise(r => setTimeout(r, 2000));
+      }
     }
 
     async function load() {
@@ -107,18 +141,31 @@
     }
 
     document.getElementById('btnScan').onclick = async () => {
-      if (!confirm('将拉取/补全约250日行情并扫描，首次可能需数分钟，继续？')) return;
+      if (!confirm('将补全缺失行情缓存并扫描；若缓存不足会先拉 daily（日常补数也会写入缓存），继续？')) return;
       try {
-        statusEl.textContent = '扫描中…';
-        await apiPost('/api/admin/train-track/scan', {});
+        statusEl.textContent = '提交任务…';
+        const r = await apiPost('/api/admin/train-track/scan', {});
+        await pollScan(r.job_id);
         await load();
       } catch (e) {
         alert(e.message || '扫描失败');
+        load().catch(() => {});
       }
     };
     document.getElementById('showAll').onchange = () => load();
     document.getElementById('sort').onchange = () => load();
     load().catch(e => { statusEl.textContent = e.message; });
+
+    (async () => {
+      try {
+        const st = await apiGet('/api/train-track/scan/status');
+        if (st.active && st.job?.job_id) {
+          statusEl.textContent = '恢复进度…';
+          await pollScan(st.job.job_id);
+          await load();
+        }
+      } catch (_) { /* ignore */ }
+    })();
   </script>
 </body>
 </html>
