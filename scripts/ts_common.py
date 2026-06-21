@@ -17,12 +17,15 @@ from __future__ import annotations
 import os
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
+_CST = ZoneInfo("Asia/Shanghai")
 
 QIAN_TO_YUAN = 1000.0  # 千元 → 元（daily.amount / fund_daily.amount）
 WAN_TO_YUAN = 10000.0  # 万元 → 元（moneyflow 各档金额）
@@ -305,6 +308,38 @@ def latest_holder_numbers(df: pd.DataFrame) -> pd.DataFrame:
         "holder_ann_date": work.get("ann_date", pd.Series(index=work.index, dtype=str)).astype(str),
     })
     return out.reset_index(drop=True)
+
+
+def recent_dividends(df: pd.DataFrame, years: int = 3, ref_year: int | None = None) -> pd.DataFrame:
+    """`dividend` 多条 → 近 N 年已实施现金分红（按除息日倒序）。
+
+    规则：div_proc='实施'、cash_div_tax>0（仅现金）、ex_date 年份 ≥ ref_year-(years-1)、
+    按 (stock_code,end_date,ex_date) 去重。输出列：stock_code, end_date, ex_date, cash_div_tax。
+    """
+    cols = ["stock_code", "end_date", "ex_date", "cash_div_tax"]
+    if df is None or df.empty:
+        return pd.DataFrame(columns=cols)
+    work = df.copy()
+    if "div_proc" in work.columns:
+        work = work[work["div_proc"].astype(str) == "实施"]
+    work = work[work["ex_date"].notna()]
+    if work.empty:
+        return pd.DataFrame(columns=cols)
+    work["stock_code"] = work["ts_code"].map(ts_code_to_code6)
+    work["ex_date"] = work["ex_date"].astype(str)
+    work["end_date"] = work.get("end_date", "").astype(str)
+    work["cash_div_tax"] = pd.to_numeric(work.get("cash_div_tax"), errors="coerce")
+    work = work[(work["cash_div_tax"].notna()) & (work["cash_div_tax"] > 0)]
+    work = work[work["ex_date"].str.len() >= 8]
+    if work.empty:
+        return pd.DataFrame(columns=cols)
+    ref = ref_year or datetime.now(_CST).year
+    cutoff = ref - (years - 1)
+    work["_y"] = work["ex_date"].str[:4].astype(int)
+    work = work[work["_y"] >= cutoff]
+    work = work.drop_duplicates(subset=["stock_code", "end_date", "ex_date"], keep="first")
+    work = work.sort_values("ex_date", ascending=False)
+    return work[cols].reset_index(drop=True)
 
 
 def count_up_down(pct_chg: pd.Series) -> tuple[int, int, int]:

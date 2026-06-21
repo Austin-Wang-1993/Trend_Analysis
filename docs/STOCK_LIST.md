@@ -23,6 +23,18 @@
 | 市盈率 PE(TTM) | `daily_basic.pe_ttm` | 倍 | 总市值 / 滚动 12 个月净利润；亏损为空 |
 | 股东数 | `stk_holdernumber.holder_num` | 户 | **最近披露**一期 |
 | 股东数截止日 | `stk_holdernumber.end_date` | 日期 | 股东数对应的报告期 |
+| 近 3 年分红 | `dividend`（`cash_div_tax`, `end_date`, `ex_date`） | 紧凑列举 | 见下 |
+
+**近 3 年分红列**：紧凑列举每次**已实施**的**现金分红**，每条 `所属年度 · 每股税前现金分红元 (除息日)`，按除息日倒序。例：
+
+```
+2023年度 · 0.32元 (2024-06-12)
+2022年度 · 0.06元 (2023-06-21)
+```
+
+- 「近 3 年」按**除权除息日 `ex_date`** 落在最近 3 个自然年内。
+- 只现金分红（`cash_div_tax`，税前），不含送股/转股；仅 `div_proc='实施'`；接口重复记录按 `(ts_code, end_date, ex_date)` 去重。
+- 无分红显示「—」。
 
 > 页面在表头/页脚标注各指标计算口径（如上表「备注」列）。
 
@@ -47,6 +59,7 @@
 |------|------|------|------|
 | 估值/价/市值 | `daily_basic`（按 `trade_date` 全市场） | 2000 | **每日**随 `fetch_ts_daily` 采集 |
 | 股东数 | `stk_holdernumber`（按 `ann_date` 段拉最近一期） | 600 | **每周**随映射刷新 |
+| 近 3 年分红 | `dividend`（**逐股**拉取，接口不支持空参全市场） | 2000 | **每个交易日凌晨 03:30** 专项任务（约 15–20 分钟） |
 
 - 估值为**最新交易日快照**（覆盖更新，不留历史）。
 - 股东数为季度数据，取每只股票**最近一期**（`end_date` 最大）。
@@ -74,6 +87,16 @@ updated_at TEXT
 
 > 所属板块不冗余存储，读取时按 `sector_stock_map_v4`(kind=`sw_l3`) 关联。
 
+近 3 年分红另存 `stock_dividend_v4`（一股多条）：
+
+```
+stock_code TEXT,
+end_date   TEXT,   -- 分红所属年度
+ex_date    TEXT,   -- 除权除息日
+cash_div_tax REAL, -- 每股税前现金分红（元）
+PRIMARY KEY (stock_code, end_date, ex_date)
+```
+
 ---
 
 ## 5. API
@@ -81,7 +104,9 @@ updated_at TEXT
 ```
 GET /api/stocks/list?page=1&page_size=100&sort=total_mv&order=desc&q=&sectors=850831.SI,851251.SI
   → { total, page, page_size, items: [ {sector_code, sector_path, stock_code, stock_name,
-        close, total_mv, pe, pe_ttm, pb, dv_ratio, dv_ttm, holder_num, holder_end_date} ] }
+        close, total_mv, pe, pe_ttm, pb, dv_ratio, dv_ttm, holder_num, holder_end_date,
+        dividends: [ {end_date, ex_date, cash_div_tax} ]  // 近3年，按 ex_date 倒序
+      } ] }
 
 GET /api/sectors/catalog?kind=sw_l3
   → [ {sector_code, sector_name, sector_path} ]   # 供板块多选筛选器

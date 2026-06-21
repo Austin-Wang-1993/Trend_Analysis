@@ -99,6 +99,14 @@ CREATE TABLE IF NOT EXISTS stock_metrics_v4 (
     holder_num INTEGER, holder_end_date TEXT, holder_ann_date TEXT,
     updated_at TEXT
 );
+CREATE TABLE IF NOT EXISTS stock_dividend_v4 (
+    stock_code TEXT NOT NULL,
+    end_date TEXT NOT NULL,
+    ex_date TEXT NOT NULL,
+    cash_div_tax REAL,
+    PRIMARY KEY (stock_code, end_date, ex_date)
+);
+CREATE INDEX IF NOT EXISTS idx_div_v4_code ON stock_dividend_v4(stock_code, ex_date);
 """
 
 # 股票清单可排序列（全部在 stock_metrics_v4）
@@ -289,6 +297,37 @@ class TsStore:
             )
             conn.commit()
 
+    def replace_dividends(self, div_df: pd.DataFrame) -> None:
+        """全量替换近 3 年分红（每个交易日凌晨重采）。"""
+        with self._connect() as conn:
+            conn.execute("DELETE FROM stock_dividend_v4")
+            if div_df is not None and not div_df.empty:
+                conn.executemany(
+                    "INSERT OR REPLACE INTO stock_dividend_v4(stock_code, end_date, ex_date, cash_div_tax) VALUES (?,?,?,?)",
+                    [
+                        (str(r["stock_code"]), str(r["end_date"]), str(r["ex_date"]), _f(r.get("cash_div_tax")))
+                        for _, r in div_df.iterrows()
+                    ],
+                )
+            conn.commit()
+
+    def get_dividends_map(self, codes: list[str]) -> dict[str, list[dict[str, Any]]]:
+        if not codes:
+            return {}
+        ph = ",".join("?" * len(codes))
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""SELECT stock_code, end_date, ex_date, cash_div_tax FROM stock_dividend_v4
+                    WHERE stock_code IN ({ph}) ORDER BY ex_date DESC""",
+                codes,
+            ).fetchall()
+        out: dict[str, list[dict[str, Any]]] = {}
+        for r in rows:
+            out.setdefault(r["stock_code"], []).append({
+                "end_date": r["end_date"], "ex_date": r["ex_date"], "cash_div_tax": _f(r["cash_div_tax"]),
+            })
+        return out
+
     def get_sector_catalog(self, kind: str = "sw_l3") -> list[dict[str, Any]]:
         if kind not in KINDS:
             kind = "sw_l3"
@@ -363,6 +402,9 @@ class TsStore:
             "holder_num": _int(r["holder_num"]),
             "holder_end_date": r["holder_end_date"],
         } for r in rows]
+        div_map = self.get_dividends_map([it["stock_code"] for it in items])
+        for it in items:
+            it["dividends"] = div_map.get(it["stock_code"], [])
         return {"total": int(total), "page": page, "page_size": page_size, "sort": sort, "order": order.lower(), "items": items}
 
     # ------------------------------------------------------------------ read

@@ -29,6 +29,15 @@ def _run_mapping_refresh() -> None:
     )
 
 
+def _run_dividend_refresh() -> None:
+    # v4.1：每日凌晨预采全市场近 3 年分红（逐股，约 15–20 分钟）
+    subprocess.run(
+        [sys.executable, str(_SCRIPTS / "fetch_ts_daily.py"), "--dividend-only"],
+        cwd=str(_SCRIPTS.parent),
+        check=False,
+    )
+
+
 def _parse_time(s: str) -> tuple[int, int]:
     parts = s.strip().split(":")
     return int(parts[0]), int(parts[1]) if len(parts) > 1 else 0
@@ -105,6 +114,13 @@ def start_scheduler(store: "HistoryStore", run_callback) -> BackgroundScheduler:
             id="mapping_refresh",
             replace_existing=True,
         )
+    # v4.1：每日 03:30 预采近 3 年分红
+    _scheduler.add_job(
+        _run_dividend_refresh,
+        CronTrigger(hour=3, minute=30, timezone=tz),
+        id="dividend_refresh",
+        replace_existing=True,
+    )
     _scheduler.start()
     return _scheduler
 
@@ -144,3 +160,13 @@ def reload_scheduler(store: "HistoryStore", run_callback) -> None:
             id="mapping_refresh",
             replace_existing=True,
         )
+    try:
+        _scheduler.remove_job("dividend_refresh")
+    except Exception:
+        pass
+    _scheduler.add_job(
+        _run_dividend_refresh,
+        CronTrigger(hour=3, minute=30, timezone=tz),
+        id="dividend_refresh",
+        replace_existing=True,
+    )

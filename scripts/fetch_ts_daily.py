@@ -100,6 +100,24 @@ def fetch_holders() -> pd.DataFrame:
     return tc.latest_holder_numbers(pd.concat(frames, ignore_index=True))
 
 
+def fetch_all_dividends() -> pd.DataFrame:
+    """逐股拉取全市场分红，返回近 3 年已实施现金分红（dividend 接口不支持空参全市场）。"""
+    sb = tc.call_api("stock_basic", list_status="L", fields="ts_code")
+    if sb is None or sb.empty:
+        return pd.DataFrame()
+    codes = [str(c) for c in sb["ts_code"]]
+    frames: list[pd.DataFrame] = []
+    for i, code in enumerate(codes, 1):
+        df = tc.call_api("dividend", ts_code=code, fields="ts_code,end_date,div_proc,cash_div_tax,ex_date")
+        if df is not None and not df.empty:
+            frames.append(df)
+        if i % 500 == 0:
+            print(f"  分红 {i}/{len(codes)} ...", flush=True)
+    if not frames:
+        return pd.DataFrame()
+    return tc.recent_dividends(pd.concat(frames, ignore_index=True), years=3)
+
+
 def load_mappings(store: TsStore, trade_date: str, *, refresh: bool, kinds=None) -> dict[str, tuple[pd.DataFrame, pd.DataFrame]]:
     """四套映射：构建/缓存并写入 store。trade_date 供东财使用。"""
     out: dict[str, tuple[pd.DataFrame, pd.DataFrame]] = {}
@@ -153,9 +171,18 @@ def main() -> int:
     ap.add_argument("--no-etf", action="store_true", help="跳过 ETF")
     ap.add_argument("--kinds", help="仅处理指定体系（逗号分隔，如 sw_l3,ci_l3）；默认四套全做")
     ap.add_argument("--mapping-only", action="store_true", help="只刷新四套行业映射（不采集当日行情）")
+    ap.add_argument("--dividend-only", action="store_true", help="只预采全市场近3年分红（逐股，约15-20分钟）")
     args = ap.parse_args()
 
     tc.get_pro()  # 触发 token 校验
+
+    if args.dividend_only:
+        store = TsStore(DB_PATH)
+        print("==> 预采全市场近 3 年分红（逐股，约 15–20 分钟）", flush=True)
+        div = fetch_all_dividends()
+        store.replace_dividends(div)
+        print(f"==> 分红刷新完成，共 {len(div)} 条（涉及 {div['stock_code'].nunique() if not div.empty else 0} 只）", flush=True)
+        return 0
 
     if args.mapping_only:
         store = TsStore(DB_PATH)

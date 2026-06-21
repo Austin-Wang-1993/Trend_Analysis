@@ -29,6 +29,7 @@
     .sl-pager button:disabled { opacity: .4; cursor: not-allowed; }
     .legend { font-size: 12px; color: #6b7a92; margin: 4px 0 10px; line-height: 1.6; }
     .pos { color: #ef4444; } .neg { color: #22c55e; }
+    .sl-div { font-size: 12px; line-height: 1.5; white-space: nowrap; }
   </style>
 </head>
 <body>
@@ -57,7 +58,7 @@
     <p class="legend">
       最新价=盘后收盘价；市值=总市值；股息率(静态)=上一财年现金分红/股价，股息率(TTM)=滚动近12个月现金分红/股价；
       PB=总市值/净资产；PE(静态)=总市值/最近年报净利润，PE(TTM)=滚动 12 月净利润（亏损为「—」）；
-      股东数为最近披露一期（括号为报告期）。点列头可切换升/降序。
+      股东数为最近披露一期（括号为报告期）；近3年分红=已实施现金分红，每条「所属年度·每股税前元(除息日)」。点列头可切换升/降序。
     </p>
     <div id="tableWrap"></div>
     <div class="sl-pager" id="pager"></div>
@@ -83,6 +84,7 @@
       { key: 'pe', label: '市盈率(静态)', sortable: true, render: r => num(r.pe, 2) },
       { key: 'pe_ttm', label: '市盈率(TTM)', sortable: true, render: r => num(r.pe_ttm, 2) },
       { key: 'holder_num', label: '股东数', sortable: true, render: r => holder(r) },
+      { key: 'dividends', label: '近3年分红', sortable: false, tl: true, render: r => dividends(r) },
     ];
 
     function escapeHtml(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'); }
@@ -93,6 +95,16 @@
       if (r.holder_num == null) return '—';
       const d = r.holder_end_date ? `<span class="sl-path">(${shortDate(r.holder_end_date)})</span>` : '';
       return `${Number(r.holder_num).toLocaleString()} ${d}`;
+    }
+    function ymd(d) { d = String(d || ''); return d.length >= 8 ? `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}` : d; }
+    function dividends(r) {
+      const list = r.dividends || [];
+      if (!list.length) return '—';
+      return list.map(d => {
+        const year = (d.end_date || '').slice(0, 4);
+        const amt = (d.cash_div_tax == null) ? '—' : `${Number(d.cash_div_tax).toFixed(2)}元`;
+        return `<div class="sl-div">${year}年度 · ${amt} <span class="sl-path">(${ymd(d.ex_date)})</span></div>`;
+      }).join('');
     }
 
     // ---- 板块筛选 ----
