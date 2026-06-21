@@ -38,7 +38,7 @@ TRAIN_TRACK_SETTINGS_DEFAULTS: dict[str, str] = {
 TRAIN_TRACK_SETTINGS_META: dict[str, str] = {
     "train_track_enabled": "是否在交易日自动运行火车轨扫描。",
     "train_track_time": "自动扫描时刻（建议收盘后 16:30，需 daily 已更新）。",
-    "train_track_history_days": "缓存日线最少交易日数（默认 250，用于 MA250/RPS250）。",
+    "train_track_history_days": "缓存日线最少交易日数（默认 250；实际扫描会多拉约 30 日供 COUNT 条件）。",
     "train_track_default_limit": "看板默认展示前 N 名（按 RPS250 排序）。",
     "train_track_rps_sum_min": "SXHCG1：RPS120+RPS250 之和下限。陶博士常用 185（约等于双 90+）。",
     "train_track_near_high_250_min": "SXHCG3：收盘/250日最高收盘 ≥ 此比例（默认 0.8=80%）。",

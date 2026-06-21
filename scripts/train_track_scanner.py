@@ -9,7 +9,7 @@ from typing import Any, Callable
 import pandas as pd
 
 import ts_common as tc
-from train_track_common import TrainTrackParams, evaluate_sxhcg, is_st_name, parse_train_track_params
+from train_track_common import TrainTrackParams, cache_days_required, evaluate_sxhcg, is_st_name, min_bars_required, parse_train_track_params
 from train_track_store import (
     TrainTrackStore,
     cache_rows_from_daily,
@@ -125,11 +125,10 @@ class TrainTrackScanner:
             return {"skipped": True, "reason": "non_trading_day", "trade_date": td}
 
         names, suspended = self._universe(td)
-        # RPS250 / MA250 需要至少 hist_days+1 根 K（250 日涨幅要看 t-250 的收盘）
-        need_days = hist_days + 1
+        need_days = cache_days_required(hist_days, params)
         dates = get_recent_trading_days(need_days, end=td)
         if len(dates) < need_days:
-            msg = f"交易日不足 {need_days}（当前 {len(dates)}，含 RPS250 需多 1 日）"
+            msg = f"交易日不足 {need_days}（当前 {len(dates)}；SXHCG2 需约 {hist_days + 30} 日缓存）"
             self.store.set_scan_log(td, pick_count=0, universe_count=0, error=msg)
             return {"skipped": True, "reason": msg, "trade_date": td}
 
@@ -166,6 +165,10 @@ class TrainTrackScanner:
             "evaluated": 0,
             "hit_sxhcg1": 0,
             "hit_sxhcg2": 0,
+            "hit_sxhcg2_20": 0,
+            "hit_sxhcg2_21": 0,
+            "hit_sxhcg2_22": 0,
+            "hit_sxhcg2_23or24": 0,
             "hit_sxhcg3": 0,
             "hit_sxhcg4": 0,
             "hit_sxhcg5": 0,
@@ -179,7 +182,8 @@ class TrainTrackScanner:
             if code not in names or code in suspended:
                 continue
             closes = close_panel[code].dropna()
-            if len(closes) < need_days:
+            min_n = min_bars_required(params, hist_days=hist_days)
+            if len(closes) < min_n:
                 continue
             funnel["evaluated"] += 1
             highs = high_panel[code].reindex(closes.index).fillna(closes)
@@ -202,6 +206,31 @@ class TrainTrackScanner:
                 rps250=rps250,
                 params=params,
             )
+            if ev.get("reason") == "insufficient_bars":
+                continue
+            # SXHCG2 子项（便于漏斗定位）
+            c = closes.astype(float)
+            ma20 = c.rolling(20, min_periods=20).mean()
+            ma200 = c.rolling(200, min_periods=200).mean()
+            ma250 = c.rolling(250, min_periods=250).mean()
+            last = float(c.iloc[-1])
+            hit20 = last > float(ma20.iloc[-1])
+            hit21 = int((c.iloc[-30:] > ma250.iloc[-30:]).sum()) >= params.count_ma250_30_min
+            hit22 = int((c.iloc[-30:] > ma200.iloc[-30:]).sum()) >= params.count_ma200_30_min
+            hit23 = int((c.iloc[-10:] > ma20.iloc[-10:]).sum()) >= params.count_ma20_10_min
+            ma10 = c.rolling(10, min_periods=10).mean()
+            hit24 = (
+                int((c.iloc[-4:] > ma10.iloc[-4:]).sum()) >= params.count_ma10_4_min
+                and int((c.iloc[-4:] > ma20.iloc[-4:]).sum()) >= params.count_ma20_4_min
+            )
+            if hit20:
+                funnel["hit_sxhcg2_20"] += 1
+            if hit21:
+                funnel["hit_sxhcg2_21"] += 1
+            if hit22:
+                funnel["hit_sxhcg2_22"] += 1
+            if hit23 or hit24:
+                funnel["hit_sxhcg2_23or24"] += 1
             for key in ("hit_sxhcg1", "hit_sxhcg2", "hit_sxhcg3", "hit_sxhcg4", "hit_sxhcg5", "hit_recent_calm"):
                 if ev.get(key):
                     funnel[key] += 1
@@ -258,6 +287,8 @@ class TrainTrackScanner:
         latest = self.store.get_latest_scan_job()
         cache_dates = self.store.list_cached_dates()
         hist_days = int(settings.get("train_track_history_days", "250"))
+        params = parse_train_track_params(settings)
+        need = cache_days_required(hist_days, params)
         return {
             "trade_date": td,
             "is_trading_day": is_trading_day(today_cst()),
@@ -270,7 +301,7 @@ class TrainTrackScanner:
             "last_error": log.get("error_message"),
             "funnel": funnel,
             "cache_day_count": len(cache_dates),
-            "cache_days_required": hist_days + 1,
+            "cache_days_required": need,
             "scan_job": active or latest,
             "settings_meta": self.store.get_settings_meta(),
         }

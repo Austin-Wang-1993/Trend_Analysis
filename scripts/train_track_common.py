@@ -25,6 +25,22 @@ class TrainTrackParams:
     ma_touch_band_pct: float = 2.0
 
 
+def min_bars_required(params: TrainTrackParams | None = None, *, hist_days: int = 250) -> int:
+    """计算 SXHCG/RPS 所需最少 K 线根数。
+
+    - RPS250 需 hist_days+1
+    - COUNT(C>MA250,30)≥N 需 MA250 在近 30 日里至少 N 根有效 → 约 249+N 根总长
+    """
+    p = params or TrainTrackParams()
+    return max(hist_days + 1, 249 + p.count_ma250_30_min, 251)
+
+
+def cache_days_required(hist_days: int, params: TrainTrackParams | None = None) -> int:
+    """扫描时应拉取/保留的交易日数量（留足 COUNT 窗口）。"""
+    p = params or TrainTrackParams()
+    return max(min_bars_required(p, hist_days=hist_days), hist_days + 30)
+
+
 def is_st_name(name: str | None) -> bool:
     if not name:
         return False
@@ -88,8 +104,9 @@ def evaluate_sxhcg(
     """closes/highs: 按日期升序，最后一行为扫描日。"""
     p = params or TrainTrackParams()
     n = len(closes)
-    if n < 250:
-        return {"pass": False, "reason": "insufficient_bars"}
+    min_n = min_bars_required(p)
+    if n < min_n:
+        return {"pass": False, "reason": "insufficient_bars", "min_bars": min_n}
 
     c = closes.astype(float)
     h = highs.astype(float)

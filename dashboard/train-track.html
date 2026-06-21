@@ -70,7 +70,11 @@
       const rows = [
         ['有效样本（≥250日K）', f.evaluated],
         ['① RPS和>185', f.hit_sxhcg1],
-        ['② 均线强势', f.hit_sxhcg2],
+        ['② 均线强势（全）', f.hit_sxhcg2],
+        ['②a 收盘>MA20', f.hit_sxhcg2_20],
+        ['②b 30日>MA250≥N', f.hit_sxhcg2_21],
+        ['②c 30日>MA200≥N', f.hit_sxhcg2_22],
+        ['②d 短期贴均线', f.hit_sxhcg2_23or24],
         ['③ 强势未深调', f.hit_sxhcg3],
         ['④ 均线多头', f.hit_sxhcg4],
         ['⑤ 换手<10%', f.hit_sxhcg5],

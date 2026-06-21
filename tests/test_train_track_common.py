@@ -12,9 +12,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from train_track_common import (  # noqa: E402
     TrainTrackParams,
+    cache_days_required,
     evaluate_sxhcg,
     is_st_name,
     ma_touch_tag,
+    min_bars_required,
     parse_train_track_params,
 )
 from train_track_store import (  # noqa: E402
@@ -47,8 +49,13 @@ def test_parse_train_track_params() -> None:
     assert p.recent_20d_pct_max == 25
 
 
+def test_min_bars_required() -> None:
+    assert min_bars_required(TrainTrackParams()) >= 274
+    assert cache_days_required(250, TrainTrackParams()) >= 280
+
+
 def test_evaluate_sxhcg_pass() -> None:
-    closes = _rising_closes(260)
+    closes = _rising_closes(280)
     highs = closes + 0.1
     ev = evaluate_sxhcg(
         closes,
@@ -64,7 +71,7 @@ def test_evaluate_sxhcg_pass() -> None:
 
 
 def test_evaluate_sxhcg_fail_rps() -> None:
-    closes = _rising_closes(260)
+    closes = _rising_closes(280)
     highs = closes + 0.1
     ev = evaluate_sxhcg(
         closes,
@@ -79,7 +86,7 @@ def test_evaluate_sxhcg_fail_rps() -> None:
 
 
 def test_recent_calm_filter() -> None:
-    closes = _rising_closes(260, step=0.5)
+    closes = _rising_closes(280, step=0.5)
     highs = closes + 0.1
     ev = evaluate_sxhcg(
         closes,
