@@ -25,8 +25,9 @@
         </select>
       </label>
     </div>
-    <p class="footnote">近 N 日成交额柱状图；X 轴左新右旧。</p>
-    <div id="chart" class="stock-detail-chart"></div>
+    <p class="footnote">成交额 / 份额（fd_share，万份）；ETF 无主买卖资金流，以份额变化作资金 proxy。X 轴左新右旧。</p>
+    <div class="card"><div id="chart-turnover" class="chart"></div></div>
+    <div class="card"><div id="chart-share" class="chart"></div></div>
   </main>
   <script src="/static/js/format.js?v=20260623"></script>
   <script src="/static/js/api.js?v=20260623"></script>
@@ -41,8 +42,7 @@
     const backTable = document.getElementById('backTable');
     const breadcrumbEl = document.getElementById('breadcrumb');
     const titleEl = document.getElementById('title');
-    const chartEl = document.getElementById('chart');
-    let chart;
+    let charts = [];
 
     if (params.get('days')) daysEl.value = params.get('days');
 
@@ -67,19 +67,20 @@
         document.querySelector('main').innerHTML = '<p class="loading">缺少 etf 参数</p>';
         return;
       }
-      chartEl.innerHTML = '<p class="loading">加载中…</p>';
       const data = await apiGet(`/api/etfs/${encodeURIComponent(etf)}/series?days=${daysEl.value}`);
       syncNav(data);
       const series = data.series || [];
+      const ids = ['chart-turnover', 'chart-share'];
       if (!series.length) {
-        chartEl.innerHTML = '<p class="loading">暂无数据</p>';
+        ids.forEach(id => { document.getElementById(id).innerHTML = '<p class="loading">暂无数据</p>'; });
         return;
       }
-      chartEl.innerHTML = '';
-      const dates = series.map(x => x.trade_date);
-      const values = series.map(x => x.turnover || 0);
-      if (chart) disposeChart(chart);
-      chart = renderBar(chartEl, barChartOption('成交额', dates, values, '#3b82f6'));
+      const dates = series.map(x => shortDate(x.trade_date));
+      charts.forEach(c => disposeChart(c));
+      charts = [
+        renderBar(document.getElementById('chart-turnover'), barChartOption('成交额', dates, series.map(x => x.turnover || 0), '#3b82f6')),
+        renderBar(document.getElementById('chart-share'), barChartOption('份额(万份)', dates, series.map(x => x.fd_share || 0), '#10b981')),
+      ];
     }
 
     daysEl.addEventListener('change', () => load().catch(e => alert(e.message)));

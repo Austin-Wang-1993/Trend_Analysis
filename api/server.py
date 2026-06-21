@@ -24,6 +24,8 @@ sys.path.insert(0, str(SCRIPTS))
 sys.path.insert(0, str(ROOT / "api"))
 
 from history_store import HistoryStore  # noqa: E402
+from ts_store import TsStore  # noqa: E402
+from ts_sectors import KINDS as TS_KINDS  # noqa: E402
 from job_worker import cancel_job, enqueue_job, is_job_running, read_log_tail, run_scheduled_fetch  # noqa: E402
 from scheduler import compute_next_run, reload_scheduler, start_scheduler  # noqa: E402
 from trading_calendar import compare_with_biying, get_trading_days, is_trading_day, normalize_date, sync_pmc_to_sqlite, today_cst  # noqa: E402
@@ -39,6 +41,10 @@ app.add_middleware(
 )
 
 _store: HistoryStore | None = None
+_ts_store: TsStore | None = None
+
+# v4.0 行业 kind 校验（申万三级/中信三级/东财/同花顺）
+KIND_PATTERN = "^(" + "|".join(TS_KINDS) + ")$"
 
 
 def get_store() -> HistoryStore:
@@ -46,6 +52,14 @@ def get_store() -> HistoryStore:
     if _store is None:
         _store = HistoryStore(DB_PATH)
     return _store
+
+
+def get_ts_store() -> TsStore:
+    """v4.0 数据访问层（看板公共 API 使用）。"""
+    global _ts_store
+    if _ts_store is None:
+        _ts_store = TsStore(DB_PATH)
+    return _ts_store
 
 
 class SettingsUpdate(BaseModel):
@@ -142,12 +156,11 @@ def on_startup() -> None:
     start_scheduler(store, run_scheduled_fetch)
 
 
-# --- 公共 API ---
+# --- 公共 API（v4.0：Tushare 四套行业，days 支持 5/15/30）---
 
 @app.get("/api/meta/trading-days")
-def api_trading_days(days: int = Query(5, ge=1, le=30)) -> dict[str, Any]:
-    store = get_store()
-    trade_dates = store.list_trading_days(days)
+def api_trading_days(days: int = Query(5, ge=1, le=60)) -> dict[str, Any]:
+    trade_dates = get_ts_store().list_trading_days(days)
     return {
         "days_requested": days,
         "days_actual": len(trade_dates),
@@ -156,66 +169,61 @@ def api_trading_days(days: int = Query(5, ge=1, le=30)) -> dict[str, Any]:
 
 
 @app.get("/api/market")
-def api_market(days: int = Query(5, ge=1, le=30)) -> dict[str, Any]:
-    return get_store().get_market_series(days)
+def api_market(days: int = Query(5, ge=1, le=60)) -> dict[str, Any]:
+    return get_ts_store().get_market_series(days)
 
 
 @app.get("/api/sectors/table")
 def api_sectors_table(
-    days: int = Query(5, ge=1, le=30),
+    days: int = Query(5, ge=1, le=60),
     sort: str = Query("turnover_pct_desc"),
-    kind: str = Query("sw_l2", pattern="^(sw_l2|hot|board)$"),
+    kind: str = Query("sw_l3", pattern=KIND_PATTERN),
 ) -> dict[str, Any]:
-    return get_store().get_sector_table(days, sort=sort, kind=kind)
+    return get_ts_store().get_sector_table(days, sort=sort, kind=kind)
 
 
 @app.get("/api/sectors/charts")
-def api_sectors_charts(days: int = Query(5, ge=1, le=30)) -> list[dict[str, Any]]:
-    return get_store().get_sector_charts(days)
+def api_sectors_charts(
+    days: int = Query(5, ge=1, le=60),
+    kind: str = Query("sw_l3", pattern=KIND_PATTERN),
+) -> list[dict[str, Any]]:
+    return get_ts_store().get_sector_charts(days, kind=kind)
 
 
 @app.get("/api/sectors/{sector_code}/stocks")
 def api_sector_stocks(
     sector_code: str,
-    days: int = Query(5, ge=1, le=30),
+    days: int = Query(5, ge=1, le=60),
     sort: str = Query("turnover_pct_desc"),
-    kind: str = Query("sw_l2", pattern="^(sw_l2|hot|board)$"),
+    kind: str = Query("sw_l3", pattern=KIND_PATTERN),
 ) -> dict[str, Any]:
-    return get_store().get_sector_stocks(sector_code, days, sort=sort, kind=kind)
+    return get_ts_store().get_sector_stocks(sector_code, days, sort=sort, kind=kind)
 
 
 @app.get("/api/stocks/{stock_code}/series")
 def api_stock_series(
     stock_code: str,
-    days: int = Query(5, ge=1, le=30),
+    days: int = Query(5, ge=1, le=60),
     sector: str | None = Query(None),
+    kind: str | None = Query(None),
 ) -> dict[str, Any]:
-    return get_store().get_stock_series(stock_code, days, sector_code=sector)
+    return get_ts_store().get_stock_series(stock_code, days)
 
 
 @app.get("/api/etf/table")
 def api_etf_table(
-    days: int = Query(5, ge=1, le=30),
+    days: int = Query(5, ge=1, le=60),
     sort: str = Query("turnover_pct_desc"),
 ) -> dict[str, Any]:
-    return get_store().get_etf_table(days, sort=sort)
+    return get_ts_store().get_etf_table(days, sort=sort)
 
 
 @app.get("/api/etfs/{etf_code}/series")
 def api_etf_series(
     etf_code: str,
-    days: int = Query(5, ge=1, le=30),
+    days: int = Query(5, ge=1, le=60),
 ) -> dict[str, Any]:
-    return get_store().get_etf_series(etf_code, days)
-
-
-@app.get("/api/etf/charts")
-def api_etf_charts(
-    days: int = Query(5, ge=1, le=30),
-    top: int = Query(50, ge=1, le=500),
-    q: str = Query(""),
-) -> list[dict[str, Any]]:
-    return get_store().get_etf_charts(days, top=top, q=q)
+    return get_ts_store().get_etf_series(etf_code, days)
 
 
 # --- 管理 API ---

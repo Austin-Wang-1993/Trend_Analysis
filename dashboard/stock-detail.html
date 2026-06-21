@@ -25,8 +25,11 @@
         </select>
       </label>
     </div>
-    <p class="footnote">主买 + 主卖 堆积柱（柱高 = 成交额）；X 轴左新右旧。</p>
-    <div id="chart" class="stock-detail-chart"></div>
+    <p class="footnote">成交额 / 净流入 / 主力净流入；净流入取 net_mf_amount，主力净=大单+特大单净额。X 轴左新右旧。</p>
+    <div id="industries" class="stock-industries"></div>
+    <div class="card"><div id="chart-turnover" class="chart"></div></div>
+    <div class="card"><div id="chart-net" class="chart"></div></div>
+    <div class="card"><div id="chart-mainnet" class="chart"></div></div>
   </main>
   <script src="/static/js/format.js?v=20260621"></script>
   <script src="/static/js/api.js?v=20260621"></script>
@@ -37,70 +40,44 @@
     const params = new URLSearchParams(location.search);
     const stock = params.get('stock');
     const sector = params.get('sector');
+    const kind = params.get('kind') || 'sw_l3';
     const sort = params.get('sort') || 'turnover_pct_desc';
     const daysEl = document.getElementById('days');
     const backStocks = document.getElementById('backStocks');
     const breadcrumbEl = document.getElementById('breadcrumb');
     const titleEl = document.getElementById('title');
-    const chartEl = document.getElementById('chart');
-    let chart;
+    const industriesEl = document.getElementById('industries');
 
     if (params.get('days')) daysEl.value = params.get('days');
 
-    function buildStackedOption(dates, buySeries, sellSeries) {
-      if (typeof stackedBuySellOption === 'function') {
-        return stackedBuySellOption(dates, buySeries, sellSeries);
-      }
-      return {
-        tooltip: {
-          trigger: 'axis',
-          axisPointer: { type: 'shadow' },
-          formatter(params) {
-            const date = params[0]?.axisValue || '';
-            const buy = params.find(p => p.seriesName === '主买')?.value ?? 0;
-            const sell = params.find(p => p.seriesName === '主卖')?.value ?? 0;
-            return [date, `成交额：${formatAmount(buy + sell).text}`, `主买：${formatAmount(buy).text}`, `主卖：${formatAmount(sell).text}`].join('<br/>');
-          },
-        },
-        legend: { data: ['主买', '主卖'], textStyle: { color: '#8b9cb3' }, top: 0 },
-        grid: { left: 8, right: 16, top: 36, bottom: 28, containLabel: true },
-        xAxis: { type: 'category', data: dates.map(shortDate), axisLabel: { color: '#8b9cb3' } },
-        yAxis: {
-          type: 'value',
-          axisLabel: {
-            color: '#8b9cb3',
-            margin: 8,
-            formatter(v) {
-              const f = formatAmount(v);
-              if (f.unit === '元') return String(v);
-              return `${f.value.toFixed(f.value >= 100 ? 0 : 1)}${f.unit}`;
-            },
-          },
-        },
-        series: [
-          { name: '主买', type: 'bar', stack: 'flow', itemStyle: { color: '#ef4444' }, data: buySeries },
-          { name: '主卖', type: 'bar', stack: 'flow', itemStyle: { color: '#22c55e' }, data: sellSeries },
-        ],
-      };
-    }
+    const KIND_LABELS = { sw_l3: '申万', ci_l3: '中信', dc_ind: '东财', ths_ind: '同花顺' };
 
-    function stocksUrl(sectorName) {
-      const base = `/sector-stocks.html?sector=${encodeURIComponent(sector || '')}&days=${encodeURIComponent(daysEl.value)}&sort=${encodeURIComponent(sort)}`;
-      return base;
+    function stocksUrl() {
+      return `/sector-stocks.html?sector=${encodeURIComponent(sector || '')}&kind=${encodeURIComponent(kind)}&days=${encodeURIComponent(daysEl.value)}&sort=${encodeURIComponent(sort)}`;
     }
 
     function tableUrl() {
-      return `/sectors-table.html?days=${encodeURIComponent(daysEl.value)}&sort=${encodeURIComponent(sort)}`;
+      return `/sectors-table.html?kind=${encodeURIComponent(kind)}&days=${encodeURIComponent(daysEl.value)}&sort=${encodeURIComponent(sort)}`;
+    }
+
+    function renderIndustries(industries) {
+      const items = Object.keys(KIND_LABELS).map(k => {
+        const ind = (industries || {})[k];
+        const txt = ind ? escapeHtml(ind.sector_path || ind.sector_name) : '—';
+        return `<div><dt>${KIND_LABELS[k]}</dt><dd>${txt}</dd></div>`;
+      }).join('');
+      industriesEl.innerHTML = `<dl class="sector-metrics industries-grid">${items}</dl>`;
     }
 
     function syncNav(data) {
-      const sectorName = formatSectorName(data.sector_name || '');
+      const cur = (data.industries || {})[kind];
+      const sectorName = cur ? (cur.sector_name || '') : '';
       const stockLabel = `${data.stock_code} ${data.stock_name || ''}`.trim();
-      backStocks.href = stocksUrl(sectorName);
+      backStocks.href = stocksUrl();
       breadcrumbEl.innerHTML = [
         `<a href="${tableUrl()}">板块表格</a>`,
         '&gt;',
-        `<a href="${stocksUrl(sectorName)}">${escapeHtml(sectorName)}</a>`,
+        `<a href="${stocksUrl()}">${escapeHtml(sectorName || '成份股')}</a>`,
         '&gt;',
         escapeHtml(stockLabel),
       ].join(' ');
@@ -112,31 +89,33 @@
       return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
     }
 
+    let charts = [];
     async function load() {
       if (!stock) {
         document.querySelector('main').innerHTML = '<p class="loading">缺少 stock 参数</p>';
         return;
       }
-      chartEl.innerHTML = '<p class="loading">加载中…</p>';
-      const q = new URLSearchParams({ days: daysEl.value });
-      if (sector) q.set('sector', sector);
-      const data = await apiGet(`/api/stocks/${encodeURIComponent(stock)}/series?${q}`);
+      const data = await apiGet(`/api/stocks/${encodeURIComponent(stock)}/series?days=${daysEl.value}`);
       syncNav(data);
+      renderIndustries(data.industries);
       const series = data.series || [];
+      const ids = ['chart-turnover', 'chart-net', 'chart-mainnet'];
       if (!series.length) {
-        chartEl.innerHTML = '<p class="loading">暂无数据</p>';
+        ids.forEach(id => { document.getElementById(id).innerHTML = '<p class="loading">暂无数据</p>'; });
         return;
       }
-      chartEl.innerHTML = '';
-      const dates = series.map(x => x.trade_date);
-      const buy = series.map(x => x.active_buy || 0);
-      const sell = series.map(x => x.active_sell || 0);
-      if (chart) disposeChart(chart);
-      chart = renderBar(chartEl, buildStackedOption(dates, buy, sell));
+      // series 为新→旧；图表 X 轴左新右旧，直接用
+      const dates = series.map(x => shortDate(x.trade_date));
+      charts.forEach(c => disposeChart(c));
+      charts = [
+        renderBar(document.getElementById('chart-turnover'), barChartOption('成交额', dates, series.map(x => x.turnover || 0), '#3b82f6')),
+        renderBar(document.getElementById('chart-net'), barChartOption('净流入', dates, series.map(x => x.net_active || 0), '#f59e0b')),
+        renderBar(document.getElementById('chart-mainnet'), barChartOption('主力净流入', dates, series.map(x => x.main_net || 0), '#8b5cf6')),
+      ];
     }
 
     daysEl.addEventListener('change', () => load().catch(e => alert(e.message)));
-    load().catch(e => { chartEl.innerHTML = `<p class="loading status-fail">${escapeHtml(e.message)}</p>`; });
+    load().catch(e => { document.querySelector('main').innerHTML = `<p class="loading status-fail">${escapeHtml(e.message)}</p>`; });
   </script>
 </body>
 </html>

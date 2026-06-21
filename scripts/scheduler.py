@@ -21,8 +21,9 @@ _SCRIPTS = Path(__file__).resolve().parent
 
 
 def _run_mapping_refresh() -> None:
+    # v4.0：刷新 Tushare 四套行业映射（申万/中信/东财/同花顺），不采集当日行情
     subprocess.run(
-        [sys.executable, str(_SCRIPTS / "refresh_sector_mappings.py")],
+        [sys.executable, str(_SCRIPTS / "fetch_ts_daily.py"), "--mapping-only"],
         cwd=str(_SCRIPTS.parent),
         check=False,
     )
@@ -100,7 +101,7 @@ def start_scheduler(store: "HistoryStore", run_callback) -> BackgroundScheduler:
         map_hour, map_minute = _parse_time(settings.get("mapping_refresh_time", "02:00"))
         _scheduler.add_job(
             _run_mapping_refresh,
-            CronTrigger(hour=map_hour, minute=map_minute, timezone=tz),
+            CronTrigger(day_of_week="sun", hour=map_hour, minute=map_minute, timezone=tz),
             id="mapping_refresh",
             replace_existing=True,
         )
@@ -139,7 +140,7 @@ def reload_scheduler(store: "HistoryStore", run_callback) -> None:
         map_hour, map_minute = _parse_time(settings.get("mapping_refresh_time", "02:00"))
         _scheduler.add_job(
             _run_mapping_refresh,
-            CronTrigger(hour=map_hour, minute=map_minute, timezone=tz),
+            CronTrigger(day_of_week="sun", hour=map_hour, minute=map_minute, timezone=tz),
             id="mapping_refresh",
             replace_existing=True,
         )

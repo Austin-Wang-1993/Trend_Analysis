@@ -96,9 +96,9 @@
 | 定位 | 与行业 Tab **分离**，仍为 ETF 专用页 |
 | 历史成交 | Tushare [`fund_daily`](https://tushare.pro/wctapi/documents/127.md)（`amount` 千元 → 元） |
 | 列表 | [`fund_basic`](https://tushare.pro/document/2) 过滤 ETF |
-| 份额/规模 | [`etf_share_size`](https://tushare.pro/wctapi/documents/408.md)（10100 积分可用；**8000 积分起**） |
+| 份额/规模 | [`fund_share`](https://tushare.pro/document/2?doc_id=207)（**2000 积分起**；输出 `fd_share` 单位「万份」，差分作资金 proxy） |
 | **主买/主卖/大单** | **Tushare 无 ETF 版 `moneyflow`**，**不提供**与 A 股一致的四档主动买卖 |
-| 替代指标 | 成交额、涨跌幅、`pct_chg`、份额日变化（`total_share` 差分）、占全 A 比 |
+| 替代指标 | 成交额、涨跌幅、`pct_chg`、份额日变化（`fd_share` 差分）、占全 A 比 |
 | 时间范围 | 5 / 15 / 30 日（与页面 1 对齐） |
 
 > 若后续 Tushare 上线 ETF 资金流接口，在 `etf_daily` 表扩展字段即可；当前规格 **不阻塞 v4.0**。
@@ -129,12 +129,23 @@
 | 主动卖出 | `(sell_sm + sell_md + sell_lg + sell_elg)_amount × 10000` |
 | 主力买入 | `(buy_lg + buy_elg)_amount × 10000`（大单 + 特大单） |
 | 主力卖出 | `(sell_lg + sell_elg)_amount × 10000` |
-| 净流入 | 主动买入 − 主动卖出 |
+| **总净流入** | **`net_mf_amount × 10000`**（Tushare 直接给；**不要**用 `主买−主卖`，那个恒为 0） |
+| **主力净流入** | `主力买入 − 主力卖出`（大单+特大单净额） |
 | 成交额 | `daily.amount × 1000`（千元 → 元） |
+
+> **实测校验（20250613）：** `sum(buy 四档) ≡ sum(sell 四档) ≡ 成交额`，故 `主买−主卖 ≡ 0`。净流入必须取 `net_mf_amount`；行业净流入与涨跌家数方向一致（如 IT服务 −68亿 / 涨13跌117，军工航空 +19亿 / 涨39跌9）。
 
 **涨跌家数：** 成份股当日 `daily.pct_chg`：`>0` 上涨，`<0` 下跌，`=0` 或缺失计平盘。
 
 **四档原子字段（可选落库）：** 继续保留 8 档 `zmb*`/`zms*` 映射至 Tushare 四档买卖，供详情页与导出；汇总规则与 v3.6 一致。
+
+> **⚠ 口径迁移提示（已用真实数据核实，2026-06-20）：** v3.6 的 `active_buy/active_sell` 来自必盈 **L2 真实主动性买/卖盘（内外盘）**；v4.0 改用 Tushare `moneyflow` 四档买/卖金额之和，二者**语义不同**：
+>
+> - 实测（000001.SZ 20250613）：`buy 四档之和 ≈ sell 四档之和 ≈ 当日成交额`，即 **`active_buy ≈ active_sell ≈ turnover`、`active_buy + active_sell ≈ 2×成交额`**。Tushare `moneyflow` 的 buy/sell 是**按单规模拆分的买方/卖方成交总额**，不是内外盘主动盘。
+> - 因此**主买/主卖的绝对值与占比对每个行业都 ≈ 成交额/成交占比，缺乏区分度**，不宜作为核心展示。
+> - **真正有信号的是净额**：`净流入 = active_buy − active_sell`（= `net_mf_amount`）、`主力净流入 = main_buy − main_sell`。看板应以 **净流入 / 主力净流入及其占比** 为主指标；`active_buy/active_sell` 仅作明细/导出保留。
+> - `main_buy/main_sell`（大单+特大单各方向）可分别展示，但同样建议突出其**净额**。
+> - 因「方案 A 清空重拉」，新旧不混库；但前端文案需说明该口径变化，避免沿用 v3.6「主动盘」的理解。
 
 ---
 
@@ -147,7 +158,9 @@
 | `sw_l3` | 申万 2021 | `index_classify` | `index_member_all` | L3（约 346） | 2000 |
 | `ci_l3` | 中信 2020 | —（从 member 反推） | `ci_index_member` | L3（约 285） | 5000 |
 | `dc_ind` | 东财 | `dc_index`（`idx_type=行业板块`） | `dc_member` | 行业板块最细层 | 6000 |
-| `ths_ind` | 同花顺 | `ths_index`（`type=I` **仅行业**） | `ths_member` | 行业指数最细层 | 6000 |
+| `ths_ind` | 同花顺 | `ths_index`（`type=I` **仅行业**） | `ths_member`（见注） | 行业指数最细层 | 6000 |
+
+> **注（`ths_member`）：** 官方文档（261）标题为「概念板块成分」，示例用概念指数；用于 `type=I` 行业指数成份属可行但未被官方明确背书。**开发第 1 步须先做连通性验证**：传一个行业指数 `ts_code` 确认能返回成份，否则改用 `ths_index` 列表 + 逐板块拉取或回退到其它三套。
 
 **明确排除：**
 
@@ -161,6 +174,17 @@
 - 东财 / 同花顺：每体系 **一股一个主行业板块**（从 member 取当前归属）
 - 无归属 → 归入 **`未分类`**（`sector_code=UNMAPPED`），汇总单独一行，页脚提示数量
 
+**历史归属的口径与局限（重要）：**
+
+| 体系 | 历史成份字段 | 历史回溯能力 |
+|------|-------------|-------------|
+| 申万 `index_member_all` | 含 `in_date/out_date` | 可按时点回溯，但官方数据存在**部分个股历史区间缺失/不连贯**（已知 issue），需对缺口做兜底 |
+| 中信 `ci_index_member` | 含 `in_date/out_date` | 可按时点回溯 |
+| 东财 `dc_member` | 支持 `trade_date` 历史查询 | 可按交易日回溯 |
+| 同花顺 `ths_member` | `in_date/out_date/weight` 官方标注 **「暂无」**，仅 `is_new` 当前快照 | **无法按时点回溯**，400 日补数只能用**当前成份近似历史**（存在幸存者偏差） |
+
+> 即：v4.0 的「行业归属」整体采用**当前快照映射**（每周刷新）作为主口径；申万/中信/东财可选做历史时点修正，**同花顺仅有当前快照**。看板页脚或文档需说明历史区间的归属为近似值。
+
 **路径字段（申万/中信）：** 落库 `sector_path` 或拼接 `l1_name > l2_name > l3_name` 供前端展示。
 
 ---
@@ -170,13 +194,15 @@
 ```
 daily(trade_date)           → 个股 turnover、pct_chg
 moneyflow(trade_date)       → 个股四档买卖（19:00 后完整）
-index_member_all / …        → 行业归属（每周刷新，含 in_date/out_date）
+member 接口（每周刷新）      → 行业归属（当前快照为主口径，见 §4.1 历史局限表）
         ↓ 本地聚合
 sector_daily(kind=…)        → 四套行业各自一张逻辑表（或 sector_kind 列）
 market_daily                → 全 A 汇总（含主力买卖合计，供占比分母）
 ```
 
 **不采用**板块指数自带成交额（`ci_daily`/`ths_daily`）作为主数据，仅作校验抽样。
+
+**涨跌家数校验：** 本地按成份股 `daily.pct_chg` 聚合 `up_count/down_count`。东财 `dc_index` 自带官方 `up_num/down_num`，可作抽样校验；因停牌、成份口径、当日新上市等差异，**本地值与官方值允许小幅偏差**（建议阈值 ±2 家或 ±2%），不强制完全一致。
 
 ---
 
@@ -212,7 +238,7 @@ market_daily                → 全 A 汇总（含主力买卖合计，供占比
 | `daily` | 交易日 **15:00–17:00** | 最早 **17:30** 后拉取 |
 | `moneyflow` | 交易日 **19:00** 后 | 最早 **19:30** 后拉取 |
 | `fund_daily` | 盘后 | **19:30** 后与 A 股同批或略晚 |
-| `etf_share_size` | 次日 **08:30** 左右（交易所） | **09:00** 单独 job 或并入次日晨间 |
+| `fund_share` | 次日 **08:30** 左右（交易所） | **09:00** 单独 job 或并入次日晨间 |
 | 行业映射 | 低频 | **每周日 02:00** `refresh_sector_mappings.py` |
 
 **默认日采 cron：** **21:35**（与 v3.6 相同，已覆盖 moneyflow 就绪时间）。  
@@ -220,12 +246,19 @@ market_daily                → 全 A 汇总（含主力买卖合计，供占比
 
 ### 5.2 脚本规划
 
-| 脚本 | 职责 |
-|------|------|
-| `scripts/ts_common.py` | Token、限频、通用请求 |
-| `scripts/fetch_ts_daily.py` | 替代 `fetch_by_daily.py`：daily + moneyflow + 四套聚合 |
-| `scripts/refresh_sector_mappings.py` | 改为拉 Tushare 四套映射（删概念/hot） |
-| `scripts/rebuild_sector_aggregates.py` | 按 kind 重算（保留） |
+| 脚本 | 职责 | 状态 |
+|------|------|------|
+| `scripts/ts_common.py` | Token/.env、限频重试、换算、moneyflow 聚合（含 `net_mf_amount` 净流入） | ✅ |
+| `scripts/ts_sectors.py` | 四套行业映射归一化 + 联网拉取（分页/缓存） | ✅ |
+| `scripts/ts_aggregate.py` | 行业聚合（净流入/主力净/涨跌家数/各占比/未分类/零成份占位） | ✅ |
+| `scripts/ts_store.py` | v4 SQLite 层（`*_v4` 表）+ 看板读取 | ✅ |
+| `scripts/fetch_ts_daily.py` | 采集编排：daily+moneyflow+四套聚合+ETF；`--start/--end`、`--kinds`、`--mapping-only`、`--refresh-mapping` | ✅ |
+
+**调度接线（`api/job_worker.py` + `scripts/scheduler.py`）：**
+
+- 每日 **21:35**：`job_worker` spawn `fetch_ts_daily`（缓存映射，约 8 秒），管理页补数同路径。
+- 每周日 **02:00**：`scheduler` 调 `fetch_ts_daily --mapping-only` 刷新四套映射（含同花顺，约 8 分钟）。
+- 首次/换源建库：`fetch_ts_daily --mapping-only` 后 `fetch_ts_daily --start --end`（≤400 交易日）。
 
 ### 5.3 换源迁移（方案 A）
 
@@ -243,7 +276,7 @@ market_daily                → 全 A 汇总（含主力买卖合计，供占比
 | `sector_daily` | 增加 `kind`（`sw_l3|ci_l3|dc_ind|ths_ind`）；扩展 `main_buy/main_sell/up_count/down_count/…`；`sector_path` |
 | `stock_daily` | 增加 `main_buy/main_sell/pct_chg`；四套行业 code/name 字段或 JSON `industry_tags` |
 | `concept_*` | **停用**（不再写入） |
-| `etf_daily` | 用 `fund_daily` + 可选 `etf_share_size` 字段 |
+| `etf_daily` | 用 `fund_daily` + 可选 `fund_share`（`fd_share` 万份）字段 |
 | `app_settings` | 默认 `days` 选项支持 5/15/30 |
 
 ---
@@ -252,7 +285,7 @@ market_daily                → 全 A 汇总（含主力买卖合计，供占比
 
 | 端点 | 变更 |
 |------|------|
-| `GET /api/market/series?days=5|15|30` | 扩展 days |
+| `GET /api/market?days=5|15|30` | 扩展 days（沿用现网端点名，不新增 `/series`） |
 | `GET /api/sectors/table?kind=sw_l3|ci_l3|dc_ind|ths_ind&days=&sort=` | 新 kind；响应含新指标 |
 | `GET /api/sectors/{code}/stocks` | 新 sort；仅当前 kind |
 | `GET /api/stocks/{code}` | 返回四套行业归属 |

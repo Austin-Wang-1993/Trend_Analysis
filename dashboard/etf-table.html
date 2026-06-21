@@ -92,6 +92,19 @@
       return formatPct(v);
     }
 
+    function fmtPctChg(v) {
+      if (v == null || Number.isNaN(v)) return '—';
+      const cls = v > 0 ? 'positive' : v < 0 ? 'negative' : '';
+      const prefix = v > 0 ? '+' : '';
+      return `<span class="metric-net ${cls}">${prefix}${v.toFixed(2)}%</span>`;
+    }
+
+    function fmtShare(v) {
+      if (v == null || Number.isNaN(v)) return '—';
+      if (Math.abs(v) >= 1e4) return `${(v / 1e4).toFixed(2)} 亿份`;
+      return `${v.toFixed(0)} 万份`;
+    }
+
     function etfDetailUrl(code) {
       return `/etf-detail.html?etf=${encodeURIComponent(code)}&days=${encodeURIComponent(daysEl.value)}&sort=${encodeURIComponent(sortEl.value)}`;
     }
@@ -109,6 +122,8 @@
           </div>
           <dl class="sector-metrics">
             <div><dt>成交</dt><dd>${fmtMoney(etf.turnover)} <span class="metric-pct">${fmtPct(etf.turnover_pct)}</span></dd></div>
+            <div><dt>涨跌</dt><dd>${fmtPctChg(etf.pct_chg)}</dd></div>
+            <div><dt>份额</dt><dd>${fmtShare(etf.fd_share)}</dd></div>
           </dl>
         </article>`;
     }

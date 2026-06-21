@@ -10,10 +10,19 @@
 <body>
   <nav></nav>
   <main>
-    <h1>近 5 日 A 股概览</h1>
+    <h1>全 A 概览</h1>
+    <div class="toolbar">
+      <label>天数
+        <select id="days">
+          <option value="5" selected>近 5 日</option>
+          <option value="15">近 15 日</option>
+          <option value="30">近 30 日</option>
+        </select>
+      </label>
+    </div>
     <div class="card"><div id="chart-turnover" class="chart"></div></div>
-    <div class="card"><div id="chart-buy" class="chart"></div></div>
-    <div class="card"><div id="chart-sell" class="chart"></div></div>
+    <div class="card"><div id="chart-net" class="chart"></div></div>
+    <div class="card"><div id="chart-mainnet" class="chart"></div></div>
     <p class="footnote" id="footnote"></p>
   </main>
   <script src="/static/js/format.js"></script>
@@ -22,24 +31,30 @@
   <script src="/static/js/nav.js"></script>
   <script>
     initNav();
-    (async () => {
+    const daysEl = document.getElementById('days');
+    async function load() {
       try {
-        const meta = await apiGet('/api/meta/trading-days?days=5');
-        const data = await apiGet('/api/market?days=5');
-        const dates = data.trade_dates || meta.trade_dates || [];
+        const days = daysEl.value;
+        const data = await apiGet(`/api/market?days=${days}`);
+        const dates = (data.trade_dates || []).map(shortDate);
         document.getElementById('footnote').textContent =
-          `当前展示 ${dates.length} 个交易日：${dates.join('、') || '暂无数据'}`;
-        if (!dates.length) return;
+          `当前展示 ${dates.length} 个交易日；净流入取 net_mf_amount、主力净=大单+特大单净额（主买/主卖≈成交额，不再单列）。`;
+        if (!dates.length) {
+          ['chart-turnover','chart-net','chart-mainnet'].forEach(id=>{document.getElementById(id).innerHTML='<p class="loading">暂无数据</p>';});
+          return;
+        }
         renderBar(document.getElementById('chart-turnover'),
-          barChartOption('成交额', dates, data.turnover_series.map(x => x.value), '#3b82f6'));
-        renderBar(document.getElementById('chart-buy'),
-          barChartOption('主买额', dates, data.active_buy_series.map(x => x.value), '#22c55e'));
-        renderBar(document.getElementById('chart-sell'),
-          barChartOption('主卖额', dates, data.active_sell_series.map(x => x.value), '#ef4444'));
+          barChartOption('全 A 成交额', dates, data.turnover_series.map(x => x.value), '#3b82f6'));
+        renderBar(document.getElementById('chart-net'),
+          barChartOption('全 A 净流入', dates, (data.net_active_series||[]).map(x => x.value), '#f59e0b'));
+        renderBar(document.getElementById('chart-mainnet'),
+          barChartOption('全 A 主力净流入', dates, (data.main_net_series||[]).map(x => x.value), '#8b5cf6'));
       } catch (e) {
         document.querySelector('main').innerHTML = `<p class="loading">加载失败：${e.message}</p>`;
       }
-    })();
+    }
+    daysEl.addEventListener('change', load);
+    load();
   </script>
 </body>
 </html>

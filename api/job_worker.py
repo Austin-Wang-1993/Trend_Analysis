@@ -71,19 +71,17 @@ def run_job(
         t0 = time.time()
         proc: subprocess.Popen[str] | None = None
         try:
+            # v4.0：Tushare 采集（fetch_ts_daily 用 YYYYMMDD；映射走缓存，每周单独刷新）
+            start_compact = start_date.replace("-", "")
+            end_compact = end.replace("-", "")
             proc = subprocess.Popen(
                 [
                     sys.executable,
-                    str(SCRIPTS / "fetch_by_range.py"),
+                    str(SCRIPTS / "fetch_ts_daily.py"),
                     "--start",
-                    start_date,
+                    start_compact,
                     "--end",
-                    end,
-                    "--no-all-turnover",
-                    "--level",
-                    "l2",
-                    "--job-id",
-                    job_id,
+                    end_compact,
                 ],
                 cwd=str(ROOT),
                 stdout=lf,
