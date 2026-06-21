@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>股票清单 — Trend Analysis</title>
+  <link rel="stylesheet" href="/static/css/style.css?v=20260621" />
+  <style>
+    .sl-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; margin: 8px 0; }
+    .sl-toolbar label { font-size: 13px; color: #8b9cb3; }
+    .sl-toolbar input, .sl-toolbar select { background: #121a2a; color: #e6edf6; border: 1px solid #2a3850; border-radius: 6px; padding: 6px 8px; }
+    .sl-filter { position: relative; min-width: 260px; }
+    .sl-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+    .sl-chip { background: #1d2940; border: 1px solid #36507e; color: #cfe0f5; border-radius: 14px; padding: 2px 8px; font-size: 12px; display: inline-flex; gap: 6px; align-items: center; }
+    .sl-chip button { background: none; border: none; color: #9ab; cursor: pointer; font-size: 13px; line-height: 1; }
+    .sl-suggest { position: absolute; z-index: 20; left: 0; right: 0; top: 100%; background: #0f1626; border: 1px solid #2a3850; border-radius: 6px; max-height: 280px; overflow: auto; display: none; }
+    .sl-suggest div { padding: 6px 10px; cursor: pointer; font-size: 13px; }
+    .sl-suggest div:hover { background: #1a2740; }
+    table.sl { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table.sl th, table.sl td { padding: 8px 10px; border-bottom: 1px solid #1c2740; text-align: right; white-space: nowrap; }
+    table.sl th:first-child, table.sl td:first-child,
+    table.sl th.tl, table.sl td.tl { text-align: left; }
+    table.sl th.sortable { cursor: pointer; user-select: none; }
+    table.sl th.sortable:hover { color: #cfe0f5; }
+    table.sl tbody tr:hover { background: #131d30; }
+    .sl-path { color: #8b9cb3; }
+    .sl-pager { display: flex; gap: 10px; align-items: center; margin: 12px 0; flex-wrap: wrap; }
+    .sl-pager button { background: #1a2740; color: #cfe0f5; border: 1px solid #2a3850; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+    .sl-pager button:disabled { opacity: .4; cursor: not-allowed; }
+    .legend { font-size: 12px; color: #6b7a92; margin: 4px 0 10px; line-height: 1.6; }
+    .pos { color: #ef4444; } .neg { color: #22c55e; }
+  </style>
+</head>
+<body>
+  <nav></nav>
+  <main class="main-wide">
+    <h1>股票清单（全 A）</h1>
+    <div class="sl-toolbar">
+      <label>搜索
+        <input type="search" id="q" placeholder="代码 / 名称 / 板块" autocomplete="off" />
+      </label>
+      <div class="sl-filter">
+        <label>申万三级板块筛选（可多选）
+          <input type="search" id="sectorSearch" placeholder="输入板块名搜索后点击添加" autocomplete="off" />
+        </label>
+        <div class="sl-suggest" id="sectorSuggest"></div>
+        <div class="sl-chips" id="sectorChips"></div>
+      </div>
+      <label>每页
+        <select id="pageSize">
+          <option value="50">50</option>
+          <option value="100" selected>100</option>
+          <option value="200">200</option>
+        </select>
+      </label>
+    </div>
+    <p class="legend">
+      最新价=盘后收盘价；市值=总市值；股息率(静态)=近 12 月已公告股息/股价，股息率(TTM)=滚动 12 月；
+      PB=总市值/净资产；PE(静态)=总市值/最近年报净利润，PE(TTM)=滚动 12 月净利润（亏损为「—」）；
+      股东数为最近披露一期（括号为报告期）。点列头可切换升/降序。
+    </p>
+    <div id="tableWrap"></div>
+    <div class="sl-pager" id="pager"></div>
+  </main>
+  <script src="/static/js/format.js?v=20260621"></script>
+  <script src="/static/js/api.js?v=20260621"></script>
+  <script src="/static/js/nav.js?v=20260621"></script>
+  <script>
+    initNav();
+    const state = { page: 1, page_size: 100, sort: 'total_mv', order: 'desc', q: '', sectors: [] };
+    let catalog = [];           // [{sector_code, sector_name, sector_path}]
+    const selected = new Map(); // code -> path
+
+    const COLUMNS = [
+      { key: 'sector_path', label: '板块', sortable: false, tl: true, render: r => `<span class="sl-path">${escapeHtml(r.sector_path || '—')}</span>` },
+      { key: 'stock_code', label: '代码', sortable: true, tl: true, render: r => `<a href="/stock-detail.html?stock=${r.stock_code}&sector=${encodeURIComponent(r.sector_code || '')}&kind=sw_l3">${r.stock_code}</a>` },
+      { key: 'stock_name', label: '名称', sortable: true, tl: true, render: r => escapeHtml(r.stock_name || '') },
+      { key: 'close', label: '最新价', sortable: true, render: r => num(r.close, 2) },
+      { key: 'total_mv', label: '市值', sortable: true, render: r => yi(r.total_mv) },
+      { key: 'dv_ratio', label: '股息率(静态)', sortable: true, render: r => pct(r.dv_ratio) },
+      { key: 'dv_ttm', label: '股息率(TTM)', sortable: true, render: r => pct(r.dv_ttm) },
+      { key: 'pb', label: '市净率PB', sortable: true, render: r => num(r.pb, 2) },
+      { key: 'pe', label: '市盈率(静态)', sortable: true, render: r => num(r.pe, 2) },
+      { key: 'pe_ttm', label: '市盈率(TTM)', sortable: true, render: r => num(r.pe_ttm, 2) },
+      { key: 'holder_num', label: '股东数', sortable: true, render: r => holder(r) },
+    ];
+
+    function escapeHtml(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'); }
+    function num(v, d) { return (v == null || isNaN(v)) ? '—' : Number(v).toFixed(d); }
+    function pct(v) { return (v == null || isNaN(v)) ? '—' : `${Number(v).toFixed(2)}%`; }
+    function yi(v) { return (v == null || isNaN(v)) ? '—' : `${(v / 1e8).toFixed(1)} 亿`; }
+    function holder(r) {
+      if (r.holder_num == null) return '—';
+      const d = r.holder_end_date ? `<span class="sl-path">(${shortDate(r.holder_end_date)})</span>` : '';
+      return `${Number(r.holder_num).toLocaleString()} ${d}`;
+    }
+
+    // ---- 板块筛选 ----
+    async function loadCatalog() {
+      try { catalog = await apiGet('/api/sectors/catalog?kind=sw_l3'); } catch (e) { catalog = []; }
+    }
+    const sectorSearch = document.getElementById('sectorSearch');
+    const sectorSuggest = document.getElementById('sectorSuggest');
+    const sectorChips = document.getElementById('sectorChips');
+    sectorSearch.addEventListener('input', () => {
+      const kw = sectorSearch.value.trim();
+      if (!kw) { sectorSuggest.style.display = 'none'; return; }
+      const hits = catalog.filter(c => (c.sector_path || c.sector_name).includes(kw) && !selected.has(c.sector_code)).slice(0, 50);
+      sectorSuggest.innerHTML = hits.map(c => `<div data-code="${c.sector_code}">${escapeHtml(c.sector_path || c.sector_name)}</div>`).join('') || '<div>无匹配</div>';
+      sectorSuggest.style.display = 'block';
+    });
+    sectorSuggest.addEventListener('click', e => {
+      const code = e.target.dataset.code;
+      if (!code) return;
+      const c = catalog.find(x => x.sector_code === code);
+      selected.set(code, c ? (c.sector_path || c.sector_name) : code);
+      sectorSearch.value = ''; sectorSuggest.style.display = 'none';
+      renderChips(); state.page = 1; load();
+    });
+    document.addEventListener('click', e => { if (!e.target.closest('.sl-filter')) sectorSuggest.style.display = 'none'; });
+    function renderChips() {
+      sectorChips.innerHTML = [...selected.entries()].map(([code, path]) =>
+        `<span class="sl-chip">${escapeHtml(path)}<button data-code="${code}" title="移除">×</button></span>`).join('');
+    }
+    sectorChips.addEventListener('click', e => {
+      const code = e.target.dataset.code;
+      if (!code) return;
+      selected.delete(code); renderChips(); state.page = 1; load();
+    });
+
+    // ---- 排序 ----
+    function setSort(key) {
+      if (state.sort === key) state.order = state.order === 'desc' ? 'asc' : 'desc';
+      else { state.sort = key; state.order = 'desc'; }
+      state.page = 1; load();
+    }
+
+    function renderHead() {
+      return '<tr>' + COLUMNS.map(c => {
+        const arrow = (state.sort === c.key) ? (state.order === 'desc' ? ' ▼' : ' ▲') : '';
+        const cls = (c.tl ? 'tl' : '') + (c.sortable ? ' sortable' : '');
+        return `<th class="${cls}"${c.sortable ? ` data-key="${c.key}"` : ''}>${c.label}${arrow}</th>`;
+      }).join('') + '</tr>';
+    }
+
+    async function load() {
+      const wrap = document.getElementById('tableWrap');
+      wrap.innerHTML = '<p class="loading">加载中…</p>';
+      const p = new URLSearchParams({
+        page: state.page, page_size: state.page_size, sort: state.sort, order: state.order,
+      });
+      if (state.q) p.set('q', state.q);
+      if (selected.size) p.set('sectors', [...selected.keys()].join(','));
+      const data = await apiGet(`/api/stocks/list?${p}`);
+      const items = data.items || [];
+      if (!items.length) { wrap.innerHTML = '<p class="loading">暂无数据</p>'; renderPager(data); return; }
+      wrap.innerHTML = `<table class="sl"><thead>${renderHead()}</thead><tbody>${
+        items.map(r => '<tr>' + COLUMNS.map(c => `<td class="${c.tl ? 'tl' : ''}">${c.render(r)}</td>`).join('') + '</tr>').join('')
+      }</tbody></table>`;
+      wrap.querySelectorAll('th.sortable').forEach(th => th.onclick = () => setSort(th.dataset.key));
+      renderPager(data);
+    }
+
+    function renderPager(data) {
+      const total = data.total || 0;
+      const pages = Math.max(1, Math.ceil(total / state.page_size));
+      document.getElementById('pager').innerHTML = `
+        <button id="prev" ${state.page <= 1 ? 'disabled' : ''}>上一页</button>
+        <span>第 ${state.page} / ${pages} 页 · 共 ${total} 只</span>
+        <button id="next" ${state.page >= pages ? 'disabled' : ''}>下一页</button>`;
+      const prev = document.getElementById('prev'), next = document.getElementById('next');
+      if (prev) prev.onclick = () => { if (state.page > 1) { state.page--; load(); } };
+      if (next) next.onclick = () => { if (state.page < pages) { state.page++; load(); } };
+    }
+
+    let qTimer;
+    document.getElementById('q').addEventListener('input', e => {
+      clearTimeout(qTimer);
+      qTimer = setTimeout(() => { state.q = e.target.value.trim(); state.page = 1; load(); }, 300);
+    });
+    document.getElementById('pageSize').addEventListener('change', e => { state.page_size = +e.target.value; state.page = 1; load(); });
+
+    (async () => { await loadCatalog(); load().catch(e => { document.getElementById('tableWrap').innerHTML = `<p class="loading status-fail">${escapeHtml(e.message)}</p>`; }); })();
+  </script>
+</body>
+</html>

@@ -10,13 +10,17 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
 from ts_aggregate import SECTOR_COLUMNS
 from ts_sectors import KINDS
+
+CST = ZoneInfo("Asia/Shanghai")
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS market_daily_v4 (
@@ -84,7 +88,24 @@ CREATE TABLE IF NOT EXISTS etf_daily_v4 (
     PRIMARY KEY (trade_date, etf_code)
 );
 CREATE INDEX IF NOT EXISTS idx_etf_v4_date ON etf_daily_v4(trade_date);
+CREATE TABLE IF NOT EXISTS stock_metrics_v4 (
+    stock_code TEXT PRIMARY KEY,
+    stock_name TEXT,
+    trade_date TEXT,
+    close REAL,
+    total_mv REAL,
+    pe REAL, pe_ttm REAL, pb REAL,
+    dv_ratio REAL, dv_ttm REAL,
+    holder_num INTEGER, holder_end_date TEXT, holder_ann_date TEXT,
+    updated_at TEXT
+);
 """
+
+# 股票清单可排序列（全部在 stock_metrics_v4）
+LIST_SORT_FIELDS = {
+    "total_mv", "close", "pe", "pe_ttm", "pb",
+    "dv_ratio", "dv_ttm", "holder_num", "stock_code", "stock_name",
+}
 
 # 行业卡片排序：净流入/主力净流入/成交占比/涨跌比例
 _SECTOR_SORTS = {
@@ -222,6 +243,127 @@ class TsStore:
                 rows,
             )
             conn.commit()
+
+    def upsert_valuation(self, trade_date: str, metrics_df: pd.DataFrame, name_map: dict[str, str] | None = None) -> None:
+        """写入/更新每日估值指标（不覆盖股东数列）。"""
+        if metrics_df is None or metrics_df.empty:
+            return
+        now = datetime.now(CST).isoformat()
+        cols = ["close", "total_mv", "pe", "pe_ttm", "pb", "dv_ratio", "dv_ttm"]
+        rows = []
+        for _, r in metrics_df.iterrows():
+            code = str(r["stock_code"])
+            name = (name_map or {}).get(code)
+            rows.append((code, name, trade_date, *[(_f(r.get(c))) for c in cols], now))
+        with self._connect() as conn:
+            conn.executemany(
+                f"""INSERT INTO stock_metrics_v4
+                    (stock_code, stock_name, trade_date, {', '.join(cols)}, updated_at)
+                    VALUES (?,?,?,{','.join('?' * len(cols))},?)
+                    ON CONFLICT(stock_code) DO UPDATE SET
+                      stock_name=COALESCE(excluded.stock_name, stock_metrics_v4.stock_name),
+                      trade_date=excluded.trade_date,
+                      {', '.join(f'{c}=excluded.{c}' for c in cols)},
+                      updated_at=excluded.updated_at""",
+                rows,
+            )
+            conn.commit()
+
+    def upsert_holders(self, holders_df: pd.DataFrame) -> None:
+        """写入/更新股东数（不覆盖估值列）。"""
+        if holders_df is None or holders_df.empty:
+            return
+        rows = [
+            (str(r["stock_code"]), _int(r.get("holder_num")), r.get("holder_end_date"), r.get("holder_ann_date"))
+            for _, r in holders_df.iterrows()
+        ]
+        with self._connect() as conn:
+            conn.executemany(
+                """INSERT INTO stock_metrics_v4 (stock_code, holder_num, holder_end_date, holder_ann_date)
+                   VALUES (?,?,?,?)
+                   ON CONFLICT(stock_code) DO UPDATE SET
+                     holder_num=excluded.holder_num,
+                     holder_end_date=excluded.holder_end_date,
+                     holder_ann_date=excluded.holder_ann_date""",
+                rows,
+            )
+            conn.commit()
+
+    def get_sector_catalog(self, kind: str = "sw_l3") -> list[dict[str, Any]]:
+        if kind not in KINDS:
+            kind = "sw_l3"
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT sector_code, sector_name, sector_path FROM sector_catalog_v4 WHERE kind=? ORDER BY sector_path",
+                (kind,),
+            ).fetchall()
+        return [{"sector_code": r["sector_code"], "sector_name": r["sector_name"], "sector_path": r["sector_path"]} for r in rows]
+
+    def get_stock_list(
+        self,
+        *,
+        page: int = 1,
+        page_size: int = 100,
+        sort: str = "total_mv",
+        order: str = "desc",
+        q: str = "",
+        sectors: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """股票清单（关联申万三级板块），支持搜索/板块多选/排序/分页。"""
+        sort = sort if sort in LIST_SORT_FIELDS else "total_mv"
+        order = "ASC" if str(order).lower() == "asc" else "DESC"
+        page = max(1, int(page))
+        page_size = min(500, max(1, int(page_size)))
+
+        where = ["1=1"]
+        params: list[Any] = []
+        if q:
+            where.append("(m.stock_code LIKE ? OR m.stock_name LIKE ? OR sm.sector_path LIKE ?)")
+            like = f"%{q}%"
+            params += [like, like, like]
+        if sectors:
+            ph = ",".join("?" * len(sectors))
+            where.append(f"sm.sector_code IN ({ph})")
+            params += list(sectors)
+        where_sql = " AND ".join(where)
+
+        base = f"""
+            FROM stock_metrics_v4 m
+            LEFT JOIN sector_stock_map_v4 sm ON sm.kind='sw_l3' AND sm.stock_code = m.stock_code
+            WHERE {where_sql}
+        """
+        # 文本列直接排序；数值列把 NULL 排到最后
+        if sort in ("stock_code", "stock_name"):
+            order_sql = f"m.{sort} {order}"
+        else:
+            order_sql = f"(m.{sort} IS NULL), m.{sort} {order}"
+        offset = (page - 1) * page_size
+
+        with self._connect() as conn:
+            total = conn.execute(f"SELECT COUNT(*) {base}", params).fetchone()[0]
+            rows = conn.execute(
+                f"""SELECT m.*, sm.sector_code AS sw_code, sm.sector_path AS sw_path {base}
+                    ORDER BY {order_sql} LIMIT ? OFFSET ?""",
+                (*params, page_size, offset),
+            ).fetchall()
+
+        items = [{
+            "stock_code": r["stock_code"],
+            "stock_name": r["stock_name"],
+            "sector_code": r["sw_code"],
+            "sector_path": r["sw_path"],
+            "trade_date": r["trade_date"],
+            "close": _f(r["close"]),
+            "total_mv": _f(r["total_mv"]),
+            "pe": _f(r["pe"]),
+            "pe_ttm": _f(r["pe_ttm"]),
+            "pb": _f(r["pb"]),
+            "dv_ratio": _f(r["dv_ratio"]),
+            "dv_ttm": _f(r["dv_ttm"]),
+            "holder_num": _int(r["holder_num"]),
+            "holder_end_date": r["holder_end_date"],
+        } for r in rows]
+        return {"total": int(total), "page": page, "page_size": page_size, "sort": sort, "order": order.lower(), "items": items}
 
     # ------------------------------------------------------------------ read
     def list_trading_days(self, limit: int = 5) -> list[str]:
@@ -473,6 +615,10 @@ class TsStore:
 
 def _f(v: Any) -> float | None:
     return float(v) if v is not None and pd.notna(v) else None
+
+
+def _int(v: Any) -> int | None:
+    return int(v) if v is not None and pd.notna(v) else None
 
 
 def _num(g: pd.DataFrame, d: str, col: str) -> float:

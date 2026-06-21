@@ -13,6 +13,7 @@ A 股**细分行业** **成交额 + 买卖** 分析与 Web 看板。
 |------|------|
 | [**TUSHARE_SECTOR_DESIGN.md**](./TUSHARE_SECTOR_DESIGN.md) | **v4.0** 四套行业 Tab、指标、验收（已确认） |
 | [**TUSHARE_API.md**](./TUSHARE_API.md) | Tushare 接口与字段映射 |
+| [**STOCK_LIST.md**](./STOCK_LIST.md) | **v4.1 全股票清单页**（估值/股东数/板块筛选） |
 | [**REQUIREMENTS.md**](./REQUIREMENTS.md) | **v4.0** 需求摘要 + v3.6 归档 |
 | [**IMPLEMENTATION_PLAN.md**](./IMPLEMENTATION_PLAN.md) | **v4.0** 方案 + v3.6 实现 |
 | [**BRANCHING.md**](./BRANCHING.md) | 分支策略、部署只跟 main |

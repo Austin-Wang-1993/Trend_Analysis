@@ -263,6 +263,50 @@ def fund_daily_to_turnover(df: pd.DataFrame) -> pd.DataFrame:
     return out.reset_index(drop=True)
 
 
+def daily_basic_to_metrics(df: pd.DataFrame) -> pd.DataFrame:
+    """`daily_basic` 原始 DataFrame → 个股估值指标快照。
+
+    输出列：stock_code, trade_date(若有), close(元), total_mv(元), pe, pe_ttm, pb, dv_ratio(%), dv_ttm(%)。
+    `total_mv` 源单位为万元，统一 ×10000 转元；亏损股 pe/pe_ttm 为空。
+    """
+    cols = ["stock_code", "close", "total_mv", "pe", "pe_ttm", "pb", "dv_ratio", "dv_ttm"]
+    if df is None or df.empty:
+        return pd.DataFrame(columns=cols)
+    out = pd.DataFrame()
+    if "ts_code" in df.columns:
+        out["stock_code"] = df["ts_code"].map(ts_code_to_code6)
+    elif "stock_code" in df.columns:
+        out["stock_code"] = df["stock_code"].astype(str)
+    if "trade_date" in df.columns:
+        out["trade_date"] = df["trade_date"].astype(str)
+    out["close"] = pd.to_numeric(df.get("close"), errors="coerce")
+    out["total_mv"] = pd.to_numeric(df.get("total_mv"), errors="coerce") * WAN_TO_YUAN
+    for c in ("pe", "pe_ttm", "pb", "dv_ratio", "dv_ttm"):
+        out[c] = pd.to_numeric(df.get(c), errors="coerce")
+    return out.reset_index(drop=True)
+
+
+def latest_holder_numbers(df: pd.DataFrame) -> pd.DataFrame:
+    """`stk_holdernumber` 多期数据 → 每股最近一期（按 end_date 最大）。
+
+    输出列：stock_code, holder_num, holder_end_date, holder_ann_date。
+    """
+    cols = ["stock_code", "holder_num", "holder_end_date", "holder_ann_date"]
+    if df is None or df.empty:
+        return pd.DataFrame(columns=cols)
+    work = df.copy()
+    work["stock_code"] = work["ts_code"].map(ts_code_to_code6)
+    work["end_date"] = work["end_date"].astype(str)
+    work = work.sort_values(["stock_code", "end_date"]).drop_duplicates("stock_code", keep="last")
+    out = pd.DataFrame({
+        "stock_code": work["stock_code"],
+        "holder_num": pd.to_numeric(work["holder_num"], errors="coerce"),
+        "holder_end_date": work["end_date"],
+        "holder_ann_date": work.get("ann_date", pd.Series(index=work.index, dtype=str)).astype(str),
+    })
+    return out.reset_index(drop=True)
+
+
 def count_up_down(pct_chg: pd.Series) -> tuple[int, int, int]:
     """涨跌平家数：>0 上涨，<0 下跌，=0/缺失 平盘。"""
     s = pd.to_numeric(pct_chg, errors="coerce")
