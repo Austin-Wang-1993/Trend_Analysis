@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>火车轨选股 — Trend Analysis</title>
+  <link rel="stylesheet" href="/static/css/style.css?v=20260625" />
+  <style>
+    table.tt { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table.tt th, table.tt td { padding: 8px 10px; border-bottom: 1px solid #1c2740; text-align: right; white-space: nowrap; }
+    table.tt th.tl, table.tt td.tl { text-align: left; }
+    table.tt tbody tr:hover { background: #131d30; }
+    .tag-ma { font-size: 11px; color: #60a5fa; margin-left: 4px; }
+    .chk { color: #22c55e; } .chk-no { color: #4b5563; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 10px 0; }
+    .toolbar button { background: #1a2740; color: #cfe0f5; border: 1px solid #2a3850; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+    .status { font-size: 13px; color: #8b9cb3; margin: 8px 0; line-height: 1.6; }
+    .legend { font-size: 12px; color: #6b7a92; line-height: 1.7; margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+  <nav></nav>
+  <main class="main-wide">
+    <h1>火车轨选股（顺向火车轨 + RPS）</h1>
+    <p class="status" id="status">加载中…</p>
+    <div class="toolbar">
+      <button type="button" id="btnScan">立即重算</button>
+      <label><input type="checkbox" id="showAll" /> 显示全部（默认 Top 20）</label>
+      <label>排序
+        <select id="sort">
+          <option value="rps250" selected>RPS250 ↓</option>
+          <option value="rps120">RPS120 ↓</option>
+          <option value="pct_20d">近20日涨幅 ↑</option>
+        </select>
+      </label>
+    </div>
+    <p class="legend">
+      盘后扫描：全 A（排除 ST、停牌）须同时满足 SXHCG1–5，且近 20 日涨幅低于阈值（没大涨）。
+      RPS 为全池 N 日涨幅百分位×99。回踩标签：现价距 MA5/MA10 在配置带宽内。
+      默认 16:30 自动更新；首次会缓存约 250 日 daily（较慢）。
+    </p>
+    <div class="table-wrap" id="tableWrap"></div>
+  </main>
+  <script src="/static/js/api.js?v=20260625"></script>
+  <script src="/static/js/nav.js?v=20260625"></script>
+  <script>
+    initNav();
+    const statusEl = document.getElementById('status');
+    const tableWrap = document.getElementById('tableWrap');
+
+    function num(v, d=2) { return v == null || Number.isNaN(v) ? '—' : Number(v).toFixed(d); }
+    function pct(v) { return v == null ? '—' : `${num(v)}%`; }
+    function chk(v) { return v ? '<span class="chk">✓</span>' : '<span class="chk-no">—</span>'; }
+    function touchTag(t) {
+      if (!t) return '';
+      return t.split(',').map(x => `<span class="tag-ma">${x.toUpperCase()}</span>`).join('');
+    }
+
+    function renderTable(items) {
+      if (!items.length) {
+        tableWrap.innerHTML = '<p class="loading">暂无入选（请先收盘后重算，或放宽管理页阈值）</p>';
+        return;
+      }
+      const rows = items.map(r => `<tr>
+        <td>${r.rank_rps250 ?? ''}</td>
+        <td class="tl">${r.stock_code}</td>
+        <td class="tl">${escapeHtml(r.stock_name || '')}</td>
+        <td class="tl"><span class="sl-path">${escapeHtml(r.sector_path || '—')}</span></td>
+        <td>${num(r.rps250, 1)}</td>
+        <td>${num(r.rps120, 1)}</td>
+        <td>${num(r.rps_sum, 1)}</td>
+        <td>${pct(r.pct_20d)}</td>
+        <td>${pct(r.dist_ma5_pct)}${touchTag(r.ma_touch_tag?.includes('ma5') ? 'ma5' : '')}</td>
+        <td>${pct(r.dist_ma10_pct)}${touchTag(r.ma_touch_tag?.includes('ma10') ? 'ma10' : '')}</td>
+        <td>${num(r.turnover_rate, 2)}%</td>
+        <td>${num(r.near_high_250_pct, 1)}%</td>
+        <td>${chk(r.hit_sxhcg1)}${chk(r.hit_sxhcg2)}${chk(r.hit_sxhcg3)}${chk(r.hit_sxhcg4)}${chk(r.hit_sxhcg5)}</td>
+      </tr>`).join('');
+      tableWrap.innerHTML = `<table class="tt"><thead><tr>
+        <th>#</th><th class="tl">代码</th><th class="tl">名称</th><th class="tl">板块</th>
+        <th>RPS250</th><th>RPS120</th><th>RP和</th><th>近20日涨</th>
+        <th>距MA5</th><th>距MA10</th><th>换手%</th><th>距250高</th>
+        <th>1-5</th>
+      </tr></thead><tbody>${rows}</tbody></table>`;
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+    }
+
+    function renderStatus(meta) {
+      statusEl.textContent = [
+        `交易日 ${meta.trade_date}`,
+        meta.last_scan_at ? `最近扫描 ${meta.last_scan_at.replace('T',' ').slice(0,19)}` : '尚未扫描',
+        `入选 ${meta.pick_count ?? 0} / 池 ${meta.universe_count ?? '—'}`,
+        meta.last_error ? `错误: ${meta.last_error}` : '',
+      ].filter(Boolean).join(' · ');
+    }
+
+    async function load() {
+      const all = document.getElementById('showAll').checked;
+      const sort = document.getElementById('sort').value;
+      const q = all ? 'all=true' : '';
+      const data = await apiGet(`/api/train-track/picks?sort=${sort}&${q}`);
+      renderStatus(data.meta || {});
+      renderTable(data.items || []);
+    }
+
+    document.getElementById('btnScan').onclick = async () => {
+      if (!confirm('将拉取/补全约250日行情并扫描，首次可能需数分钟，继续？')) return;
+      try {
+        statusEl.textContent = '扫描中…';
+        await apiPost('/api/admin/train-track/scan', {});
+        await load();
+      } catch (e) {
+        alert(e.message || '扫描失败');
+      }
+    };
+    document.getElementById('showAll').onchange = () => load();
+    document.getElementById('sort').onchange = () => load();
+    load().catch(e => { statusEl.textContent = e.message; });
+  </script>
+</body>
+</html>

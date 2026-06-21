@@ -40,6 +40,57 @@ if (saveSigBtn) {
   };
 }
 
+const saveTtBtn = document.getElementById('saveTrainTrackSettings');
+if (saveTtBtn) {
+  saveTtBtn.onclick = async () => {
+    try {
+      const s = await apiPut('/api/admin/settings', {
+        train_track_enabled: document.getElementById('train_track_enabled').checked,
+        train_track_time: document.getElementById('train_track_time').value || '16:30',
+        train_track_default_limit: Number(document.getElementById('train_track_default_limit').value || 20),
+        train_track_rps_sum_min: Number(document.getElementById('train_track_rps_sum_min').value || 185),
+        train_track_near_high_250_min: Number(document.getElementById('train_track_near_high_250_min').value || 0.8),
+        train_track_drawdown_20_max: Number(document.getElementById('train_track_drawdown_20_max').value || 0.25),
+        train_track_turnover_max: Number(document.getElementById('train_track_turnover_max').value || 10),
+        train_track_recent_20d_pct_max: Number(document.getElementById('train_track_recent_20d_pct_max').value || 30),
+        train_track_ma_touch_band_pct: Number(document.getElementById('train_track_ma_touch_band_pct').value || 2),
+        train_track_count_ma250_30_min: Number(document.getElementById('train_track_count_ma250_30_min').value || 25),
+        train_track_count_ma200_30_min: Number(document.getElementById('train_track_count_ma200_30_min').value || 25),
+        train_track_count_ma20_10_min: Number(document.getElementById('train_track_count_ma20_10_min').value || 9),
+        train_track_count_ma10_4_min: Number(document.getElementById('train_track_count_ma10_4_min').value || 3),
+        train_track_count_ma20_4_min: Number(document.getElementById('train_track_count_ma20_4_min').value || 3),
+        train_track_ma_rise_days: Number(document.getElementById('train_track_ma_rise_days').value || 5),
+        train_track_history_days: Number(document.getElementById('train_track_history_days').value || 250),
+      });
+      applySettings(s);
+      alert('火车轨配置已保存');
+    } catch (e) {
+      alert(typeof e.message === 'string' ? e.message : '保存失败');
+    }
+  };
+}
+
+const runTtBtn = document.getElementById('runTrainTrackScan');
+if (runTtBtn) {
+  runTtBtn.onclick = async () => {
+    const el = document.getElementById('trainTrackScanResult');
+    if (!confirm('将拉取/补全约250日行情并扫描，首次可能需数分钟，继续？')) return;
+    if (el) el.textContent = '扫描中（全 A 首次可能 10–30 分钟）…';
+    try {
+      const j = await apiPost('/api/admin/train-track/scan', {});
+      if (el) {
+        if (j.skipped) {
+          el.textContent = j.reason || '已跳过';
+        } else {
+          el.textContent = `完成：${j.pick_count ?? j.count ?? 0} 条，交易日 ${j.trade_date || ''}`;
+        }
+      }
+    } catch (e) {
+      if (el) el.textContent = typeof e.message === 'string' ? e.message : '请求失败';
+    }
+  };
+}
+
 function applySettings(s) {
   document.getElementById('schedule_enabled').checked = s.schedule_enabled === 'true' || s.schedule_enabled === true;
   const t = (s.schedule_time || '21:35').split(':');
@@ -59,6 +110,25 @@ function applySettings(s) {
     document.getElementById('signal_engulf_mode').value = s.signal_engulf_mode || 'high';
     document.getElementById('signal_cross_body_ratio').value = s.signal_cross_body_ratio || '0.1';
     document.getElementById('signal_long_upper_ratio').value = s.signal_long_upper_ratio || '1.0';
+  }
+  const ttOn = document.getElementById('train_track_enabled');
+  if (ttOn) {
+    ttOn.checked = s.train_track_enabled === 'true' || s.train_track_enabled === true;
+    setTimeInput('train_track_time', s.train_track_time || '16:30');
+    document.getElementById('train_track_default_limit').value = s.train_track_default_limit || '20';
+    document.getElementById('train_track_rps_sum_min').value = s.train_track_rps_sum_min || '185';
+    document.getElementById('train_track_near_high_250_min').value = s.train_track_near_high_250_min || '0.8';
+    document.getElementById('train_track_drawdown_20_max').value = s.train_track_drawdown_20_max || '0.25';
+    document.getElementById('train_track_turnover_max').value = s.train_track_turnover_max || '10';
+    document.getElementById('train_track_recent_20d_pct_max').value = s.train_track_recent_20d_pct_max || '30';
+    document.getElementById('train_track_ma_touch_band_pct').value = s.train_track_ma_touch_band_pct || '2';
+    document.getElementById('train_track_count_ma250_30_min').value = s.train_track_count_ma250_30_min || '25';
+    document.getElementById('train_track_count_ma200_30_min').value = s.train_track_count_ma200_30_min || '25';
+    document.getElementById('train_track_count_ma20_10_min').value = s.train_track_count_ma20_10_min || '9';
+    document.getElementById('train_track_count_ma10_4_min').value = s.train_track_count_ma10_4_min || '3';
+    document.getElementById('train_track_count_ma20_4_min').value = s.train_track_count_ma20_4_min || '3';
+    document.getElementById('train_track_ma_rise_days').value = s.train_track_ma_rise_days || '5';
+    document.getElementById('train_track_history_days').value = s.train_track_history_days || '250';
   }
 }
 

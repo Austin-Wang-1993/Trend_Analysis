@@ -38,6 +38,14 @@ def _run_dividend_refresh() -> None:
     )
 
 
+def _run_train_track_scan() -> None:
+    subprocess.run(
+        [sys.executable, str(_SCRIPTS / "train_track_scanner.py"), "--scan"],
+        cwd=str(_SCRIPTS.parent),
+        check=False,
+    )
+
+
 def _parse_time(s: str) -> tuple[int, int]:
     parts = s.strip().split(":")
     return int(parts[0]), int(parts[1]) if len(parts) > 1 else 0
@@ -121,6 +129,14 @@ def start_scheduler(store: "HistoryStore", run_callback) -> BackgroundScheduler:
         id="dividend_refresh",
         replace_existing=True,
     )
+    if settings.get("train_track_enabled", "true").lower() == "true":
+        tt_hour, tt_minute = _parse_time(settings.get("train_track_time", "16:30"))
+        _scheduler.add_job(
+            _run_train_track_scan,
+            CronTrigger(hour=tt_hour, minute=tt_minute, timezone=tz),
+            id="train_track_scan",
+            replace_existing=True,
+        )
     _scheduler.start()
     return _scheduler
 
@@ -170,3 +186,15 @@ def reload_scheduler(store: "HistoryStore", run_callback) -> None:
         id="dividend_refresh",
         replace_existing=True,
     )
+    try:
+        _scheduler.remove_job("train_track_scan")
+    except Exception:
+        pass
+    if settings.get("train_track_enabled", "true").lower() == "true":
+        tt_hour, tt_minute = _parse_time(settings.get("train_track_time", "16:30"))
+        _scheduler.add_job(
+            _run_train_track_scan,
+            CronTrigger(hour=tt_hour, minute=tt_minute, timezone=tz),
+            id="train_track_scan",
+            replace_existing=True,
+        )

@@ -49,8 +49,35 @@
     </div>
 
     <div class="card">
+      <h2 style="font-size:1rem;margin:0 0 0.75rem">火车轨选股参数</h2>
+      <div class="toolbar" style="flex-wrap:wrap;align-items:flex-start">
+        <label title="是否在交易日自动运行火车轨扫描"> <input type="checkbox" id="train_track_enabled" /> 启用自动扫描</label>
+        <label title="建议收盘后16:30，需当日 daily 已更新"> 扫描时刻 <input id="train_track_time" type="time" /></label>
+        <label title="看板默认展示前N名（按RPS250）"> 默认展示 <input id="train_track_default_limit" type="number" min="1" max="500" style="width:3.5rem" /> 只</label>
+        <label title="SXHCG1：RPS120+RPS250之和下限，陶博士常用185"> RPS和≥ <input id="train_track_rps_sum_min" type="number" step="1" style="width:4rem" /></label>
+        <label title="SXHCG3：收盘/250日最高≥此值(0.8=80%)"> 250日高位比 <input id="train_track_near_high_250_min" type="number" step="0.05" style="width:4rem" /></label>
+        <label title="SXHCG3：允许距20日高点最大回撤(0.25=25%)"> 20日回撤≤ <input id="train_track_drawdown_20_max" type="number" step="0.05" style="width:4rem" /></label>
+        <label title="SXHCG5：当日换手率上限%"> 换手&lt; <input id="train_track_turnover_max" type="number" step="0.5" style="width:4rem" />%</label>
+        <label title="方案C：近20交易日涨幅须低于此%"> 近20日涨&lt; <input id="train_track_recent_20d_pct_max" type="number" step="1" style="width:4rem" />%</label>
+        <label title="距MA5/MA10在±此%内标回踩"> 回踩带宽 <input id="train_track_ma_touch_band_pct" type="number" step="0.5" style="width:4rem" />%</label>
+        <label title="近30日收盘>MA250至少几天"> MA250天数 <input id="train_track_count_ma250_30_min" type="number" style="width:3rem" /></label>
+        <label title="近30日收盘>MA200至少几天"> MA200天数 <input id="train_track_count_ma200_30_min" type="number" style="width:3rem" /></label>
+        <label title="近10日收盘>MA20至少几天"> MA20(10) <input id="train_track_count_ma20_10_min" type="number" style="width:3rem" /></label>
+        <label title="近4日收盘>MA10至少几天"> MA10(4) <input id="train_track_count_ma10_4_min" type="number" style="width:3rem" /></label>
+        <label title="近4日收盘>MA20至少几天"> MA20(4) <input id="train_track_count_ma20_4_min" type="number" style="width:3rem" /></label>
+        <label title="均线连涨/多头判定连续天数"> 均线天数 <input id="train_track_ma_rise_days" type="number" style="width:3rem" /></label>
+        <label title="缓存日线长度，用于MA250/RPS250"> 历史天数 <input id="train_track_history_days" type="number" style="width:4rem" /></label>
+        <button id="saveTrainTrackSettings">保存火车轨配置</button>
+        <button id="runTrainTrackScan" type="button">立即重算火车轨</button>
+      </div>
+      <p class="footnote" id="trainTrackHelp">全 A 盘后 SXHCG 五条件 + 没大涨；RPS 为涨幅百分位×99。首次重算约拉 250 日 daily，耗时较长。</p>
+      <p class="footnote" id="trainTrackScanResult"></p>
+    </div>
+
+    <div class="card">
       <h2 style="font-size:1rem;margin:0 0 0.75rem">手动补数</h2>
       <div class="toolbar">
+        <label>开始 <input id="fetchStart" type="date" /></label>
         <label>结束 <input id="fetchEnd" type="date" /></label>
         <button id="startFetch">开始更新</button>
       </div>
@@ -78,7 +105,7 @@
     </div>
   </main>
   <script src="/static/js/api.js"></script>
-  <script src="/static/js/nav.js?v=20260624"></script>
+  <script src="/static/js/nav.js?v=20260625"></script>
   <script src="/static/js/admin.js"></script>
 </body>
 </html>

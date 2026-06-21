@@ -30,6 +30,7 @@ from job_worker import cancel_job, enqueue_job, is_job_running, read_log_tail, r
 from scheduler import compute_next_run, reload_scheduler, start_scheduler  # noqa: E402
 from signal_runner import run_scan_once, start_signal_runner  # noqa: E402
 from signal_scanner import SignalScanner  # noqa: E402
+from train_track_scanner import TrainTrackScanner  # noqa: E402
 from trading_calendar import compare_with_biying, get_trading_days, is_trading_day, normalize_date, sync_pmc_to_sqlite, today_cst  # noqa: E402
 
 CST = ZoneInfo("Asia/Shanghai")
@@ -45,6 +46,7 @@ app.add_middleware(
 _store: HistoryStore | None = None
 _ts_store: TsStore | None = None
 _signal_scanner: SignalScanner | None = None
+_train_track_scanner: TrainTrackScanner | None = None
 
 # v4.0 行业 kind 校验（申万三级/中信三级/东财/同花顺）
 KIND_PATTERN = "^(" + "|".join(TS_KINDS) + ")$"
@@ -81,6 +83,22 @@ class SettingsUpdate(BaseModel):
     signal_cross_body_ratio: float | None = Field(default=None, ge=0, le=1)
     signal_long_upper_ratio: float | None = Field(default=None, ge=0, le=10)
     signal_data_stale_sec: int | None = Field(default=None, ge=30, le=600)
+    train_track_enabled: bool | None = None
+    train_track_time: str | None = None
+    train_track_history_days: int | None = Field(default=None, ge=200, le=300)
+    train_track_default_limit: int | None = Field(default=None, ge=1, le=500)
+    train_track_rps_sum_min: float | None = None
+    train_track_near_high_250_min: float | None = Field(default=None, ge=0.5, le=1.0)
+    train_track_drawdown_20_max: float | None = Field(default=None, ge=0.05, le=0.5)
+    train_track_turnover_max: float | None = Field(default=None, ge=1, le=50)
+    train_track_count_ma250_30_min: int | None = Field(default=None, ge=1, le=30)
+    train_track_count_ma200_30_min: int | None = Field(default=None, ge=1, le=30)
+    train_track_count_ma20_10_min: int | None = Field(default=None, ge=1, le=10)
+    train_track_count_ma10_4_min: int | None = Field(default=None, ge=1, le=4)
+    train_track_count_ma20_4_min: int | None = Field(default=None, ge=1, le=4)
+    train_track_ma_rise_days: int | None = Field(default=None, ge=2, le=20)
+    train_track_recent_20d_pct_max: float | None = Field(default=None, ge=5, le=200)
+    train_track_ma_touch_band_pct: float | None = Field(default=None, ge=0.5, le=10)
 
 
 class FetchRequest(BaseModel):
@@ -169,6 +187,13 @@ def get_signal_scanner() -> SignalScanner:
     return _signal_scanner
 
 
+def get_train_track_scanner() -> TrainTrackScanner:
+    global _train_track_scanner
+    if _train_track_scanner is None:
+        _train_track_scanner = TrainTrackScanner(DB_PATH, get_settings=get_store().get_settings)
+    return _train_track_scanner
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     store = get_store()
@@ -177,6 +202,7 @@ def on_startup() -> None:
     start_scheduler(store, run_scheduled_fetch)
     start_signal_runner(DB_PATH)
     get_signal_scanner().store.init_schema()
+    get_train_track_scanner().store.init_schema()
 
 
 # --- 公共 API（v4.0：Tushare 四套行业，days 支持 5/15/30）---
@@ -290,6 +316,43 @@ def admin_signals_scan() -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@app.get("/api/train-track/meta")
+def api_train_track_meta() -> dict[str, Any]:
+    return get_train_track_scanner().meta()
+
+
+@app.get("/api/train-track/picks")
+def api_train_track_picks(
+    limit: int | None = Query(None, ge=1, le=500),
+    sort: str = Query("rps250"),
+    all_rows: bool = Query(False, alias="all"),
+) -> dict[str, Any]:
+    scanner = get_train_track_scanner()
+    meta = scanner.meta()
+    td = meta["trade_date"]
+    if all_rows:
+        lim = None
+    elif limit is not None:
+        lim = limit
+    else:
+        lim = meta.get("default_limit", 20)
+    items = scanner.store.list_picks(td, limit=lim, sort=sort)
+    return {"trade_date": td, "items": items, "meta": meta}
+
+
+@app.post("/api/admin/train-track/scan")
+def admin_train_track_scan() -> dict[str, Any]:
+    try:
+        result = get_train_track_scanner().scan()
+        return {
+            "ok": not result.get("skipped", False),
+            "count": result.get("pick_count", 0),
+            **result,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 # --- 管理 API ---
 
 @app.get("/api/admin/settings")
@@ -304,7 +367,7 @@ def admin_get_settings() -> dict[str, Any]:
 def admin_put_settings(body: SettingsUpdate) -> dict[str, Any]:
     store = get_store()
     updates = {k: v for k, v in body.model_dump(exclude_none=True).items()}
-    for bool_key in ("schedule_enabled", "signal_enabled"):
+    for bool_key in ("schedule_enabled", "signal_enabled", "train_track_enabled"):
         if bool_key in updates:
             updates[bool_key] = "true" if updates[bool_key] else "false"
     settings = store.set_settings({k: str(v) for k, v in updates.items()})
@@ -465,6 +528,11 @@ def page_stock_list() -> FileResponse:
 @app.get("/signals.html")
 def page_signals() -> FileResponse:
     return _html("signals.html")
+
+
+@app.get("/train-track.html")
+def page_train_track() -> FileResponse:
+    return _html("train-track.html")
 
 
 @app.get("/etf-table.html")

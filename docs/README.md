@@ -15,6 +15,7 @@ A 股**细分行业** **成交额 + 买卖** 分析与 Web 看板。
 | [**TUSHARE_API.md**](./TUSHARE_API.md) | Tushare 接口与字段映射 |
 | [**STOCK_LIST.md**](./STOCK_LIST.md) | **v4.1 全股票清单页**（估值/股东数/板块筛选） |
 | [**TRADING_SIGNAL.md**](./TRADING_SIGNAL.md) | **v4.2 反包打板交易信号**（rt_min，无主力资金） |
+| [**TRAIN_TRACK_RPS.md**](./TRAIN_TRACK_RPS.md) | **v4.3 火车轨选股**（SXHCG + RPS，全 A daily） |
 | [**REQUIREMENTS.md**](./REQUIREMENTS.md) | **v4.0** 需求摘要 + v3.6 归档 |
 | [**IMPLEMENTATION_PLAN.md**](./IMPLEMENTATION_PLAN.md) | **v4.0** 方案 + v3.6 实现 |
 | [**BRANCHING.md**](./BRANCHING.md) | 分支策略、部署只跟 main |
@@ -53,4 +54,5 @@ python3 scripts/serve_dashboard.py
 | **v3.6** | 2026-06-18 | 必盈概念 Tab；原子资金流；分支收敛 main |
 | v4.1 | 2026-06-21 | 股票清单 + 近 3 年分红 |
 | **v4.2** | 2026-06-21 | **交易信号**（反包打板，Tushare rt_min，2 条件） |
+| **v4.3** | 2026-06-21 | **火车轨选股**（SXHCG + RPS，全 A，方案 C） |
 | **v4.0** | 规划中 | **Tushare** 四套细分行业；5/15/30 日；移除概念 Tab |
