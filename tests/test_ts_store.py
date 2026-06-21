@@ -131,6 +131,12 @@ def test_stock_list_and_catalog():
         ])
         store.upsert_holders(holders)
 
+        # 分红（近3年）
+        store.replace_dividends(pd.DataFrame([
+            {"stock_code": "600519", "end_date": "20231231", "ex_date": "20240612", "cash_div_tax": 0.32},
+            {"stock_code": "600519", "end_date": "20221231", "ex_date": "20230621", "cash_div_tax": 0.06},
+        ]))
+
         catalog = store.get_sector_catalog("sw_l3")
         assert len(catalog) == 2
 
@@ -142,6 +148,9 @@ def test_stock_list_and_catalog():
         assert res["items"][0]["sector_path"] == "食品饮料 > 白酒Ⅱ > 白酒Ⅲ"
         assert res["items"][0]["holder_num"] == 80000      # 股东数没被估值覆盖
         assert res["items"][0]["holder_end_date"] == "20250331"
+        divs = res["items"][0]["dividends"]                 # 近3年分红，按除息日倒序
+        assert len(divs) == 2 and divs[0]["ex_date"] == "20240612" and divs[0]["cash_div_tax"] == 0.32
+        assert res["items"][1]["dividends"] == []           # 中芯国际无分红
 
         # 升序
         res2 = store.get_stock_list(sort="total_mv", order="asc")

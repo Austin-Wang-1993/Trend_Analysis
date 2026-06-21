@@ -117,6 +117,25 @@ def test_latest_holder_numbers() -> None:
     assert len(out) == 2
 
 
+def test_recent_dividends() -> None:
+    df = pd.DataFrame([
+        {"ts_code": "600519.SH", "div_proc": "实施", "end_date": "20231231", "ex_date": "20240612", "cash_div_tax": 0.32},
+        {"ts_code": "600519.SH", "div_proc": "实施", "end_date": "20231231", "ex_date": "20240612", "cash_div_tax": 0.32},  # 重复
+        {"ts_code": "600519.SH", "div_proc": "实施", "end_date": "20221231", "ex_date": "20230621", "cash_div_tax": 0.06},
+        {"ts_code": "600519.SH", "div_proc": "实施", "end_date": "20141231", "ex_date": "20150413", "cash_div_tax": 0.0},   # 纯送转(0现金)
+        {"ts_code": "600519.SH", "div_proc": "预案", "end_date": "20251231", "ex_date": None, "cash_div_tax": 0.5},          # 未实施
+        {"ts_code": "000001.SZ", "div_proc": "实施", "end_date": "20121231", "ex_date": "20130506", "cash_div_tax": 0.2},   # 太老（>3年）
+    ])
+    out = tc.recent_dividends(df, years=3, ref_year=2024)
+    codes = list(out["stock_code"])
+    assert codes == ["600519", "600519"]          # 000001 太老被剔除；茅台两条
+    assert out.iloc[0]["ex_date"] == "20240612"   # 倒序
+    assert out.iloc[0]["cash_div_tax"] == 0.32
+    assert out.iloc[1]["end_date"] == "20221231"
+    assert (out["cash_div_tax"] > 0).all()        # 0 现金(送转)被排除
+    assert len(out) == 2                           # 去重生效
+
+
 def test_count_up_down() -> None:
     s = pd.Series([1.0, -2.0, 0.0, 3.0, None])
     up, down, flat = tc.count_up_down(s)
