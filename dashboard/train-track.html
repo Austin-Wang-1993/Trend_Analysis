@@ -16,6 +16,8 @@
     .toolbar button { background: #1a2740; color: #cfe0f5; border: 1px solid #2a3850; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
     .status { font-size: 13px; color: #8b9cb3; margin: 8px 0; line-height: 1.6; }
     .legend { font-size: 12px; color: #6b7a92; line-height: 1.7; margin-bottom: 12px; }
+    .funnel { font-size: 12px; color: #94a3b8; line-height: 1.8; margin: 10px 0 14px; padding: 10px 12px; background: #111827; border-radius: 8px; border: 1px solid #1f2937; }
+    .funnel strong { color: #cbd5e1; }
   </style>
 </head>
 <body>
@@ -39,6 +41,7 @@
       RPS 为全池 N 日涨幅百分位×99。回踩标签：现价距 MA5/MA10 在配置带宽内。
       <strong>日常「手动补数」会同步写入火车轨缓存</strong>；扫描时仅补缺失日期。进度见状态栏。
     </p>
+    <div id="funnelBox"></div>
     <div class="table-wrap" id="tableWrap"></div>
   </main>
   <script src="/static/js/api.js?v=20260625"></script>
@@ -56,11 +59,39 @@
       return t.split(',').map(x => `<span class="tag-ma">${x.toUpperCase()}</span>`).join('');
     }
 
-    function renderTable(items) {
-      if (!items.length) {
-        tableWrap.innerHTML = '<p class="loading">暂无入选（请先收盘后重算，或放宽管理页阈值）</p>';
+    function renderFunnel(meta) {
+      const el = document.getElementById('funnelBox');
+      if (!el) return;
+      const f = meta.funnel;
+      if (!f || !f.evaluated) {
+        el.innerHTML = '';
         return;
       }
+      const rows = [
+        ['有效样本（≥250日K）', f.evaluated],
+        ['① RPS和>185', f.hit_sxhcg1],
+        ['② 均线强势', f.hit_sxhcg2],
+        ['③ 强势未深调', f.hit_sxhcg3],
+        ['④ 均线多头', f.hit_sxhcg4],
+        ['⑤ 换手<10%', f.hit_sxhcg5],
+        ['SXHCG 五条件全过', f.sxhcg_pass],
+        ['⑥ 近20日没大涨', f.hit_recent_calm],
+        ['最终入选', f.full_pass],
+      ];
+      const missTr = f.missing_turnover ? `（${f.missing_turnover} 只缺换手数据，已跳过换手剔除）` : '';
+      el.innerHTML = `<div class="funnel"><strong>筛选漏斗</strong>（扫描日 ${meta.trade_date}）${missTr}<br/>`
+        + rows.map(([label, n]) => `${label}：<strong>${n}</strong>`).join(' · ')
+        + (f.full_pass === 0 ? '<br/><span style="color:#f59e0b">提示：五条件同时满足的股票很少；可在管理页放宽 RPS和、近20日涨幅等阈值后重算。</span>' : '')
+        + '</div>';
+    }
+
+    function renderTable(items, meta) {
+      if (!items.length) {
+        renderFunnel(meta || {});
+        tableWrap.innerHTML = '<p class="loading">暂无入选（见上方漏斗：哪一步把股票筛光了；可去管理页放宽阈值后重算）</p>';
+        return;
+      }
+      document.getElementById('funnelBox').innerHTML = '';
       const rows = items.map(r => `<tr>
         <td>${r.rank_rps250 ?? ''}</td>
         <td class="tl">${r.stock_code}</td>
@@ -137,7 +168,7 @@
       const q = all ? 'all=true' : '';
       const data = await apiGet(`/api/train-track/picks?sort=${sort}&${q}`);
       renderStatus(data.meta || {});
-      renderTable(data.items || []);
+      renderTable(data.items || [], data.meta || {});
     }
 
     document.getElementById('btnScan').onclick = async () => {

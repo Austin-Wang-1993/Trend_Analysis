@@ -98,7 +98,8 @@ CREATE TABLE IF NOT EXISTS train_track_scan_log (
     last_scan_at TEXT,
     pick_count INTEGER,
     universe_count INTEGER,
-    error_message TEXT
+    error_message TEXT,
+    funnel_json TEXT
 );
 CREATE TABLE IF NOT EXISTS train_track_scan_jobs (
     job_id TEXT PRIMARY KEY,
@@ -131,6 +132,9 @@ class TrainTrackStore:
     def init_schema(self) -> None:
         with self._conn() as conn:
             conn.executescript(SCHEMA_SQL)
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(train_track_scan_log)").fetchall()}
+            if "funnel_json" not in cols:
+                conn.execute("ALTER TABLE train_track_scan_log ADD COLUMN funnel_json TEXT")
 
     def upsert_cache_rows(self, rows: list[dict[str, Any]]) -> None:
         if not rows:
@@ -237,18 +241,24 @@ class TrainTrackStore:
         pick_count: int,
         universe_count: int,
         error: str | None = None,
+        funnel: dict[str, Any] | None = None,
     ) -> None:
+        import json
+
         now = datetime.now(CST).isoformat()
+        funnel_json = json.dumps(funnel, ensure_ascii=False) if funnel else None
         with self._conn() as conn:
             conn.execute(
-                """INSERT INTO train_track_scan_log(trade_date, last_scan_at, pick_count, universe_count, error_message)
-                   VALUES (?,?,?,?,?)
+                """INSERT INTO train_track_scan_log(
+                       trade_date, last_scan_at, pick_count, universe_count, error_message, funnel_json
+                   ) VALUES (?,?,?,?,?,?)
                    ON CONFLICT(trade_date) DO UPDATE SET
                      last_scan_at=excluded.last_scan_at,
                      pick_count=excluded.pick_count,
                      universe_count=excluded.universe_count,
-                     error_message=excluded.error_message""",
-                (trade_date, now, pick_count, universe_count, error),
+                     error_message=excluded.error_message,
+                     funnel_json=excluded.funnel_json""",
+                (trade_date, now, pick_count, universe_count, error, funnel_json),
             )
 
     def get_scan_log(self, trade_date: str) -> dict[str, Any] | None:

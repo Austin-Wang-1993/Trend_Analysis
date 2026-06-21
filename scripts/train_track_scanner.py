@@ -156,6 +156,18 @@ class TrainTrackScanner:
 
         sector_map = self._load_sector_map()
         picks: list[dict[str, Any]] = []
+        funnel: dict[str, int] = {
+            "evaluated": 0,
+            "hit_sxhcg1": 0,
+            "hit_sxhcg2": 0,
+            "hit_sxhcg3": 0,
+            "hit_sxhcg4": 0,
+            "hit_sxhcg5": 0,
+            "hit_recent_calm": 0,
+            "sxhcg_pass": 0,
+            "full_pass": 0,
+            "missing_turnover": 0,
+        }
 
         for code in close_panel.columns:
             if code not in names or code in suspended:
@@ -163,12 +175,15 @@ class TrainTrackScanner:
             closes = close_panel[code].dropna()
             if len(closes) < 250:
                 continue
+            funnel["evaluated"] += 1
             highs = high_panel[code].reindex(closes.index).fillna(closes)
             turnover = None
             if code in turn_panel.columns:
                 tv = turn_panel[code].iloc[-1]
                 if pd.notna(tv):
                     turnover = float(tv)
+            if turnover is None:
+                funnel["missing_turnover"] += 1
 
             rps120 = float(rps120_all[code]) if code in rps120_all.index and pd.notna(rps120_all[code]) else None
             rps250 = float(rps250_all[code]) if code in rps250_all.index and pd.notna(rps250_all[code]) else None
@@ -181,8 +196,14 @@ class TrainTrackScanner:
                 rps250=rps250,
                 params=params,
             )
+            for key in ("hit_sxhcg1", "hit_sxhcg2", "hit_sxhcg3", "hit_sxhcg4", "hit_sxhcg5", "hit_recent_calm"):
+                if ev.get(key):
+                    funnel[key] += 1
+            if ev.get("sxhcg_pass"):
+                funnel["sxhcg_pass"] += 1
             if not ev.get("pass"):
                 continue
+            funnel["full_pass"] += 1
             picks.append(
                 {
                     "stock_code": code,
@@ -202,6 +223,7 @@ class TrainTrackScanner:
             pick_count=len(picks),
             universe_count=len(names) - len(suspended),
             error=None,
+            funnel=funnel,
         )
         if progress:
             progress("compute", 1, 1)
@@ -211,12 +233,21 @@ class TrainTrackScanner:
             "pick_count": len(picks),
             "universe_count": len(names) - len(suspended),
             "cached_days": len(dates),
+            "funnel": funnel,
         }
 
     def meta(self) -> dict[str, Any]:
         settings = self._settings()
         td = self._resolve_scan_date(None)
         log = self.store.get_scan_log(td) or {}
+        funnel = None
+        if log.get("funnel_json"):
+            import json
+
+            try:
+                funnel = json.loads(log["funnel_json"])
+            except json.JSONDecodeError:
+                funnel = None
         active = self.store.get_active_scan_job()
         latest = self.store.get_latest_scan_job()
         cache_dates = self.store.list_cached_dates()
@@ -231,6 +262,7 @@ class TrainTrackScanner:
             "pick_count": log.get("pick_count"),
             "universe_count": log.get("universe_count"),
             "last_error": log.get("error_message"),
+            "funnel": funnel,
             "cache_day_count": len(cache_dates),
             "cache_days_required": hist_days,
             "scan_job": active or latest,

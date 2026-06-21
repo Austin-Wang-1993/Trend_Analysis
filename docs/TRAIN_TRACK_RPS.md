@@ -56,7 +56,7 @@ RPS 自算：全池 N 日涨幅百分位 × 99（见 §4）。
 turnover_rate < turnover_max（默认 10%）
 ```
 
-优先 `daily_basic.turnover_rate`；缺失时用 `vol / float_share` 估算。
+优先 `daily_basic.turnover_rate`；**缺失时不因本条剔除**（无法判断是否过热）。
 
 ---
 

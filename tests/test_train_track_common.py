@@ -93,6 +93,20 @@ def test_recent_calm_filter() -> None:
     assert ev["pass"] == 0
 
 
+def test_hit5_missing_turnover_passes() -> None:
+    closes = _rising_closes(260)
+    highs = closes + 0.1
+    ev = evaluate_sxhcg(
+        closes,
+        highs,
+        turnover=None,
+        rps120=95.0,
+        rps250=92.0,
+        params=TrainTrackParams(count_ma250_30_min=10),
+    )
+    assert ev["hit_sxhcg5"] == 1
+
+
 def test_cache_helpers() -> None:
     assert normalize_trade_date("20250613") == "2025-06-13"
     assert format_scan_progress("cache", 3, 250) == "cache:3/250"

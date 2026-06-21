@@ -138,8 +138,8 @@ def evaluate_sxhcg(
     hit42 = rise10 and rise20 and float(ma10.iloc[-1]) > float(ma20.iloc[-1])
     hit4 = hit41 or hit42
 
-    # SXHCG5
-    hit5 = turnover is not None and turnover < p.turnover_max
+    # SXHCG5：换手未过热；无换手数据时不因本条剔除（与文档一致）
+    hit5 = turnover is None or turnover < p.turnover_max
 
     pct_20d = None
     if n >= 21:
