@@ -1,18 +1,15 @@
 name: Deploy to Tencent Cloud
 
-# 推送到 main（或手动触发）后，通过 SSH 部署到腾讯云服务器。
-# 需要在 GitHub 仓库 Settings → Secrets and variables → Actions 配置：
-#   TENCENT_HOST         服务器公网 IP / 域名
-#   TENCENT_USER         登录用户名（如 ubuntu）
-#   TENCENT_SSH_KEY      部署用 SSH 私钥（对应公钥已加入服务器 ~/.ssh/authorized_keys）
-#   TENCENT_PORT         （可选）SSH 端口，默认 22
-#   TENCENT_DEPLOY_PATH  （可选）服务器仓库路径，默认 /home/ubuntu/Trend_Analysis
+# 仅「手动触发」部署（Actions 页 → 本工作流 → Run workflow）。
+# 默认采用手动部署（在服务器命令行执行 deploy/remote_deploy.sh），不随 push 自动跑，避免误部署。
+# 如需启用 push 自动部署：取消下方 push 注释，并在 Settings → Secrets and variables → Actions 配置：
+#   TENCENT_HOST / TENCENT_USER / TENCENT_SSH_KEY （可选 TENCENT_PORT / TENCENT_DEPLOY_PATH）
 # 详见 docs/DEPLOY.md。
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+  # push:
+  #   branches: [main]
 
 concurrency:
   group: deploy-tencent
