@@ -14,6 +14,7 @@ A 股**细分行业** **成交额 + 买卖** 分析与 Web 看板。
 | [**TUSHARE_SECTOR_DESIGN.md**](./TUSHARE_SECTOR_DESIGN.md) | **v4.0** 四套行业 Tab、指标、验收（已确认） |
 | [**TUSHARE_API.md**](./TUSHARE_API.md) | Tushare 接口与字段映射 |
 | [**STOCK_LIST.md**](./STOCK_LIST.md) | **v4.1 全股票清单页**（估值/股东数/板块筛选） |
+| [**TRADING_SIGNAL.md**](./TRADING_SIGNAL.md) | **v4.2 反包打板交易信号**（rt_min，无主力资金） |
 | [**REQUIREMENTS.md**](./REQUIREMENTS.md) | **v4.0** 需求摘要 + v3.6 归档 |
 | [**IMPLEMENTATION_PLAN.md**](./IMPLEMENTATION_PLAN.md) | **v4.0** 方案 + v3.6 实现 |
 | [**BRANCHING.md**](./BRANCHING.md) | 分支策略、部署只跟 main |
@@ -50,4 +51,6 @@ python3 scripts/serve_dashboard.py
 | **v3.4** | 2026-06-15 | **申万 L2 默认**；`migrate_sectors_to_l2`；补数 **交易日校验** + **任务取消** |
 | **v3.5** | 2026-06-15 | 管理页 **区间补数**（起止必填、不跳过已有；上限 ≤30 → v3.6 起放宽至 **≤400**）；**移除强制补数** |
 | **v3.6** | 2026-06-18 | 必盈概念 Tab；原子资金流；分支收敛 main |
+| v4.1 | 2026-06-21 | 股票清单 + 近 3 年分红 |
+| **v4.2** | 2026-06-21 | **交易信号**（反包打板，Tushare rt_min，2 条件） |
 | **v4.0** | 规划中 | **Tushare** 四套细分行业；5/15/30 日；移除概念 Tab |

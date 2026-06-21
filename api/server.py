@@ -28,6 +28,8 @@ from ts_store import TsStore  # noqa: E402
 from ts_sectors import KINDS as TS_KINDS  # noqa: E402
 from job_worker import cancel_job, enqueue_job, is_job_running, read_log_tail, run_scheduled_fetch  # noqa: E402
 from scheduler import compute_next_run, reload_scheduler, start_scheduler  # noqa: E402
+from signal_runner import run_scan_once, start_signal_runner  # noqa: E402
+from signal_scanner import SignalScanner  # noqa: E402
 from trading_calendar import compare_with_biying, get_trading_days, is_trading_day, normalize_date, sync_pmc_to_sqlite, today_cst  # noqa: E402
 
 CST = ZoneInfo("Asia/Shanghai")
@@ -42,6 +44,7 @@ app.add_middleware(
 
 _store: HistoryStore | None = None
 _ts_store: TsStore | None = None
+_signal_scanner: SignalScanner | None = None
 
 # v4.0 行业 kind 校验（申万三级/中信三级/东财/同花顺）
 KIND_PATTERN = "^(" + "|".join(TS_KINDS) + ")$"
@@ -67,6 +70,17 @@ class SettingsUpdate(BaseModel):
     schedule_time: str | None = None
     schedule_timezone: str | None = None
     schedule_run_mode: str | None = Field(default=None, pattern="^(trading_day|calendar_day)$")
+    signal_enabled: bool | None = None
+    signal_poll_interval_sec: int | None = Field(default=None, ge=5, le=120)
+    signal_sched_start: str | None = None
+    signal_sched_end: str | None = None
+    signal_window_start: str | None = None
+    signal_window_end: str | None = None
+    signal_pct_threshold: float | None = Field(default=None, ge=0, le=30)
+    signal_engulf_mode: str | None = Field(default=None, pattern="^(high|body)$")
+    signal_cross_body_ratio: float | None = Field(default=None, ge=0, le=1)
+    signal_long_upper_ratio: float | None = Field(default=None, ge=0, le=10)
+    signal_data_stale_sec: int | None = Field(default=None, ge=30, le=600)
 
 
 class FetchRequest(BaseModel):
@@ -148,12 +162,21 @@ class CalendarVerifyRequest(BaseModel):
     end: str
 
 
+def get_signal_scanner() -> SignalScanner:
+    global _signal_scanner
+    if _signal_scanner is None:
+        _signal_scanner = SignalScanner(DB_PATH, get_settings=get_store().get_settings)
+    return _signal_scanner
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     store = get_store()
     year = datetime.now(CST).year
     sync_pmc_to_sqlite(DB_PATH, f"{year}-01-01", f"{year}-12-31")
     start_scheduler(store, run_scheduled_fetch)
+    start_signal_runner(DB_PATH)
+    get_signal_scanner().store.init_schema()
 
 
 # --- 公共 API（v4.0：Tushare 四套行业，days 支持 5/15/30）---
@@ -246,6 +269,27 @@ def api_sector_catalog(kind: str = Query("sw_l3", pattern=KIND_PATTERN)) -> list
     return get_ts_store().get_sector_catalog(kind)
 
 
+@app.get("/api/signals/meta")
+def api_signals_meta() -> dict[str, Any]:
+    return get_signal_scanner().get_meta()
+
+
+@app.get("/api/signals/today")
+def api_signals_today(min_score: int = Query(1, ge=0, le=2)) -> dict[str, Any]:
+    trade_date = today_cst()
+    items = get_signal_scanner().store.list_hits(trade_date, min_score=min_score)
+    meta = get_signal_scanner().get_meta()
+    return {"trade_date": trade_date, "items": items, "meta": meta}
+
+
+@app.post("/api/admin/signals/scan")
+def admin_signals_scan() -> dict[str, Any]:
+    try:
+        return run_scan_once(force=True)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 # --- 管理 API ---
 
 @app.get("/api/admin/settings")
@@ -259,10 +303,11 @@ def admin_get_settings() -> dict[str, Any]:
 @app.put("/api/admin/settings")
 def admin_put_settings(body: SettingsUpdate) -> dict[str, Any]:
     store = get_store()
-    updates = {k: str(v).lower() if isinstance(v, bool) else v for k, v in body.model_dump(exclude_none=True).items()}
-    if "schedule_enabled" in updates:
-        updates["schedule_enabled"] = "true" if updates["schedule_enabled"] in ("true", "True", True) else "false"
-    settings = store.set_settings(updates)
+    updates = {k: v for k, v in body.model_dump(exclude_none=True).items()}
+    for bool_key in ("schedule_enabled", "signal_enabled"):
+        if bool_key in updates:
+            updates[bool_key] = "true" if updates[bool_key] else "false"
+    settings = store.set_settings({k: str(v) for k, v in updates.items()})
     reload_scheduler(store, run_scheduled_fetch)
     return {**settings, **compute_next_run(settings)}
 
@@ -415,6 +460,11 @@ def page_sector_stocks() -> FileResponse:
 @app.get("/stock-list.html")
 def page_stock_list() -> FileResponse:
     return _html("stock-list.html")
+
+
+@app.get("/signals.html")
+def page_signals() -> FileResponse:
+    return _html("signals.html")
 
 
 @app.get("/etf-table.html")

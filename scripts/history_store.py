@@ -16,6 +16,8 @@ import pandas as pd
 
 CST = ZoneInfo("Asia/Shanghai")
 
+from signal_store import SIGNAL_SETTINGS_DEFAULTS  # noqa: E402
+
 DEFAULT_SETTINGS: dict[str, str] = {
     "schedule_enabled": "true",
     "schedule_time": "21:35",
@@ -23,6 +25,7 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "schedule_run_mode": "trading_day",
     "mapping_refresh_enabled": "true",
     "mapping_refresh_time": "02:00",
+    **SIGNAL_SETTINGS_DEFAULTS,
 }
 
 ATOMIC_FLOW_AMOUNT_FIELDS = (

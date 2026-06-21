@@ -1,3 +1,4 @@
+/** 全站顶栏导航（唯一实现；各页须引入本文件，勿在 charts.js 等处重复定义）。 */
 function initNav(active) {
   const path = location.pathname.replace(/\/$/, '') || '/';
   const links = [
@@ -5,6 +6,7 @@ function initNav(active) {
     ['/sectors-table.html', '板块表格'],
     ['/sectors-charts.html', '板块图表'],
     ['/stock-list.html', '股票清单'],
+    ['/signals.html', '交易信号'],
     ['/etf-table.html', 'ETF 表格'],
     ['/admin.html', '管理'],
   ];

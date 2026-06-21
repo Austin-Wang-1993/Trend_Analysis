@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>交易信号 — Trend Analysis</title>
+  <link rel="stylesheet" href="/static/css/style.css?v=20260624" />
+  <style>
+    table.sig { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table.sig th, table.sig td { padding: 8px 10px; border-bottom: 1px solid #1c2740; text-align: right; white-space: nowrap; }
+    table.sig th.tl, table.sig td.tl { text-align: left; }
+    table.sig tbody tr.hit { background: #2a1818; }
+    table.sig tbody tr.near { background: #1a1f2a; color: #9ab; }
+    table.sig tbody tr:hover { filter: brightness(1.08); }
+    .badge-limit { color: #f59e0b; font-size: 11px; margin-left: 4px; }
+    .status-bar { font-size: 13px; color: #8b9cb3; margin: 8px 0 12px; line-height: 1.6; }
+    .toolbar button { background: #1a2740; color: #cfe0f5; border: 1px solid #2a3850; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+    .pos { color: #ef4444; }
+  </style>
+</head>
+<body>
+  <nav></nav>
+  <main class="main-wide">
+    <h1>反包打板 · 交易信号</h1>
+    <p class="status-bar" id="status">加载中…</p>
+    <div class="toolbar">
+      <button type="button" id="btnRefresh">手动刷新</button>
+      <label style="margin-left:12px;font-size:13px;color:#8b9cb3">
+        最低 score
+        <select id="minScore">
+          <option value="1" selected>≥1（含临界）</option>
+          <option value="2">=2（仅触发）</option>
+        </select>
+      </label>
+    </div>
+    <p class="footnote">
+      信号窗 09:30–09:40（沪 60 / 深 00 主板，排除 ST、停牌）。条件：① 涨幅 ≥ 9.8% ② T-1 走弱 K + 反包。
+      2/2 高亮为触发；1/2 灰色为临界。09:40 后自动扫描不再新增，可手动刷新看最终态。数据源：Tushare <code>rt_min</code> + 昨日 <code>daily</code>。
+    </p>
+    <div class="table-wrap" id="tableWrap"></div>
+  </main>
+  <script src="/static/js/format.js?v=20260624"></script>
+  <script src="/static/js/api.js?v=20260624"></script>
+  <script src="/static/js/nav.js?v=20260624"></script>
+  <script>
+    initNav();
+    const statusEl = document.getElementById('status');
+    const tableWrap = document.getElementById('tableWrap');
+    let pollTimer = null;
+
+    function pct(v) {
+      if (v == null || Number.isNaN(v)) return '—';
+      return `${Number(v).toFixed(2)}%`;
+    }
+    function fmtTime(iso) {
+      if (!iso) return '—';
+      return iso.replace('T', ' ').slice(0, 19);
+    }
+    function shapeLabel(s) {
+      if (!s) return '—';
+      const m = { yin: '阴线', cross: '十字星', long_upper: '长上影' };
+      return s.split(',').map(x => m[x] || x).join(' / ');
+    }
+    function escapeHtml(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+    }
+
+    function renderTable(items) {
+      if (!items.length) {
+        tableWrap.innerHTML = '<p class="loading">暂无信号（信号窗内 score≥1 的标的会出现在此）</p>';
+        return;
+      }
+      const rows = items.map(r => {
+        const cls = r.signal_hit ? 'hit' : 'near';
+        const limit = r.is_limit_up ? '<span class="badge-limit">封板</span>' : '';
+        return `<tr class="${cls}">
+          <td class="tl">${r.stock_code}</td>
+          <td class="tl">${escapeHtml(r.stock_name || '')}</td>
+          <td class="pos">${pct(r.pct_change)}${limit}</td>
+          <td>${r.score}/2</td>
+          <td class="tl">${shapeLabel(r.t1_shape)}</td>
+          <td class="tl">${r.engulf_type === 'high' ? '最高价反包' : r.engulf_type === 'body' ? '实体反包' : '—'}</td>
+          <td>${r.hit_pct ? '✓' : '—'}</td>
+          <td>${r.hit_pattern ? '✓' : '—'}</td>
+          <td class="tl">${fmtTime(r.first_hit_at)}</td>
+        </tr>`;
+      }).join('');
+      tableWrap.innerHTML = `<table class="sig"><thead><tr>
+        <th class="tl">代码</th><th class="tl">名称</th><th>涨幅</th><th>score</th>
+        <th class="tl">T-1形态</th><th class="tl">反包</th><th>①涨幅</th><th>②反包走弱</th><th class="tl">首次命中</th>
+      </tr></thead><tbody>${rows}</tbody></table>`;
+    }
+
+    function renderStatus(meta) {
+      const parts = [
+        `交易日 ${meta.trade_date}`,
+        meta.is_trading_day ? '交易日' : '休市',
+        meta.in_signal_window ? '信号窗内' : (meta.frozen_new ? '信号窗已结束（不再新增）' : '盘前/盘后'),
+        meta.in_sched ? '扫描中' : '扫描暂停',
+        meta.last_scan_at ? `最近扫描 ${fmtTime(meta.last_scan_at)}` : '尚未扫描',
+        `命中 ${meta.hit_count ?? 0} 只`,
+      ];
+      if (meta.last_error) parts.push(`错误: ${meta.last_error}`);
+      statusEl.textContent = parts.join(' · ');
+    }
+
+    async function load() {
+      const minScore = document.getElementById('minScore').value;
+      try {
+        const data = await apiGet(`/api/signals/today?min_score=${minScore}`);
+        renderStatus(data.meta || {});
+        renderTable(data.items || []);
+        const iv = (data.meta && data.meta.in_sched) ? (data.meta.poll_interval_sec || 15) * 1000 : 60000;
+        clearInterval(pollTimer);
+        pollTimer = setInterval(() => load().catch(console.error), iv);
+      } catch (e) {
+        statusEl.textContent = e.message || '加载失败';
+        tableWrap.innerHTML = '';
+      }
+    }
+
+    document.getElementById('btnRefresh').onclick = async () => {
+      try {
+        await apiPost('/api/admin/signals/scan', {});
+        await load();
+      } catch (e) {
+        alert(e.message || '刷新失败');
+      }
+    };
+    document.getElementById('minScore').onchange = () => load();
+    load();
+  </script>
+</body>
+</html>

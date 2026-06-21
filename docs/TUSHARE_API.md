@@ -13,6 +13,7 @@
 | 用途 | 接口 | 文档 | 积分 | 更新时间 |
 |------|------|------|------|----------|
 | 个股日线（成交额） | `daily` | [doc](https://tushare.pro/wctapi/documents/27.md) | 120+ | 15:00–17:00 |
+| **盘中实时分钟（信号）** | **`rt_min`** | [doc](https://tushare.pro/wctapi/documents/374.md) | 单独权限 | 交易日盘中 |
 | 个股资金流向（四档买卖） | `moneyflow` | [doc](https://tushare.pro/wctapi/documents/170.md) | 2000 | **19:00 后** |
 | 股票列表 | `stock_basic` | [doc](https://tushare.pro/document/2?doc_id=25) | 2000 | — |
 

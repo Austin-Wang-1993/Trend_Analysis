@@ -28,9 +28,29 @@
     </div>
 
     <div class="card">
+      <h2 style="font-size:1rem;margin:0 0 0.75rem">信号参数（反包打板）</h2>
+      <div class="toolbar" style="flex-wrap:wrap">
+        <label><input type="checkbox" id="signal_enabled" /> 启用扫描</label>
+        <label>轮询间隔(秒) <input id="signal_poll_interval_sec" type="number" min="5" max="120" style="width:4rem" /></label>
+        <label>扫描时段 <input id="signal_sched_start" type="time" /> — <input id="signal_sched_end" type="time" /></label>
+        <label>信号窗 <input id="signal_window_start" type="time" /> — <input id="signal_window_end" type="time" /></label>
+        <label>涨幅阈值% <input id="signal_pct_threshold" type="number" step="0.1" style="width:4rem" /></label>
+        <label>反包模式
+          <select id="signal_engulf_mode">
+            <option value="high">最高价反包</option>
+            <option value="body">实体反包</option>
+          </select>
+        </label>
+        <label>十字星比 <input id="signal_cross_body_ratio" type="number" step="0.01" style="width:4rem" /></label>
+        <label>长上影比 <input id="signal_long_upper_ratio" type="number" step="0.1" style="width:4rem" /></label>
+        <button id="saveSignalSettings">保存信号配置</button>
+      </div>
+      <p class="footnote">交易日 09:25–09:45 每 N 秒拉 Tushare rt_min；仅 09:30–09:40 可新增标的。数据源仅 Tushare，不含主力资金条件。</p>
+    </div>
+
+    <div class="card">
       <h2 style="font-size:1rem;margin:0 0 0.75rem">手动补数</h2>
       <div class="toolbar">
-        <label>开始 <input id="fetchStart" type="date" /></label>
         <label>结束 <input id="fetchEnd" type="date" /></label>
         <button id="startFetch">开始更新</button>
       </div>
@@ -58,7 +78,7 @@
     </div>
   </main>
   <script src="/static/js/api.js"></script>
-  <script src="/static/js/nav.js"></script>
+  <script src="/static/js/nav.js?v=20260624"></script>
   <script src="/static/js/admin.js"></script>
 </body>
 </html>

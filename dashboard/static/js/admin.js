@@ -16,6 +16,30 @@ document.getElementById('saveSettings').onclick = async () => {
   }
 };
 
+const saveSigBtn = document.getElementById('saveSignalSettings');
+if (saveSigBtn) {
+  saveSigBtn.onclick = async () => {
+    try {
+      const s = await apiPut('/api/admin/settings', {
+        signal_enabled: document.getElementById('signal_enabled').checked,
+        signal_poll_interval_sec: Number(document.getElementById('signal_poll_interval_sec').value || 15),
+        signal_sched_start: document.getElementById('signal_sched_start').value || '09:25',
+        signal_sched_end: document.getElementById('signal_sched_end').value || '09:45',
+        signal_window_start: document.getElementById('signal_window_start').value || '09:30',
+        signal_window_end: document.getElementById('signal_window_end').value || '09:40',
+        signal_pct_threshold: Number(document.getElementById('signal_pct_threshold').value || 9.8),
+        signal_engulf_mode: document.getElementById('signal_engulf_mode').value,
+        signal_cross_body_ratio: Number(document.getElementById('signal_cross_body_ratio').value || 0.1),
+        signal_long_upper_ratio: Number(document.getElementById('signal_long_upper_ratio').value || 1.0),
+      });
+      applySettings(s);
+      alert('信号配置已保存');
+    } catch (e) {
+      alert(typeof e.message === 'string' ? e.message : '保存失败');
+    }
+  };
+}
+
 function applySettings(s) {
   document.getElementById('schedule_enabled').checked = s.schedule_enabled === 'true' || s.schedule_enabled === true;
   const t = (s.schedule_time || '21:35').split(':');
@@ -23,6 +47,24 @@ function applySettings(s) {
   document.getElementById('schedule_run_mode').value = s.schedule_run_mode || 'trading_day';
   document.getElementById('nextRun').textContent =
     `下次: ${s.next_run_at || '—'} | 将执行: ${s.next_run_will_execute !== false ? '是' : '否'}`;
+  const sigOn = document.getElementById('signal_enabled');
+  if (sigOn) {
+    sigOn.checked = s.signal_enabled === 'true' || s.signal_enabled === true;
+    document.getElementById('signal_poll_interval_sec').value = s.signal_poll_interval_sec || '15';
+    setTimeInput('signal_sched_start', s.signal_sched_start || '09:25');
+    setTimeInput('signal_sched_end', s.signal_sched_end || '09:45');
+    setTimeInput('signal_window_start', s.signal_window_start || '09:30');
+    setTimeInput('signal_window_end', s.signal_window_end || '09:40');
+    document.getElementById('signal_pct_threshold').value = s.signal_pct_threshold || '9.8';
+    document.getElementById('signal_engulf_mode').value = s.signal_engulf_mode || 'high';
+    document.getElementById('signal_cross_body_ratio').value = s.signal_cross_body_ratio || '0.1';
+    document.getElementById('signal_long_upper_ratio').value = s.signal_long_upper_ratio || '1.0';
+  }
+}
+
+function setTimeInput(id, hhmm) {
+  const [h, m] = (hhmm || '00:00').split(':');
+  document.getElementById(id).value = `${h.padStart(2,'0')}:${(m||'0').padStart(2,'0')}`;
 }
 
 async function loadSettings() {
