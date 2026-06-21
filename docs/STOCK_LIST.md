@@ -16,8 +16,8 @@
 | 名称 | `stock_name` | | |
 | 最新价 | `daily_basic.close` | 元 | **盘后收盘价**（非实时） |
 | 最新市值 | `daily_basic.total_mv` | 亿元（源为万元 ÷1e4） | 总市值 |
-| 股息率(静态) | `daily_basic.dv_ratio` | % | 近 12 个月已公告股息 / 当前股价 |
-| 股息率(TTM) | `daily_basic.dv_ttm` | % | 滚动 12 个月股息 / 当前股价 |
+| 股息率(静态) | `daily_basic.dv_ratio` | % | **上一财年(LFY)** 现金分红 / 当前股价（市值） |
+| 股息率(TTM) | `daily_basic.dv_ttm` | % | **滚动近 12 个月** 现金分红 / 当前股价（市值） |
 | 市净率 PB | `daily_basic.pb` | 倍 | 总市值 / 净资产 |
 | 市盈率 PE(静态) | `daily_basic.pe` | 倍 | 总市值 / 最近年报净利润；亏损为空 |
 | 市盈率 PE(TTM) | `daily_basic.pe_ttm` | 倍 | 总市值 / 滚动 12 个月净利润；亏损为空 |
