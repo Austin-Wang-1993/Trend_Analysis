@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -85,6 +85,21 @@ def fetch_etf_day(trade_date: str, market_turnover: float, basic: pd.DataFrame) 
     return fd
 
 
+def fetch_holders() -> pd.DataFrame:
+    """拉取最近约 180 天公告的股东户数，取每股最近一期。"""
+    today = datetime.now(CST)
+    frames: list[pd.DataFrame] = []
+    for i in range(6):  # 6 个 30 天窗口，规避单次 3000 行上限
+        end = (today - timedelta(days=30 * i)).strftime("%Y%m%d")
+        start = (today - timedelta(days=30 * (i + 1))).strftime("%Y%m%d")
+        df = tc.call_api("stk_holdernumber", start_date=start, end_date=end)
+        if df is not None and not df.empty:
+            frames.append(df)
+    if not frames:
+        return pd.DataFrame()
+    return tc.latest_holder_numbers(pd.concat(frames, ignore_index=True))
+
+
 def load_mappings(store: TsStore, trade_date: str, *, refresh: bool, kinds=None) -> dict[str, tuple[pd.DataFrame, pd.DataFrame]]:
     """四套映射：构建/缓存并写入 store。trade_date 供东财使用。"""
     out: dict[str, tuple[pd.DataFrame, pd.DataFrame]] = {}
@@ -115,6 +130,14 @@ def process_day(store: TsStore, trade_date: str, mappings, *, do_etf: bool, etf_
         store.upsert_sectors(trade_date, kind, sector_df)
     print(f"  全A 成交 {market['turnover']/1e8:.0f}亿 涨/跌 {up}/{down}；四套行业已聚合", flush=True)
 
+    # 估值指标（股票清单页用）
+    metrics = tc.daily_basic_to_metrics(
+        tc.call_api("daily_basic", trade_date=trade_date,
+                    fields="ts_code,close,total_mv,pe,pe_ttm,pb,dv_ratio,dv_ttm")
+    )
+    store.upsert_valuation(trade_date, metrics, name_map)
+    print(f"  估值指标 {len(metrics)} 只已落库", flush=True)
+
     if do_etf:
         etf = fetch_etf_day(trade_date, market["turnover"], etf_basic)
         store.upsert_etfs(trade_date, etf)
@@ -141,7 +164,10 @@ def main() -> int:
         mk = [k for k in mk if k in tsec.KINDS] if mk else None
         print(f"==> 仅刷新行业映射（trade_date={td}，kinds={mk or '全部'}）", flush=True)
         load_mappings(store, td, refresh=True, kinds=mk)
-        print("==> 映射刷新完成", flush=True)
+        # 周度同时刷新股东户数（季度数据）
+        holders = fetch_holders()
+        store.upsert_holders(holders)
+        print(f"==> 股东数刷新 {len(holders)} 只；映射刷新完成", flush=True)
         return 0
 
     if args.start and args.end:

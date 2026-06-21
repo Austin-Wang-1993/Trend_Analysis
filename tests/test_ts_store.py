@@ -110,6 +110,56 @@ def test_sort_net():
         assert nets == sorted(nets, reverse=True)
 
 
+def test_stock_list_and_catalog():
+    with tempfile.TemporaryDirectory() as d:
+        store = TsStore(Path(d) / "h.db")
+        # 映射（含 catalog）
+        mapping = pd.DataFrame([
+            {"sector_code": "851251.SI", "sector_name": "白酒Ⅲ", "sector_path": "食品饮料 > 白酒Ⅱ > 白酒Ⅲ", "stock_code": "600519"},
+            {"sector_code": "850831.SI", "sector_name": "集成电路", "sector_path": "电子 > 半导体 > 集成电路", "stock_code": "688981"},
+        ])
+        store.upsert_mapping("sw_l3", mapping, mapping[["sector_code", "sector_name", "sector_path"]])
+        # 估值
+        metrics = pd.DataFrame([
+            {"stock_code": "600519", "close": 1500.0, "total_mv": 1.8e12, "pe": 22.0, "pe_ttm": 21.0, "pb": 8.0, "dv_ratio": 3.2, "dv_ttm": 3.5},
+            {"stock_code": "688981", "close": 90.0, "total_mv": 7.0e11, "pe": None, "pe_ttm": 80.0, "pb": 5.0, "dv_ratio": 0.0, "dv_ttm": 0.0},
+        ])
+        store.upsert_valuation("20250613", metrics, name_map={"600519": "贵州茅台", "688981": "中芯国际"})
+        # 股东数（单独更新，不应覆盖估值）
+        holders = pd.DataFrame([
+            {"stock_code": "600519", "holder_num": 80000, "holder_end_date": "20250331", "holder_ann_date": "20250425"},
+        ])
+        store.upsert_holders(holders)
+
+        catalog = store.get_sector_catalog("sw_l3")
+        assert len(catalog) == 2
+
+        # 默认按市值降序
+        res = store.get_stock_list(page=1, page_size=10, sort="total_mv", order="desc")
+        assert res["total"] == 2
+        assert res["items"][0]["stock_code"] == "600519"  # 市值更大
+        assert res["items"][0]["stock_name"] == "贵州茅台"
+        assert res["items"][0]["sector_path"] == "食品饮料 > 白酒Ⅱ > 白酒Ⅲ"
+        assert res["items"][0]["holder_num"] == 80000      # 股东数没被估值覆盖
+        assert res["items"][0]["holder_end_date"] == "20250331"
+
+        # 升序
+        res2 = store.get_stock_list(sort="total_mv", order="asc")
+        assert res2["items"][0]["stock_code"] == "688981"
+
+        # 板块多选筛选
+        res3 = store.get_stock_list(sectors=["850831.SI"])
+        assert res3["total"] == 1 and res3["items"][0]["stock_code"] == "688981"
+
+        # 搜索（板块名）
+        res4 = store.get_stock_list(q="白酒")
+        assert res4["total"] == 1 and res4["items"][0]["stock_code"] == "600519"
+
+        # 亏损 PE 为空
+        chip = store.get_stock_list(sectors=["850831.SI"])["items"][0]
+        assert chip["pe"] is None and chip["pe_ttm"] == 80.0
+
+
 def _run_all() -> int:
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failed = 0

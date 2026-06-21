@@ -89,6 +89,34 @@ def test_fund_daily_to_turnover() -> None:
     assert out.iloc[0]["turnover"] == 100.0 * tc.QIAN_TO_YUAN
 
 
+def test_daily_basic_to_metrics() -> None:
+    df = pd.DataFrame([
+        {"ts_code": "600519.SH", "trade_date": "20250613", "close": 1500.0,
+         "total_mv": 18000000.0, "pe": 22.5, "pe_ttm": 21.0, "pb": 8.1, "dv_ratio": 3.2, "dv_ttm": 3.5},
+        {"ts_code": "000001.SZ", "trade_date": "20250613", "close": 11.2,
+         "total_mv": 21700000.0, "pe": None, "pe_ttm": 4.8, "pb": 0.6, "dv_ratio": 5.1, "dv_ttm": 5.1},
+    ])
+    out = tc.daily_basic_to_metrics(df)
+    r = out[out["stock_code"] == "600519"].iloc[0]
+    assert r["close"] == 1500.0
+    assert r["total_mv"] == 18000000.0 * tc.WAN_TO_YUAN  # 万元 → 元
+    assert r["pe_ttm"] == 21.0
+    assert pd.isna(out[out["stock_code"] == "000001"].iloc[0]["pe"])  # 亏损 PE 为空
+
+
+def test_latest_holder_numbers() -> None:
+    df = pd.DataFrame([
+        {"ts_code": "300199.SZ", "ann_date": "20180808", "end_date": "20180630", "holder_num": 25785},
+        {"ts_code": "300199.SZ", "ann_date": "20181025", "end_date": "20180930", "holder_num": 25135},
+        {"ts_code": "600519.SH", "ann_date": "20180426", "end_date": "20180331", "holder_num": 99999},
+    ])
+    out = tc.latest_holder_numbers(df)
+    a = out[out["stock_code"] == "300199"].iloc[0]
+    assert a["holder_num"] == 25135           # 取 end_date 最大（20180930）
+    assert a["holder_end_date"] == "20180930"
+    assert len(out) == 2
+
+
 def test_count_up_down() -> None:
     s = pd.Series([1.0, -2.0, 0.0, 3.0, None])
     up, down, flat = tc.count_up_down(s)
