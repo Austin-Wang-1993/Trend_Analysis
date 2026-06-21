@@ -81,14 +81,14 @@
       const missTr = f.missing_turnover ? `（${f.missing_turnover} 只缺换手数据，已跳过换手剔除）` : '';
       el.innerHTML = `<div class="funnel"><strong>筛选漏斗</strong>（扫描日 ${meta.trade_date}）${missTr}<br/>`
         + rows.map(([label, n]) => `${label}：<strong>${n}</strong>`).join(' · ')
-        + (f.full_pass === 0 ? '<br/><span style="color:#f59e0b">提示：五条件同时满足的股票很少；可在管理页放宽 RPS和、近20日涨幅等阈值后重算。</span>' : '')
+        + (f.full_pass === 0 ? '<br/><span style="color:#f59e0b">提示：可在 <a href="/admin.html#train-track-config">管理页·火车轨参数</a> 放宽阈值后重算。</span>' : '')
         + '</div>';
     }
 
     function renderTable(items, meta) {
       if (!items.length) {
         renderFunnel(meta || {});
-        tableWrap.innerHTML = '<p class="loading">暂无入选（见上方漏斗：哪一步把股票筛光了；可去管理页放宽阈值后重算）</p>';
+        tableWrap.innerHTML = '<p class="loading">暂无入选（见上方漏斗；<a href="/admin.html#train-track-config">去管理页调参数</a> 后重算）</p>';
         return;
       }
       document.getElementById('funnelBox').innerHTML = '';

@@ -40,30 +40,54 @@ if (saveSigBtn) {
   };
 }
 
+function collectTrainTrackSettings() {
+  return {
+    train_track_enabled: document.getElementById('train_track_enabled').checked,
+    train_track_time: document.getElementById('train_track_time').value || '16:30',
+    train_track_default_limit: Number(document.getElementById('train_track_default_limit').value || 20),
+    train_track_rps_sum_min: Number(document.getElementById('train_track_rps_sum_min').value || 185),
+    train_track_near_high_250_min: Number(document.getElementById('train_track_near_high_250_min').value || 0.8),
+    train_track_drawdown_20_max: Number(document.getElementById('train_track_drawdown_20_max').value || 0.25),
+    train_track_turnover_max: Number(document.getElementById('train_track_turnover_max').value || 10),
+    train_track_recent_20d_pct_max: Number(document.getElementById('train_track_recent_20d_pct_max').value || 30),
+    train_track_ma_touch_band_pct: Number(document.getElementById('train_track_ma_touch_band_pct').value || 2),
+    train_track_count_ma250_30_min: Number(document.getElementById('train_track_count_ma250_30_min').value || 25),
+    train_track_count_ma200_30_min: Number(document.getElementById('train_track_count_ma200_30_min').value || 25),
+    train_track_count_ma20_10_min: Number(document.getElementById('train_track_count_ma20_10_min').value || 9),
+    train_track_count_ma10_4_min: Number(document.getElementById('train_track_count_ma10_4_min').value || 3),
+    train_track_count_ma20_4_min: Number(document.getElementById('train_track_count_ma20_4_min').value || 3),
+    train_track_ma_rise_days: Number(document.getElementById('train_track_ma_rise_days').value || 5),
+    train_track_history_days: Number(document.getElementById('train_track_history_days').value || 250),
+  };
+}
+
 const saveTtBtn = document.getElementById('saveTrainTrackSettings');
 if (saveTtBtn) {
   saveTtBtn.onclick = async () => {
     try {
-      const s = await apiPut('/api/admin/settings', {
-        train_track_enabled: document.getElementById('train_track_enabled').checked,
-        train_track_time: document.getElementById('train_track_time').value || '16:30',
-        train_track_default_limit: Number(document.getElementById('train_track_default_limit').value || 20),
-        train_track_rps_sum_min: Number(document.getElementById('train_track_rps_sum_min').value || 185),
-        train_track_near_high_250_min: Number(document.getElementById('train_track_near_high_250_min').value || 0.8),
-        train_track_drawdown_20_max: Number(document.getElementById('train_track_drawdown_20_max').value || 0.25),
-        train_track_turnover_max: Number(document.getElementById('train_track_turnover_max').value || 10),
-        train_track_recent_20d_pct_max: Number(document.getElementById('train_track_recent_20d_pct_max').value || 30),
-        train_track_ma_touch_band_pct: Number(document.getElementById('train_track_ma_touch_band_pct').value || 2),
-        train_track_count_ma250_30_min: Number(document.getElementById('train_track_count_ma250_30_min').value || 25),
-        train_track_count_ma200_30_min: Number(document.getElementById('train_track_count_ma200_30_min').value || 25),
-        train_track_count_ma20_10_min: Number(document.getElementById('train_track_count_ma20_10_min').value || 9),
-        train_track_count_ma10_4_min: Number(document.getElementById('train_track_count_ma10_4_min').value || 3),
-        train_track_count_ma20_4_min: Number(document.getElementById('train_track_count_ma20_4_min').value || 3),
-        train_track_ma_rise_days: Number(document.getElementById('train_track_ma_rise_days').value || 5),
-        train_track_history_days: Number(document.getElementById('train_track_history_days').value || 250),
-      });
+      const s = await apiPut('/api/admin/settings', collectTrainTrackSettings());
       applySettings(s);
       alert('火车轨配置已保存');
+    } catch (e) {
+      alert(typeof e.message === 'string' ? e.message : '保存失败');
+    }
+  };
+}
+
+const presetTtBtn = document.getElementById('applyTrainTrackPreset');
+if (presetTtBtn) {
+  presetTtBtn.onclick = async () => {
+    if (!confirm('将填入宽松预设（RPS和170、近20日涨<40% 等）并保存，继续？')) return;
+    document.getElementById('train_track_rps_sum_min').value = '170';
+    document.getElementById('train_track_recent_20d_pct_max').value = '40';
+    document.getElementById('train_track_drawdown_20_max').value = '0.35';
+    document.getElementById('train_track_near_high_250_min').value = '0.75';
+    document.getElementById('train_track_count_ma250_30_min').value = '20';
+    document.getElementById('train_track_count_ma200_30_min').value = '20';
+    try {
+      const s = await apiPut('/api/admin/settings', collectTrainTrackSettings());
+      applySettings(s);
+      alert('宽松预设已保存，请到火车轨页点「立即重算」');
     } catch (e) {
       alert(typeof e.message === 'string' ? e.message : '保存失败');
     }

@@ -125,9 +125,11 @@ class TrainTrackScanner:
             return {"skipped": True, "reason": "non_trading_day", "trade_date": td}
 
         names, suspended = self._universe(td)
-        dates = get_recent_trading_days(hist_days, end=td)
-        if len(dates) < 250:
-            msg = f"交易日不足 {hist_days}（当前 {len(dates)}）"
+        # RPS250 / MA250 需要至少 hist_days+1 根 K（250 日涨幅要看 t-250 的收盘）
+        need_days = hist_days + 1
+        dates = get_recent_trading_days(need_days, end=td)
+        if len(dates) < need_days:
+            msg = f"交易日不足 {need_days}（当前 {len(dates)}，含 RPS250 需多 1 日）"
             self.store.set_scan_log(td, pick_count=0, universe_count=0, error=msg)
             return {"skipped": True, "reason": msg, "trade_date": td}
 
@@ -149,6 +151,10 @@ class TrainTrackScanner:
         turn_panel = df.pivot(index="trade_date", columns="stock_code", values="turnover_rate").sort_index()
 
         day_idx = len(close_panel) - 1
+        if day_idx < 250:
+            msg = f"K 线不足 {need_days} 根，无法计算 RPS250"
+            self.store.set_scan_log(td, pick_count=0, universe_count=len(names), error=msg)
+            return {"skipped": True, "reason": msg, "trade_date": td}
         ret120 = close_panel.iloc[day_idx] / close_panel.iloc[day_idx - 120] - 1.0
         ret250 = close_panel.iloc[day_idx] / close_panel.iloc[day_idx - 250] - 1.0
         rps120_all = ret120.rank(pct=True, method="average") * 99.0
@@ -173,7 +179,7 @@ class TrainTrackScanner:
             if code not in names or code in suspended:
                 continue
             closes = close_panel[code].dropna()
-            if len(closes) < 250:
+            if len(closes) < need_days:
                 continue
             funnel["evaluated"] += 1
             highs = high_panel[code].reindex(closes.index).fillna(closes)
@@ -264,7 +270,7 @@ class TrainTrackScanner:
             "last_error": log.get("error_message"),
             "funnel": funnel,
             "cache_day_count": len(cache_dates),
-            "cache_days_required": hist_days,
+            "cache_days_required": hist_days + 1,
             "scan_job": active or latest,
             "settings_meta": self.store.get_settings_meta(),
         }

@@ -496,7 +496,10 @@ def _html(name: str) -> FileResponse:
     path = DASHBOARD / name
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"页面不存在: {name}")
-    return FileResponse(path)
+    return FileResponse(
+        path,
+        headers={"Cache-Control": "no-cache, must-revalidate"},
+    )
 
 
 @app.get("/")
