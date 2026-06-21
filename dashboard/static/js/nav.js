@@ -1,3 +1,4 @@
+/** 全站顶栏导航（唯一实现；各页须引入本文件，勿在 charts.js 等处重复定义）。 */
 function initNav(active) {
   const path = location.pathname.replace(/\/$/, '') || '/';
   const links = [

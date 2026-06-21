@@ -1,21 +1,3 @@
-function initNav(active) {
-  const links = [
-    ['/', '概览'],
-    ['/sectors-table.html', '板块表格'],
-    ['/sectors-charts.html', '板块图表'],
-    ['/etf-table.html', 'ETF 表格'],
-    ['/admin.html', '管理'],
-  ];
-  const nav = document.querySelector('nav');
-  if (!nav) return;
-  nav.innerHTML = links
-    .map(([href, label]) => {
-      const cls = (active === href || (active === 'index' && href === '/')) ? ' class="active"' : '';
-      return `<a href="${href}"${cls}>${label}</a>`;
-    })
-    .join('');
-}
-
 function barChartOption(title, dates, series, color) {
   return {
     title: { text: title, textStyle: { color: '#e7ecf3', fontSize: 14 } },

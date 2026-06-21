@@ -158,11 +158,13 @@
 页面 7  管理（定时 / 补数 / 导出 / 数据日历）
 ```
 
-**顶栏导航（建议）**
+**顶栏导航（常驻 6 Tab）**
 
 ```text
-[概览] [板块表格] [板块图表] [ETF 表格] [管理]
+[概览] [板块表格] [板块图表] [股票清单] [ETF 表格] [管理]
 ```
+
+实现：`dashboard/static/js/nav.js`（全站唯一，各页 `initNav()`）。
 
 - 页面 2 **点击板块名称** → 页面 4 `/sector-stocks.html?sector=…&days=…&sort=…`。
 - 页面 4 **点击个股名称** → 页面 4b `/stock-detail.html?stock=…&sector=…`。

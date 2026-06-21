@@ -122,6 +122,7 @@ GET /api/sectors/catalog?kind=sw_l3
 ## 6. 前端
 
 - 新页面 `dashboard/stock-list.html`，加入顶部导航（「股票清单」）。
+- **导航唯一来源**：`dashboard/static/js/nav.js`；各页引入并调用 `initNav()`，勿在 `charts.js` 等处重复定义（否则部分页面会缺少「股票清单」Tab）。
 - 普通分页表格（非卡片列）；表头可点排序、带升降箭头。
 - 板块筛选：可搜索多选组件 + 已选 chips（可移除）。
 - 市值显示「亿元」；空值显示「—」。
