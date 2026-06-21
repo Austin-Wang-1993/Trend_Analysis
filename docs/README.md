@@ -15,6 +15,7 @@ A 股申万 **二级** 行业 **成交额 + 买卖** 分析与 Web 看板。
 | [**REQUIREMENTS.md**](./REQUIREMENTS.md) | **v4.0** 需求摘要 + v3.6 归档 |
 | [**IMPLEMENTATION_PLAN.md**](./IMPLEMENTATION_PLAN.md) | **v4.0** 方案 + v3.6 实现 |
 | [**BRANCHING.md**](./BRANCHING.md) | 分支策略、部署只跟 main |
+| [**DEPLOY.md**](./DEPLOY.md) | **自动化部署：push main → GitHub Actions → 腾讯云** |
 | [BIYING_API.md](./BIYING_API.md) | 必盈 API（v3.6 归档） |
 
 ---

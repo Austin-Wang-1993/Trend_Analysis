@@ -1,0 +1,44 @@
+name: Deploy to Tencent Cloud
+
+# 推送到 main（或手动触发）后，通过 SSH 部署到腾讯云服务器。
+# 需要在 GitHub 仓库 Settings → Secrets and variables → Actions 配置：
+#   TENCENT_HOST         服务器公网 IP / 域名
+#   TENCENT_USER         登录用户名（如 ubuntu）
+#   TENCENT_SSH_KEY      部署用 SSH 私钥（对应公钥已加入服务器 ~/.ssh/authorized_keys）
+#   TENCENT_PORT         （可选）SSH 端口，默认 22
+#   TENCENT_DEPLOY_PATH  （可选）服务器仓库路径，默认 /home/ubuntu/Trend_Analysis
+# 详见 docs/DEPLOY.md。
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-tencent
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 准备 SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.TENCENT_SSH_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          PORT="${{ secrets.TENCENT_PORT }}"; PORT="${PORT:-22}"
+          ssh-keyscan -p "$PORT" -H "${{ secrets.TENCENT_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: 通过 SSH 部署
+        env:
+          HOST: ${{ secrets.TENCENT_HOST }}
+          USER: ${{ secrets.TENCENT_USER }}
+          PORT: ${{ secrets.TENCENT_PORT }}
+          DEPLOY_PATH: ${{ secrets.TENCENT_DEPLOY_PATH }}
+        run: |
+          PORT="${PORT:-22}"
+          DEPLOY_PATH="${DEPLOY_PATH:-/home/ubuntu/Trend_Analysis}"
+          ssh -i ~/.ssh/id_deploy -p "$PORT" -o StrictHostKeyChecking=accept-new \
+            "${USER}@${HOST}" \
+            "set -e; cd '${DEPLOY_PATH}'; git fetch --prune origin main; git reset --hard origin/main; bash deploy/remote_deploy.sh"
