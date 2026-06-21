@@ -1,0 +1,112 @@
+# 全股票清单页设计（v4.1）
+
+> 状态：**已确认，开发中** · 确认日期：2026-06-21  
+> 前置：[TUSHARE_SECTOR_DESIGN.md](./TUSHARE_SECTOR_DESIGN.md) · [TUSHARE_API.md](./TUSHARE_API.md)
+
+新增「股票清单」页：一行一只 A 股，展示所属（申万三级）行业、估值与股东数等最新指标，支持搜索、板块多选筛选、正逆排序、分页。
+
+---
+
+## 1. 列与字段
+
+| 列 | 来源 | 单位/格式 | 备注 |
+|----|------|-----------|------|
+| 所属板块 | `sector_stock_map_v4`(kind=`sw_l3`) | `L1 > L2 > L3` 全路径 | 申万三级 |
+| 代码 | `stock_code` | 6 位 | |
+| 名称 | `stock_name` | | |
+| 最新价 | `daily_basic.close` | 元 | **盘后收盘价**（非实时） |
+| 最新市值 | `daily_basic.total_mv` | 亿元（源为万元 ÷1e4） | 总市值 |
+| 股息率(静态) | `daily_basic.dv_ratio` | % | 近 12 个月已公告股息 / 当前股价 |
+| 股息率(TTM) | `daily_basic.dv_ttm` | % | 滚动 12 个月股息 / 当前股价 |
+| 市净率 PB | `daily_basic.pb` | 倍 | 总市值 / 净资产 |
+| 市盈率 PE(静态) | `daily_basic.pe` | 倍 | 总市值 / 最近年报净利润；亏损为空 |
+| 市盈率 PE(TTM) | `daily_basic.pe_ttm` | 倍 | 总市值 / 滚动 12 个月净利润；亏损为空 |
+| 股东数 | `stk_holdernumber.holder_num` | 户 | **最近披露**一期 |
+| 股东数截止日 | `stk_holdernumber.end_date` | 日期 | 股东数对应的报告期 |
+
+> 页面在表头/页脚标注各指标计算口径（如上表「备注」列）。
+
+---
+
+## 2. 交互
+
+- **分页**：默认每页 100，可选 50/100/200。
+- **搜索**：代码 / 名称 / 板块名 模糊匹配。
+- **板块多选筛选**：
+  - 可搜索的申万三级板块下拉（数据来自 `sector_catalog_v4` kind=`sw_l3`）；
+  - 多选；已选板块以 chip 形式展示，可单独移除；
+  - 选中后只显示这些板块的成份股。
+- **排序**：点列头切换 **升序/降序**；可排序列：最新价、市值、股息率(两种)、PB、PE(两种)、股东数、代码、名称。
+- 默认排序：市值 ↓。
+
+---
+
+## 3. 数据来源与更新
+
+| 数据 | 接口 | 积分 | 更新 |
+|------|------|------|------|
+| 估值/价/市值 | `daily_basic`（按 `trade_date` 全市场） | 2000 | **每日**随 `fetch_ts_daily` 采集 |
+| 股东数 | `stk_holdernumber`（按 `ann_date` 段拉最近一期） | 600 | **每周**随映射刷新 |
+
+- 估值为**最新交易日快照**（覆盖更新，不留历史）。
+- 股东数为季度数据，取每只股票**最近一期**（`end_date` 最大）。
+
+---
+
+## 4. 存储
+
+新表 `stock_metrics_v4`（一股一行，最新快照）：
+
+```
+stock_code TEXT PRIMARY KEY,
+stock_name TEXT,
+trade_date TEXT,          -- 估值对应交易日
+close REAL,               -- 收盘价（元）
+total_mv REAL,            -- 总市值（元，源万元×1e4）
+pe REAL, pe_ttm REAL,
+pb REAL,
+dv_ratio REAL, dv_ttm REAL,   -- %（原值，前端 ×1 显示）
+holder_num INTEGER,
+holder_end_date TEXT,     -- 股东数报告期
+holder_ann_date TEXT,     -- 股东数公告日
+updated_at TEXT
+```
+
+> 所属板块不冗余存储，读取时按 `sector_stock_map_v4`(kind=`sw_l3`) 关联。
+
+---
+
+## 5. API
+
+```
+GET /api/stocks/list?page=1&page_size=100&sort=total_mv&order=desc&q=&sectors=850831.SI,851251.SI
+  → { total, page, page_size, items: [ {sector_code, sector_path, stock_code, stock_name,
+        close, total_mv, pe, pe_ttm, pb, dv_ratio, dv_ttm, holder_num, holder_end_date} ] }
+
+GET /api/sectors/catalog?kind=sw_l3
+  → [ {sector_code, sector_name, sector_path} ]   # 供板块多选筛选器
+```
+
+- `sort` 允许：`total_mv|close|pe|pe_ttm|pb|dv_ratio|dv_ttm|holder_num|stock_code|stock_name`
+- `order`：`asc|desc`
+- `sectors`：申万三级 `sector_code` 列表（逗号分隔），多选筛选
+- `q`：代码/名称/板块名模糊
+
+---
+
+## 6. 前端
+
+- 新页面 `dashboard/stock-list.html`，加入顶部导航（「股票清单」）。
+- 普通分页表格（非卡片列）；表头可点排序、带升降箭头。
+- 板块筛选：可搜索多选组件 + 已选 chips（可移除）。
+- 市值显示「亿元」；空值显示「—」。
+
+---
+
+## 7. 验收
+
+1. 清单展示全 A，含 11 列指标，板块为申万三级路径。
+2. PE/股息率静态与 TTM 均展示，表内标注口径。
+3. 搜索、板块多选筛选（可搜可移除）、各列正逆排序、分页均可用。
+4. 估值每日自动更新；股东数每周更新，显示报告期。
+5. 亏损股 PE 为「—」；缺失值不报错。
