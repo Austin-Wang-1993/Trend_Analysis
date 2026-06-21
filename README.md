@@ -62,6 +62,7 @@ bash deploy/remote_deploy.sh
 |------|------|
 | 全 A 概览 | `/` |
 | 申万二级表格/图表 | `/sectors-table.html` `/sectors-charts.html` |
+| 股票清单 | `/stock-list.html` |
 | ETF | `/etf-table.html` `/etf-detail.html` |
 | 管理 | `/admin.html` |
 
