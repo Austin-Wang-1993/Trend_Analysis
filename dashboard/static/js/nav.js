@@ -4,6 +4,7 @@ function initNav(active) {
     ['/', '概览'],
     ['/sectors-table.html', '板块表格'],
     ['/sectors-charts.html', '板块图表'],
+    ['/stock-list.html', '股票清单'],
     ['/etf-table.html', 'ETF 表格'],
     ['/admin.html', '管理'],
   ];

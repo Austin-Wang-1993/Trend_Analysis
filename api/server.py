@@ -226,6 +226,26 @@ def api_etf_series(
     return get_ts_store().get_etf_series(etf_code, days)
 
 
+@app.get("/api/stocks/list")
+def api_stock_list(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(100, ge=1, le=500),
+    sort: str = Query("total_mv"),
+    order: str = Query("desc", pattern="^(asc|desc)$"),
+    q: str = Query(""),
+    sectors: str = Query("", description="申万三级 sector_code，逗号分隔，多选"),
+) -> dict[str, Any]:
+    sector_list = [s.strip() for s in sectors.split(",") if s.strip()] or None
+    return get_ts_store().get_stock_list(
+        page=page, page_size=page_size, sort=sort, order=order, q=q, sectors=sector_list
+    )
+
+
+@app.get("/api/sectors/catalog")
+def api_sector_catalog(kind: str = Query("sw_l3", pattern=KIND_PATTERN)) -> list[dict[str, Any]]:
+    return get_ts_store().get_sector_catalog(kind)
+
+
 # --- 管理 API ---
 
 @app.get("/api/admin/settings")
@@ -390,6 +410,11 @@ def page_stock_detail() -> FileResponse:
 @app.get("/sector-stocks.html")
 def page_sector_stocks() -> FileResponse:
     return _html("sector-stocks.html")
+
+
+@app.get("/stock-list.html")
+def page_stock_list() -> FileResponse:
+    return _html("stock-list.html")
 
 
 @app.get("/etf-table.html")
