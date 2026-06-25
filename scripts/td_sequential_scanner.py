@@ -88,7 +88,7 @@ class TdSequentialScanner:
         cached = set(self.cache_store.list_cached_dates())
         missing = [d for d in trade_dates if d not in cached]
         total = len(trade_dates)
-        done = len(cached)
+        done = sum(1 for d in trade_dates if d in cached)
         if progress:
             progress("cache", done, total)
         for i, d in enumerate(missing, start=1):

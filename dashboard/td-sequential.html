@@ -44,8 +44,8 @@
     <div id="funnelBox" class="funnel"></div>
     <div class="board" id="board"></div>
   </main>
-  <script src="/static/js/api.js?v=20260626"></script>
-  <script src="/static/js/nav.js?v=20260626"></script>
+  <script src="/static/js/api.js?v=20260627"></script>
+  <script src="/static/js/nav.js?v=20260627"></script>
   <script>
     initNav();
     const statusEl = document.getElementById('status');
@@ -107,32 +107,42 @@
       }).join('');
     }
 
+    function formatJobProgress(job) {
+      if (!job) return '';
+      const p = job.progress || '';
+      if (p.startsWith('cache:')) return `补缓存 ${p.slice(6)} 日`;
+      if (p === 'compute') return '计算九转…';
+      if (p === 'done') return '完成';
+      if (job.status === 'running') return '运行中…';
+      return p;
+    }
+
     function updateStatus(meta) {
       const job = meta.scan_job;
       let extra = '';
       if (job && (job.status === 'pending' || job.status === 'running')) {
-        extra = ` · 扫描中：${job.progress || job.status}`;
+        extra = ` · 扫描中：${formatJobProgress(job)}`;
       } else if (meta.last_scan_at) {
-        extra = ` · 上次扫描 ${meta.last_scan_at}`;
+        extra = ` · 上次扫描 ${meta.last_scan_at.replace('T', ' ').slice(0, 19)}`;
       }
       if (meta.last_error) extra += ` · <span style="color:#f59e0b">${meta.last_error}</span>`;
       statusEl.innerHTML = `扫描日 <strong>${meta.trade_date}</strong> · 回溯 <strong>${meta.lookback_days}</strong> 交易日${extra}`;
     }
 
-    let pollTimer = null;
-    function pollScan() {
-      if (pollTimer) clearInterval(pollTimer);
-      pollTimer = setInterval(async () => {
-        const st = await apiGet('/api/td-sequential/scan/status');
-        if (!st.active) {
-          clearInterval(pollTimer);
-          pollTimer = null;
-          load();
-          return;
+    async function pollScan(jobId) {
+      while (true) {
+        const q = jobId ? `?job_id=${encodeURIComponent(jobId)}` : '';
+        const st = await apiGet(`/api/td-sequential/scan/status${q}`);
+        const job = st.job;
+        if (job) {
+          statusEl.textContent = `扫描中 · ${formatJobProgress(job)}`;
         }
-        const p = st.job?.progress || st.job?.status;
-        statusEl.innerHTML += ` · <em>${p}</em>`;
-      }, 2000);
+        if (!st.active) {
+          if (job?.status === 'failed') throw new Error(job.error_message || '扫描失败');
+          return job;
+        }
+        await new Promise(r => setTimeout(r, 2000));
+      }
     }
 
     async function load() {
@@ -145,15 +155,28 @@
 
     document.getElementById('btnScan').addEventListener('click', async () => {
       try {
-        await apiPost('/api/admin/td-sequential/scan', {});
-        statusEl.textContent = '已提交重算…';
-        pollScan();
+        statusEl.textContent = '提交任务…';
+        const r = await apiPost('/api/admin/td-sequential/scan', {});
+        await pollScan(r.job_id);
+        await load();
       } catch (e) {
         statusEl.textContent = '重算失败：' + (e.message || e);
+        load().catch(() => {});
       }
     });
 
-    load();
+    load().catch(e => { statusEl.textContent = e.message || '加载失败'; });
+
+    (async () => {
+      try {
+        const st = await apiGet('/api/td-sequential/scan/status');
+        if (st.active && st.job?.job_id) {
+          statusEl.textContent = '恢复进度…';
+          await pollScan(st.job.job_id);
+          await load();
+        }
+      } catch (_) { /* ignore */ }
+    })();
   </script>
 </body>
 </html>
