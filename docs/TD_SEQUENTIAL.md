@@ -367,6 +367,18 @@ MACD 参数：`macd_fast=12, macd_slow=26, macd_signal=9`（可配）。
 
 行点击：跳转 **神奇九转个股明细子页**（见 §6.6），**非**通用 `stock-detail.html`。
 
+#### 列宽与滚动（看板 UI）
+
+五列并排时，**列 3–5 会继承左列字段**，单表列数可达 12 列，**不得**把表格压进卡片固定宽度并省略号截断。
+
+| 规则 | 说明 |
+|------|------|
+| 列卡片最小宽度 | 网格 `minmax(220px, 1fr)`，窄屏整板可横向滚动 |
+| 表格宽度 | `width: max-content`，按内容自然展开 |
+| 列内滚动 | `.col-scroll` 同时支持 **纵向**（列表）与 **横向**（字段多时在列内左右滑） |
+| 表头 | 单表 `thead` + `position: sticky; top: 0`（`border-collapse: separate`），纵向滚动时表头固定且不压住首行 |
+| 禁止 | `table-layout: fixed` + `text-overflow: ellipsis` 压列（会导致「代…」「名…」不可读） |
+
 ### 6.4 交互
 
 | 操作 | 行为 |
@@ -374,6 +386,7 @@ MACD 参数：`macd_fast=12, macd_slow=26, macd_signal=9`（可配）。
 | 进入页面 | `GET /api/td-sequential/board?trade_date=` 拉五列 + 漏斗（应用 `lookback_days`） |
 | 立即重算 | `POST /api/admin/td-sequential/scan` → 轮询 `GET /api/td-sequential/scan/status` |
 | 空列 | 显示「暂无」+ 链到管理页调参 |
+| 列内字段过多 | 在该列卡片内横向滑动查看完整表头与单元格 |
 | 点击股票行 | `td-sequential-detail.html?code=xxxxxx&trade_date=` |
 
 ### 6.5 管理页配置块

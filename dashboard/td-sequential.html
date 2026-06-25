@@ -12,7 +12,13 @@
     .legend { font-size: 12px; color: #6b7a92; line-height: 1.7; margin-bottom: 12px; }
     .funnel { font-size: 12px; color: #94a3b8; line-height: 1.8; margin: 10px 0 14px; padding: 10px 12px; background: #111827; border-radius: 8px; border: 1px solid #1f2937; }
     .funnel strong { color: #cbd5e1; }
-    .board { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; align-items: start; }
+    .board {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(220px, 1fr));
+      gap: 10px;
+      align-items: start;
+      overflow-x: auto;
+    }
     @media (max-width: 1400px) { .board { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
     @media (max-width: 900px) { .board { grid-template-columns: 1fr 1fr; } }
     @media (max-width: 600px) { .board { grid-template-columns: 1fr; } }
@@ -20,11 +26,28 @@
     .col-head { padding: 10px 12px; border-bottom: 1px solid #1e293b; font-size: 13px; font-weight: 600; color: #e2e8f0; flex-shrink: 0; }
     .col-head span { color: #64748b; font-weight: 400; }
     .col-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-    .col-table { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-    .col-scroll { max-height: 440px; overflow: auto; -webkit-overflow-scrolling: touch; flex: 1; min-height: 0; }
-    table.td { width: 100%; border-collapse: collapse; font-size: 11px; table-layout: fixed; }
-    table.td th, table.td td { padding: 5px 6px; border-bottom: 1px solid #1c2740; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    table.td thead th { background: #131d30; }
+    .col-table { display: block; }
+    .col-scroll { max-height: 440px; overflow: auto; -webkit-overflow-scrolling: touch; }
+    table.td {
+      border-collapse: separate;
+      border-spacing: 0;
+      width: max-content;
+      min-width: 100%;
+      font-size: 11px;
+    }
+    table.td th, table.td td {
+      padding: 5px 8px;
+      border-bottom: 1px solid #1c2740;
+      text-align: right;
+      white-space: nowrap;
+    }
+    table.td thead th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: #131d30;
+      box-shadow: 0 1px 0 #1c2740;
+    }
     table.td th.tl, table.td td.tl { text-align: left; }
     table.td tbody tr { cursor: pointer; }
     table.td tbody tr:hover { background: #131d30; }
@@ -143,15 +166,11 @@
         const items = cols[c] || [];
         const fields = fieldsUpTo(c);
         const head = fields.map(f => `<th${f.tl ? ' class="tl"' : ''}>${f.label}</th>`).join('');
-        const colgroup = fields.map(() => '<col />').join('');
         const rows = items.map(r => `<tr onclick="location.href='/td-sequential-detail.html?code=${r.stock_code}&trade_date=${encodeURIComponent(data.trade_date)}'">`
               + fields.map(f => `<td${f.tl ? ' class="tl"' : ''}>${cellValue(r, f)}</td>`).join('')
               + '</tr>').join('');
         const body = items.length
-          ? `<div class="col-table">
-              <table class="td"><colgroup>${colgroup}</colgroup><thead><tr>${head}</tr></thead></table>
-              <div class="col-scroll"><table class="td"><colgroup>${colgroup}</colgroup><tbody>${rows}</tbody></table></div>
-            </div>`
+          ? `<div class="col-table"><div class="col-scroll"><table class="td"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div></div>`
           : '<div class="empty">暂无</div>';
         return `<div class="col-card"><div class="col-head">${COL_LABELS[c]} <span>(${items.length})</span></div><div class="col-body">${body}</div></div>`;
       }).join('');
