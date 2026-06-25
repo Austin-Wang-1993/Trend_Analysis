@@ -8,6 +8,7 @@ function initNav(active) {
     ['/stock-list.html', '股票清单'],
     ['/signals.html', '交易信号'],
     ['/train-track.html', '火车轨选股'],
+    ['/td-sequential.html', '神奇九转'],
     ['/etf-table.html', 'ETF 表格'],
     ['/admin.html', '管理'],
   ];

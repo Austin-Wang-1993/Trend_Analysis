@@ -13,6 +13,7 @@
     <p class="footnote" style="margin-bottom:1rem">
       快捷：<a href="#signal-config">信号参数</a> ·
       <a href="#train-track-config">火车轨参数</a> ·
+      <a href="#td-sequential-config">神奇九转参数</a> ·
       <a href="#fetch-config">手动补数</a>
       <span style="color:#6b7a92">（若看不到参数卡片，请 Ctrl+Shift+R 强刷）</span>
     </p>
@@ -79,6 +80,29 @@
       </div>
       <p class="footnote" id="trainTrackHelp">全 A 盘后 SXHCG 五条件 + 没大涨。上方「手动补数」采集时会<strong>同步写入火车轨 OHLC 缓存</strong>；点「立即重算」仅补缺失日期再计算。进度见下方状态行。</p>
       <p class="footnote" id="trainTrackScanResult"></p>
+    </div>
+
+    <div class="card" id="td-sequential-config">
+      <h2 style="font-size:1rem;margin:0 0 0.75rem">神奇九转参数（TD 抄底）</h2>
+      <div class="toolbar" style="flex-wrap:wrap;align-items:flex-start">
+        <label><input type="checkbox" id="td_enabled" /> 启用自动扫描</label>
+        <label>扫描时刻 <input id="td_time" type="time" /></label>
+        <label>历史K线 <input id="td_history_days" type="number" min="60" max="250" style="width:4rem" /> 日</label>
+        <label>回溯窗 <input id="td_lookback_days" type="number" min="5" max="60" style="width:3rem" /> 日</label>
+        <label>缩量比 <input id="td_vol_shrink_ratio" type="number" step="0.05" style="width:3.5rem" /></label>
+        <label>放量比 <input id="td_vol_expand_ratio" type="number" step="0.05" style="width:3.5rem" /></label>
+        <label>下影≥ <input id="td_shadow_lower_min" type="number" step="0.05" style="width:3rem" /></label>
+        <label>十字≤ <input id="td_cross_body_max" type="number" step="0.01" style="width:3rem" /></label>
+        <label>量价模式
+          <select id="td_vol_price_mode"><option value="or">或</option><option value="and">且</option></select>
+        </label>
+        <label>临近13 计数 <input id="td_countdown_near_min" type="number" style="width:2.5rem" />–<input id="td_countdown_near_max" type="number" style="width:2.5rem" /></label>
+        <label>距九转≤ <input id="td_countdown_after_setup_days" type="number" style="width:3rem" /> 日</label>
+        <label>止损% <input id="td_stop_loss_pct" type="number" step="0.01" style="width:3rem" /></label>
+        <button id="saveTdSettings">保存九转配置</button>
+        <button id="runTdScan" type="button">立即重算九转</button>
+      </div>
+      <p class="footnote" id="tdScanResult">全 A 盘后 TD 抄底五列漏斗。复用火车轨 OHLC 缓存。</p>
     </div>
 
     <div class="card" id="fetch-config">

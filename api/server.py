@@ -32,6 +32,8 @@ from signal_runner import run_scan_once, start_signal_runner  # noqa: E402
 from signal_scanner import SignalScanner  # noqa: E402
 from train_track_scanner import TrainTrackScanner  # noqa: E402
 from train_track_runner import enqueue_train_track_scan, get_scan_status  # noqa: E402
+from td_sequential_scanner import TdSequentialScanner  # noqa: E402
+from td_sequential_runner import enqueue_td_scan, get_scan_status as get_td_scan_status  # noqa: E402
 from trading_calendar import compare_with_biying, get_trading_days, is_trading_day, normalize_date, sync_pmc_to_sqlite, today_cst  # noqa: E402
 
 CST = ZoneInfo("Asia/Shanghai")
@@ -48,6 +50,7 @@ _store: HistoryStore | None = None
 _ts_store: TsStore | None = None
 _signal_scanner: SignalScanner | None = None
 _train_track_scanner: TrainTrackScanner | None = None
+_td_sequential_scanner: TdSequentialScanner | None = None
 
 # v4.0 行业 kind 校验（申万三级/中信三级/东财/同花顺）
 KIND_PATTERN = "^(" + "|".join(TS_KINDS) + ")$"
@@ -100,6 +103,24 @@ class SettingsUpdate(BaseModel):
     train_track_ma_rise_days: int | None = Field(default=None, ge=2, le=20)
     train_track_recent_20d_pct_max: float | None = Field(default=None, ge=5, le=200)
     train_track_ma_touch_band_pct: float | None = Field(default=None, ge=0.5, le=10)
+    td_enabled: bool | None = None
+    td_time: str | None = None
+    td_history_days: int | None = Field(default=None, ge=60, le=250)
+    td_lookback_days: int | None = Field(default=None, ge=5, le=60)
+    td_vol_shrink_ratio: float | None = Field(default=None, ge=0.1, le=1.0)
+    td_vol_expand_ratio: float | None = Field(default=None, ge=1.0, le=3.0)
+    td_shadow_lower_min: float | None = Field(default=None, ge=0, le=1.0)
+    td_cross_body_max: float | None = Field(default=None, ge=0, le=1.0)
+    td_bear_lower_max: float | None = Field(default=None, ge=0, le=1.0)
+    td_vol_price_mode: str | None = Field(default=None, pattern="^(or|and)$")
+    td_countdown_near_min: int | None = Field(default=None, ge=1, le=12)
+    td_countdown_near_max: int | None = Field(default=None, ge=1, le=12)
+    td_countdown_after_setup_days: int | None = Field(default=None, ge=1, le=30)
+    td_macd_fast: int | None = Field(default=None, ge=5, le=20)
+    td_macd_slow: int | None = Field(default=None, ge=10, le=40)
+    td_macd_signal: int | None = Field(default=None, ge=3, le=20)
+    td_macd_div_ref: str | None = Field(default=None, pattern="^(hist|dif|both)$")
+    td_stop_loss_pct: float | None = Field(default=None, ge=0.01, le=0.1)
 
 
 class FetchRequest(BaseModel):
@@ -195,6 +216,13 @@ def get_train_track_scanner() -> TrainTrackScanner:
     return _train_track_scanner
 
 
+def get_td_sequential_scanner() -> TdSequentialScanner:
+    global _td_sequential_scanner
+    if _td_sequential_scanner is None:
+        _td_sequential_scanner = TdSequentialScanner(DB_PATH, get_settings=get_store().get_settings)
+    return _td_sequential_scanner
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     store = get_store()
@@ -204,6 +232,7 @@ def on_startup() -> None:
     start_signal_runner(DB_PATH)
     get_signal_scanner().store.init_schema()
     get_train_track_scanner().store.init_schema()
+    get_td_sequential_scanner().store.init_schema()
 
 
 # --- 公共 API（v4.0：Tushare 四套行业，days 支持 5/15/30）---
@@ -357,6 +386,43 @@ def admin_train_track_scan() -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@app.get("/api/td-sequential/meta")
+def api_td_sequential_meta() -> dict[str, Any]:
+    return get_td_sequential_scanner().meta()
+
+
+@app.get("/api/td-sequential/board")
+def api_td_sequential_board(trade_date: str | None = Query(None)) -> dict[str, Any]:
+    return get_td_sequential_scanner().board(trade_date)
+
+
+@app.get("/api/td-sequential/stocks/{stock_code}")
+def api_td_sequential_stock(
+    stock_code: str,
+    trade_date: str | None = Query(None),
+) -> dict[str, Any]:
+    detail = get_td_sequential_scanner().stock_detail(stock_code, trade_date)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="未找到该股的九转序列")
+    return detail
+
+
+@app.get("/api/td-sequential/scan/status")
+def api_td_sequential_scan_status(job_id: str | None = Query(None)) -> dict[str, Any]:
+    return get_td_scan_status(job_id)
+
+
+@app.post("/api/admin/td-sequential/scan")
+def admin_td_sequential_scan() -> dict[str, Any]:
+    try:
+        result = enqueue_td_scan(trigger_type="manual")
+        return {"ok": True, **result}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 # --- 管理 API ---
 
 @app.get("/api/admin/settings")
@@ -371,7 +437,7 @@ def admin_get_settings() -> dict[str, Any]:
 def admin_put_settings(body: SettingsUpdate) -> dict[str, Any]:
     store = get_store()
     updates = {k: v for k, v in body.model_dump(exclude_none=True).items()}
-    for bool_key in ("schedule_enabled", "signal_enabled", "train_track_enabled"):
+    for bool_key in ("schedule_enabled", "signal_enabled", "train_track_enabled", "td_enabled"):
         if bool_key in updates:
             updates[bool_key] = "true" if updates[bool_key] else "false"
     settings = store.set_settings({k: str(v) for k, v in updates.items()})
@@ -540,6 +606,16 @@ def page_signals() -> FileResponse:
 @app.get("/train-track.html")
 def page_train_track() -> FileResponse:
     return _html("train-track.html")
+
+
+@app.get("/td-sequential.html")
+def page_td_sequential() -> FileResponse:
+    return _html("td-sequential.html")
+
+
+@app.get("/td-sequential-detail.html")
+def page_td_sequential_detail() -> FileResponse:
+    return _html("td-sequential-detail.html")
 
 
 @app.get("/etf-table.html")

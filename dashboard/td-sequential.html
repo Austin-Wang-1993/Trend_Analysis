@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>神奇九转 — Trend Analysis</title>
+  <link rel="stylesheet" href="/static/css/style.css?v=20260626" />
+  <style>
+    .toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 10px 0; }
+    .toolbar button { background: #1a2740; color: #cfe0f5; border: 1px solid #2a3850; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+    .status { font-size: 13px; color: #8b9cb3; margin: 8px 0; line-height: 1.6; }
+    .legend { font-size: 12px; color: #6b7a92; line-height: 1.7; margin-bottom: 12px; }
+    .funnel { font-size: 12px; color: #94a3b8; line-height: 1.8; margin: 10px 0 14px; padding: 10px 12px; background: #111827; border-radius: 8px; border: 1px solid #1f2937; }
+  .funnel strong { color: #cbd5e1; }
+    .board { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; align-items: start; }
+    @media (max-width: 1200px) { .board { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 700px) { .board { grid-template-columns: 1fr; } }
+    .col-card { background: #0f172a; border: 1px solid #1e293b; border-radius: 8px; min-height: 200px; }
+    .col-head { padding: 10px 12px; border-bottom: 1px solid #1e293b; font-size: 13px; font-weight: 600; color: #e2e8f0; }
+    .col-head span { color: #64748b; font-weight: 400; }
+    .col-body { max-height: 480px; overflow: auto; }
+    table.td { width: 100%; border-collapse: collapse; font-size: 12px; }
+    table.td th, table.td td { padding: 6px 8px; border-bottom: 1px solid #1c2740; text-align: right; white-space: nowrap; }
+    table.td th.tl, table.td td.tl { text-align: left; }
+    table.td tbody tr { cursor: pointer; }
+    table.td tbody tr:hover { background: #131d30; }
+    .tag { font-size: 10px; padding: 1px 4px; border-radius: 3px; background: #1e3a5f; color: #93c5fd; }
+    .empty { padding: 16px; color: #64748b; font-size: 12px; text-align: center; }
+  </style>
+</head>
+<body>
+  <nav></nav>
+  <main class="main-wide">
+    <h1>神奇九转（TD 抄底）</h1>
+    <p class="status" id="status">加载中…</p>
+    <div class="toolbar">
+      <button type="button" id="btnScan">立即重算</button>
+    </div>
+    <p class="legend">
+      全 A 盘后扫描（排除 ST、停牌）。五列递进：九转 → 量价 → 临近13 → 十三转 → 底背离。
+      每股仅出现在最高达标列。口诀：抄底等缩量长腿。
+      <a href="/admin.html#td-sequential-config">参数配置</a>
+    </p>
+    <div id="funnelBox" class="funnel"></div>
+    <div class="board" id="board"></div>
+  </main>
+  <script src="/static/js/api.js?v=20260626"></script>
+  <script src="/static/js/nav.js?v=20260626"></script>
+  <script>
+    initNav();
+    const statusEl = document.getElementById('status');
+    const boardEl = document.getElementById('board');
+    const COL_LABELS = {
+      '1': '① 九转',
+      '2': '② 量价',
+      '3': '③ 临近13',
+      '4': '④ 十三转',
+      '5': '⑤ 底背离',
+    };
+
+    function num(v, d=2) { return v == null || Number.isNaN(v) ? '—' : Number(v).toFixed(d); }
+
+    function renderFunnel(meta, funnel) {
+      const el = document.getElementById('funnelBox');
+      if (!funnel) { el.innerHTML = ''; return; }
+      const rows = [
+        ['可评估', funnel.evaluated],
+        ['列1 九转', funnel.col1_setup9],
+        ['列2 量价', funnel.col2_vol_price],
+        ['列3 临近13', funnel.col3_near13],
+        ['列4 十三转', funnel.col4_cd13],
+        ['列5 底背离', funnel.col5_macd_div],
+      ];
+      el.innerHTML = `<strong>漏斗</strong>（扫描日 ${meta.trade_date}，回溯 ${meta.lookback_days || 20} 日）<br/>`
+        + rows.map(([l, n]) => `${l}：<strong>${n ?? '—'}</strong>`).join(' · ');
+    }
+
+    function rowCells(col, r) {
+      const code = r.stock_code;
+      const link = `/td-sequential-detail.html?code=${code}&trade_date=${encodeURIComponent(r.trade_date || '')}`;
+      const base = `<td class="tl"><a href="${link}">${code}</a></td><td class="tl">${r.stock_name || ''}</td>`;
+      if (col === '1') return base + `<td>${r.setup_9_date || ''}</td><td>${num(r.setup_9_close)}</td>`;
+      if (col === '2') return base + `<td><span class="tag">${r.vol_tag || ''}</span></td><td>${num(r.lower_shadow_ratio)}</td>`;
+      if (col === '3') return base + `<td>${r.cd_count ?? ''}</td><td>${13 - (r.cd_count||0)}</td>`;
+      if (col === '4') return base + `<td>${r.countdown_13_date || ''}</td><td>${num(r.stop_loss_price)}</td>`;
+      return base + `<td>${num(r.macd_hist_setup9, 3)}</td><td>${num(r.macd_hist_cd13, 3)}</td>`;
+    }
+
+    function colHeaders(col) {
+      if (col === '1') return '<tr><th class="tl">代码</th><th class="tl">名称</th><th>九转日</th><th>收盘</th></tr>';
+      if (col === '2') return '<tr><th class="tl">代码</th><th class="tl">名称</th><th>量</th><th>下影比</th></tr>';
+      if (col === '3') return '<tr><th class="tl">代码</th><th class="tl">名称</th><th>计数</th><th>剩余</th></tr>';
+      if (col === '4') return '<tr><th class="tl">代码</th><th class="tl">名称</th><th>13转日</th><th>止损</th></tr>';
+      return '<tr><th class="tl">代码</th><th class="tl">名称</th><th>MACD9</th><th>MACD13</th></tr>';
+    }
+
+    function renderBoard(data) {
+      const cols = data.columns || {};
+      boardEl.innerHTML = ['1','2','3','4','5'].map(c => {
+        const items = cols[c] || [];
+        const body = items.length
+          ? `<table class="td"><thead>${colHeaders(c)}</thead><tbody>`
+            + items.map(r => `<tr onclick="location.href='/td-sequential-detail.html?code=${r.stock_code}&trade_date=${encodeURIComponent(data.trade_date)}'">${rowCells(c, r)}</tr>`).join('')
+            + '</tbody></table>'
+          : '<div class="empty">暂无</div>';
+        return `<div class="col-card"><div class="col-head">${COL_LABELS[c]} <span>(${items.length})</span></div><div class="col-body">${body}</div></div>`;
+      }).join('');
+    }
+
+    function updateStatus(meta) {
+      const job = meta.scan_job;
+      let extra = '';
+      if (job && (job.status === 'pending' || job.status === 'running')) {
+        extra = ` · 扫描中：${job.progress || job.status}`;
+      } else if (meta.last_scan_at) {
+        extra = ` · 上次扫描 ${meta.last_scan_at}`;
+      }
+      if (meta.last_error) extra += ` · <span style="color:#f59e0b">${meta.last_error}</span>`;
+      statusEl.innerHTML = `扫描日 <strong>${meta.trade_date}</strong> · 回溯 <strong>${meta.lookback_days}</strong> 交易日${extra}`;
+    }
+
+    let pollTimer = null;
+    function pollScan() {
+      if (pollTimer) clearInterval(pollTimer);
+      pollTimer = setInterval(async () => {
+        const st = await apiGet('/api/td-sequential/scan/status');
+        if (!st.active) {
+          clearInterval(pollTimer);
+          pollTimer = null;
+          load();
+          return;
+        }
+        const p = st.job?.progress || st.job?.status;
+        statusEl.innerHTML += ` · <em>${p}</em>`;
+      }, 2000);
+    }
+
+    async function load() {
+      const meta = await apiGet('/api/td-sequential/meta');
+      const board = await apiGet('/api/td-sequential/board');
+      updateStatus(meta);
+      renderFunnel(board, board.funnel || meta.funnel);
+      renderBoard(board);
+    }
+
+    document.getElementById('btnScan').addEventListener('click', async () => {
+      try {
+        await apiPost('/api/admin/td-sequential/scan', {});
+        statusEl.textContent = '已提交重算…';
+        pollScan();
+      } catch (e) {
+        statusEl.textContent = '重算失败：' + (e.message || e);
+      }
+    });
+
+    load();
+  </script>
+</body>
+</html>

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>九转明细 — Trend Analysis</title>
+  <link rel="stylesheet" href="/static/css/style.css?v=20260626" />
+  <style>
+    .back { margin: 8px 0 16px; font-size: 13px; }
+    .summary { font-size: 13px; color: #94a3b8; line-height: 1.8; margin-bottom: 16px; padding: 12px; background: #111827; border-radius: 8px; }
+    .summary strong { color: #e2e8f0; }
+    h2 { font-size: 1rem; margin: 20px 0 8px; color: #cbd5e1; }
+    table.det { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 12px; }
+    table.det th, table.det td { padding: 6px 10px; border-bottom: 1px solid #1c2740; text-align: right; }
+    table.det th.tl, table.det td.tl { text-align: left; }
+    .ok { color: #22c55e; } .no { color: #ef4444; }
+    .filter-box { font-size: 13px; color: #94a3b8; line-height: 1.9; }
+  </style>
+</head>
+<body>
+  <nav></nav>
+  <main class="main-wide">
+    <p class="back"><a href="/td-sequential.html">← 返回神奇九转看板</a></p>
+    <h1 id="title">九转明细</h1>
+    <p id="status" class="footnote">加载中…</p>
+    <div id="summary" class="summary"></div>
+    <h2>区间 A — 九转 Setup（连续 9 日）</h2>
+    <div class="table-wrap" id="setupTable"></div>
+    <h2>区间 B — 十三转 Countdown</h2>
+    <div class="table-wrap" id="cdTable"></div>
+    <h2>过滤器结果</h2>
+    <div id="filters" class="filter-box"></div>
+  </main>
+  <script src="/static/js/api.js?v=20260626"></script>
+  <script src="/static/js/nav.js?v=20260626"></script>
+  <script>
+    initNav();
+    const params = new URLSearchParams(location.search);
+    const code = params.get('code') || '';
+    const tradeDate = params.get('trade_date') || '';
+
+    function yn(v) { return v ? '<span class="ok">✓</span>' : '<span class="no">✗</span>'; }
+    function num(v, d=2) { return v == null || Number.isNaN(v) ? '—' : Number(v).toFixed(d); }
+
+    function renderSetupTable(bars) {
+      if (!bars || !bars.length) return '<p class="footnote">无</p>';
+      const rows = bars.map(b => `<tr>
+        <td>${b.seq}</td><td class="tl">${b.trade_date}</td><td>${num(b.close)}</td>
+        <td class="tl">${b.ref_date}</td><td>${num(b.ref_close)}</td><td>${yn(b.passed)}</td>
+      </tr>`).join('');
+      return `<table class="det"><thead><tr>
+        <th>#</th><th class="tl">日期</th><th>收盘</th><th class="tl">比较日</th><th>比较收盘</th><th>满足</th>
+      </tr></thead><tbody>${rows}</tbody></table>`;
+    }
+
+    function renderCdTable(bars) {
+      if (!bars || !bars.length) return '<p class="footnote">尚未开始或暂无计数</p>';
+      const rows = bars.map(b => {
+        const extra = b.extra_13v8
+          ? `<br/><small>13/8: low=${num(b.extra_13v8.low_t13)} vs C8=${num(b.extra_13v8.c8_close)} ${yn(b.extra_13v8.passed)}</small>`
+          : '';
+        return `<tr>
+          <td>${b.seq}</td><td class="tl">${b.trade_date}</td><td>${num(b.close)}</td>
+          <td class="tl">${b.ref_date}</td><td>${num(b.ref_low)}</td><td>${yn(b.passed)}${extra}</td>
+        </tr>`;
+      }).join('');
+      return `<table class="det"><thead><tr>
+        <th>#</th><th class="tl">日期</th><th>收盘</th><th class="tl">比较日</th><th>2日前低</th><th>满足</th>
+      </tr></thead><tbody>${rows}</tbody></table>`;
+    }
+
+    async function load() {
+      if (!code) {
+        document.getElementById('status').textContent = '缺少股票代码';
+        return;
+      }
+      const q = tradeDate ? `?trade_date=${encodeURIComponent(tradeDate)}` : '';
+      const d = await apiGet(`/api/td-sequential/stocks/${code}${q}`);
+      document.getElementById('title').textContent = `${d.stock_code} ${d.stock_name || ''} — 九转明细`;
+      document.getElementById('status').textContent = `扫描日 ${d.scan_trade_date} · 回溯 ${d.lookback_days} 日 · 最高列 ${d.max_col}${d.from_cache ? ' · 来自缓存' : ''}`;
+      document.getElementById('summary').innerHTML = `
+        <strong>九转日</strong> ${d.active_setup_9_date || '—'} ·
+        <strong>十三转日</strong> ${(d.countdown_bars && d.countdown_bars.length === 13) ? d.countdown_bars[12].trade_date : '—'} ·
+        <strong>止损参考</strong> ${num(d.stop_loss_price)}
+      `;
+      document.getElementById('setupTable').innerHTML = renderSetupTable(d.setup_bars);
+      document.getElementById('cdTable').innerHTML = renderCdTable(d.countdown_bars);
+      const f = d.filters || {};
+      document.getElementById('filters').innerHTML = `
+        <div><strong>量价（列2）</strong>：${yn(f.vol_price?.passed)} 标签=${f.vol_price?.vol_tag || '—'} 下影=${num(f.vol_price?.lower_ratio)} 大阴剔除=${yn(!f.vol_price?.rejected_bear)}</div>
+        <div><strong>临近13（列3）</strong>：${yn(f.near13?.passed)} 计数=${f.near13?.cd_count ?? '—'} 距九转=${f.near13?.days_since_setup ?? '—'}日</div>
+        <div><strong>底背离（列5）</strong>：${yn(f.macd_div?.passed)} 价新低=${yn(f.macd_div?.price_lower)} MACD抬高=${yn(f.macd_div?.macd_higher)}</div>
+      `;
+    }
+
+    load().catch(e => {
+      document.getElementById('status').textContent = '加载失败：' + (e.message || e);
+    });
+  </script>
+</body>
+</html>

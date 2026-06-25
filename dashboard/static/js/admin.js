@@ -40,6 +40,69 @@ if (saveSigBtn) {
   };
 }
 
+function collectTdSettings() {
+  return {
+    td_enabled: document.getElementById('td_enabled').checked,
+    td_time: document.getElementById('td_time').value || '16:45',
+    td_history_days: Number(document.getElementById('td_history_days').value || 120),
+    td_lookback_days: Number(document.getElementById('td_lookback_days').value || 20),
+    td_vol_shrink_ratio: Number(document.getElementById('td_vol_shrink_ratio').value || 0.8),
+    td_vol_expand_ratio: Number(document.getElementById('td_vol_expand_ratio').value || 1.2),
+    td_shadow_lower_min: Number(document.getElementById('td_shadow_lower_min').value || 0.5),
+    td_cross_body_max: Number(document.getElementById('td_cross_body_max').value || 0.15),
+    td_vol_price_mode: document.getElementById('td_vol_price_mode').value,
+    td_countdown_near_min: Number(document.getElementById('td_countdown_near_min').value || 10),
+    td_countdown_near_max: Number(document.getElementById('td_countdown_near_max').value || 12),
+    td_countdown_after_setup_days: Number(document.getElementById('td_countdown_after_setup_days').value || 5),
+    td_stop_loss_pct: Number(document.getElementById('td_stop_loss_pct').value || 0.03),
+  };
+}
+
+const saveTdBtn = document.getElementById('saveTdSettings');
+if (saveTdBtn) {
+  saveTdBtn.onclick = async () => {
+    try {
+      const s = await apiPut('/api/admin/settings', collectTdSettings());
+      applySettings(s);
+      alert('神奇九转配置已保存');
+    } catch (e) {
+      alert(typeof e.message === 'string' ? e.message : '保存失败');
+    }
+  };
+}
+
+async function pollTdScan(jobId, el) {
+  while (true) {
+    const st = await apiGet(`/api/td-sequential/scan/status?job_id=${encodeURIComponent(jobId)}`);
+    const job = st.job;
+    if (el && job) {
+      const p = job.progress || job.status;
+      el.textContent = p.startsWith('cache:') ? `扫描中 · 补缓存 ${p.slice(6)}` : `扫描中 · ${p}`;
+    }
+    if (!st.active) {
+      if (job?.status === 'failed') throw new Error(job.error_message || '扫描失败');
+      if (el && job) el.textContent = `完成：${job.pick_count ?? 0} 条，扫描日 ${job.trade_date || ''}`;
+      return job;
+    }
+    await new Promise(r => setTimeout(r, 2000));
+  }
+}
+
+const runTdBtn = document.getElementById('runTdScan');
+if (runTdBtn) {
+  runTdBtn.onclick = async () => {
+    const el = document.getElementById('tdScanResult');
+    if (!confirm('将补全缺失缓存并扫描神奇九转，继续？')) return;
+    if (el) el.textContent = '提交任务…';
+    try {
+      const j = await apiPost('/api/admin/td-sequential/scan', {});
+      await pollTdScan(j.job_id, el);
+    } catch (e) {
+      if (el) el.textContent = typeof e.message === 'string' ? e.message : '请求失败';
+    }
+  };
+}
+
 function collectTrainTrackSettings() {
   return {
     train_track_enabled: document.getElementById('train_track_enabled').checked,
@@ -175,6 +238,22 @@ function applySettings(s) {
     document.getElementById('train_track_count_ma20_4_min').value = s.train_track_count_ma20_4_min || '3';
     document.getElementById('train_track_ma_rise_days').value = s.train_track_ma_rise_days || '5';
     document.getElementById('train_track_history_days').value = s.train_track_history_days || '250';
+  }
+  const tdOn = document.getElementById('td_enabled');
+  if (tdOn) {
+    tdOn.checked = s.td_enabled === 'true' || s.td_enabled === true;
+    setTimeInput('td_time', s.td_time || '16:45');
+    document.getElementById('td_history_days').value = s.td_history_days || '120';
+    document.getElementById('td_lookback_days').value = s.td_lookback_days || '20';
+    document.getElementById('td_vol_shrink_ratio').value = s.td_vol_shrink_ratio || '0.8';
+    document.getElementById('td_vol_expand_ratio').value = s.td_vol_expand_ratio || '1.2';
+    document.getElementById('td_shadow_lower_min').value = s.td_shadow_lower_min || '0.5';
+    document.getElementById('td_cross_body_max').value = s.td_cross_body_max || '0.15';
+    document.getElementById('td_vol_price_mode').value = s.td_vol_price_mode || 'or';
+    document.getElementById('td_countdown_near_min').value = s.td_countdown_near_min || '10';
+    document.getElementById('td_countdown_near_max').value = s.td_countdown_near_max || '12';
+    document.getElementById('td_countdown_after_setup_days').value = s.td_countdown_after_setup_days || '5';
+    document.getElementById('td_stop_loss_pct').value = s.td_stop_loss_pct || '0.03';
   }
 }
 

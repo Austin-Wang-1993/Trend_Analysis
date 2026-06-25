@@ -46,6 +46,14 @@ def _run_train_track_scan() -> None:
     )
 
 
+def _run_td_sequential_scan() -> None:
+    subprocess.run(
+        [sys.executable, str(_SCRIPTS / "td_sequential_runner.py"), "--scheduled"],
+        cwd=str(_SCRIPTS.parent),
+        check=False,
+    )
+
+
 def _parse_time(s: str) -> tuple[int, int]:
     parts = s.strip().split(":")
     return int(parts[0]), int(parts[1]) if len(parts) > 1 else 0
@@ -137,6 +145,14 @@ def start_scheduler(store: "HistoryStore", run_callback) -> BackgroundScheduler:
             id="train_track_scan",
             replace_existing=True,
         )
+    if settings.get("td_enabled", "true").lower() == "true":
+        td_hour, td_minute = _parse_time(settings.get("td_time", "16:45"))
+        _scheduler.add_job(
+            _run_td_sequential_scan,
+            CronTrigger(hour=td_hour, minute=td_minute, timezone=tz),
+            id="td_sequential_scan",
+            replace_existing=True,
+        )
     _scheduler.start()
     return _scheduler
 
@@ -196,5 +212,17 @@ def reload_scheduler(store: "HistoryStore", run_callback) -> None:
             _run_train_track_scan,
             CronTrigger(hour=tt_hour, minute=tt_minute, timezone=tz),
             id="train_track_scan",
+            replace_existing=True,
+        )
+    try:
+        _scheduler.remove_job("td_sequential_scan")
+    except Exception:
+        pass
+    if settings.get("td_enabled", "true").lower() == "true":
+        td_hour, td_minute = _parse_time(settings.get("td_time", "16:45"))
+        _scheduler.add_job(
+            _run_td_sequential_scan,
+            CronTrigger(hour=td_hour, minute=td_minute, timezone=tz),
+            id="td_sequential_scan",
             replace_existing=True,
         )

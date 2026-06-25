@@ -17,6 +17,7 @@ import pandas as pd
 CST = ZoneInfo("Asia/Shanghai")
 
 from signal_store import SIGNAL_SETTINGS_DEFAULTS  # noqa: E402
+from td_sequential_store import TD_SEQUENTIAL_SETTINGS_DEFAULTS  # noqa: E402
 from train_track_store import TRAIN_TRACK_SETTINGS_DEFAULTS  # noqa: E402
 
 DEFAULT_SETTINGS: dict[str, str] = {
@@ -28,6 +29,7 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "mapping_refresh_time": "02:00",
     **SIGNAL_SETTINGS_DEFAULTS,
     **TRAIN_TRACK_SETTINGS_DEFAULTS,
+    **TD_SEQUENTIAL_SETTINGS_DEFAULTS,
 }
 
 ATOMIC_FLOW_AMOUNT_FIELDS = (
