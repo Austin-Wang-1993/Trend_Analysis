@@ -19,9 +19,16 @@
     .col-card { background: #0f172a; border: 1px solid #1e293b; border-radius: 8px; min-height: 200px; }
     .col-head { padding: 10px 12px; border-bottom: 1px solid #1e293b; font-size: 13px; font-weight: 600; color: #e2e8f0; }
     .col-head span { color: #64748b; font-weight: 400; }
-    .col-body { max-height: 480px; overflow: auto; }
+    .col-body { max-height: 480px; overflow: auto; -webkit-overflow-scrolling: touch; }
     table.td { width: 100%; border-collapse: collapse; font-size: 11px; }
     table.td th, table.td td { padding: 5px 6px; border-bottom: 1px solid #1c2740; text-align: right; white-space: nowrap; }
+    table.td thead th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: #131d30;
+      box-shadow: 0 1px 0 #1c2740;
+    }
     table.td th.tl, table.td td.tl { text-align: left; }
     table.td tbody tr { cursor: pointer; }
     table.td tbody tr:hover { background: #131d30; }
