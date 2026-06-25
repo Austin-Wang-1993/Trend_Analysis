@@ -32,20 +32,35 @@
 | **Layer 3（过滤器）** | Countdown **临近 13**（可配置窗口） |
 | **Layer 4（过滤器）** | Countdown **已完成 13** |
 | **Layer 5（过滤器）** | 绿 13 日 **MACD 底背离** |
-| **工程** | 全 A 扫描、五列看板、漏斗统计、管理页可配参数、后台任务 + 进度 |
+| **工程** | 全 A 扫描、五列看板、漏斗统计、**个股九转/十三转明细子页**、管理页可配参数、后台任务 + 进度 |
+| **K 线** | **仅日 K**（不复权 `daily`） |
 
 ### 2.2 不做（v1）
 
 - 卖出 Setup / 卖出 Countdown（逃顶、红 9/红 13）
-- 缩量红 9 降权、K 线主图叠加 1–9 / 1–13 数字
+- 缩量红 9 降权、主图 K 线叠加 1–9 / 1–13 数字
 - 自动下单、止损触发推送
-- 单股详情页改造（可链到现有 `stock-detail.html`）
+- 分钟 K / 周线 / 复权切换
 
 ---
 
 ## 3. TD 计算口径（Layer 1，精确公式）
 
-以下均为 **不复权** 日线，索引 `i` 为当前 K 线，`i-4` 表示 4 个交易日之前（非日历日）。
+以下均为 **不复权日 K**（Tushare `daily`），索引 `i` 为当前 K 线，`i-4` 表示 4 个交易日之前（非日历日）。
+
+### 3.0 核心原则：九转与十三转两段独立
+
+| 原则 | 说明 |
+|------|------|
+| **两段独立** | **Setup（九转）** 与 **Countdown（十三转）** 分两段计算；十三转 **仅在九转完成之后** 才开始，起算日为九转完成日的 **下一交易日** |
+| **不混用窗口** | 九转逐日比较 `close vs close[i-4]`；十三转逐日比较 `close vs low[i-2]`（及 13/8 规则），两套条件 **互不替代** |
+| **仅用最新一组** | 若回溯窗内出现多组九转，**只取 `setup_9_date` 最新的一组** 做列 2–5 判定与明细展示；旧组不参与漏斗 |
+| **每股一行** | 扫描结果表每 `(扫描日, 股票)` 至多一行，绑定上述「最新一组」序列 |
+
+```text
+时间轴：  … → [Setup 1..9 连续 9 日] → setup_9_date → (下一交易日起) Countdown 1..13 …
+                ↑ 区间 A：九转                    ↑ 区间 B：十三转（与 A 分离）
+```
 
 ### 3.1 买入 Setup（绿九转）
 
@@ -67,11 +82,12 @@
 **约束**：
 
 - 9 根 K 线必须 **连续** 满足条件；任一日不满足则从 1 重新计数。
-- Setup 完成后 `setup_count` 归零，并 **启动** 买入 Countdown（见下）；同一轮下跌周期内不重复计第二个 Setup，直至 Countdown 完成或结构作废（实现时用显式状态机）。
+- 每次 `setup_count == 9` 记录一个 **`SetupCycle`**（含 9 根明细）；完成后 `setup_count` 归零。
+- **Countdown 只挂在「当前采用的 SetupCycle」上**（见 §3.0：取最新 `setup_9_date` 的那组）。
 
 ### 3.2 买入 Countdown（绿十三）
 
-Setup(9) 完成后的 **下一交易日** 起进入 Countdown 阶段。
+**前置**：仅当某一 `SetupCycle` 的九转已完成，才从 **`setup_9_date` 的下一交易日** 起，为该周期单独开启 Countdown（与九转区间 **分开、独立** 计数）。
 
 **状态变量**：`cd_count ∈ {0,1,…,13}`，对应满足条件的 K 线日期列表 `cd_dates[]`。
 
@@ -97,16 +113,30 @@ Setup(9) 完成后的 **下一交易日** 起进入 Countdown 阶段。
 countdown_13_date = trade_date[j]
 ```
 
-### 3.3 结构作废（实现建议）
+### 3.3 多组九转时的选取规则
 
-以下情况 **结束当前序列**，不再向更高列晋级，但历史快照保留供审计：
+在扫描日 `T`、回溯窗 `[T − lookback_days, T]` 内：
+
+```text
+1. 枚举窗内所有 Setup(9) 完成日 → setup_9_date 列表
+2. 取 max(setup_9_date) 作为 active_setup
+3. 仅对 active_setup 对应周期：
+   - 计算 Countdown 进度 / 十三转完成日
+   - 做列 2–5 过滤
+   - 生成明细子页数据
+4. 更早已完成的九转组：可写入 audit，但不进看板、不进子页
+```
+
+若窗内 **无** 九转完成，则该股票不出现在列 1–5。
+
+### 3.4 结构作废（实现建议）
 
 | 事件 | 处理 |
 |------|------|
-| Setup 完成后、Countdown 未结束前，又出现新的 Setup(9) | 以 **最新 Setup** 为准，旧 Countdown 作废 |
-| 扫描日距 `setup_9_date` 超过 `setup_max_age_days` 仍未 Countdown 完成 | 移出「临近 13」列，可保留在第 1–2 列（可配） |
+| 窗内出现比 `active_setup` 更新的九转 | 切换到新组；旧组 Countdown 作废 |
+| `active_setup` 之后 Countdown 未在配置窗口内推进 | 仍可进列 1–2；列 3 需满足 §4.3 的「距九转 ≤ N 日」 |
 
-### 3.4 最少 K 线根数
+### 3.5 最少 K 线根数
 
 | 用途 | 最少交易日 |
 |------|------------|
@@ -120,19 +150,36 @@ countdown_13_date = trade_date[j]
 
 ## 4. 五列漏斗定义
 
-页面为 **横向五列**；每只股票 **只出现在其达到的最高列**（避免重复刷屏）。列间为 **子集关系**：
+页面为 **横向五列**；每只股票 **只出现在其达到的最高列**。列间为 **子集关系**：
 
 ```text
 列5 ⊂ 列4 ⊂ 列3 ⊂ 列2 ⊂ 列1
 ```
 
+### 4.0 统一回溯窗（列 1–5 共用）
+
+所有列的「事件是否入选」均看该事件日期是否落在：
+
+```text
+event_date ∈ [T − lookback_days, T]
+```
+
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `td_lookback_days` | **20** | 自扫描日 `T` 向前回溯的 **交易日** 数；窗内达成的九转 / 十三转均统计进对应列 |
+
+- **列 1**：`setup_9_date` 在回溯窗内（且为窗内 **最新** 一组九转）。
+- **列 4**：`countdown_13_date` 在回溯窗内（同一 `active_setup`）。
+- 管理页可改 `lookback_days`（建议 5–60）。
+
+> 取代原 `setup_fresh_days` / `countdown_fresh_days` 两套偏移，统一为一个回溯参数。
+
 ### 列 1 — 达成九转（Setup 完成）
 
 | 项 | 规则 |
 |----|------|
-| 入选 | 在扫描日 `T` 上，存在 **刚完成** 的买入 Setup(9) |
-| 时间窗 | `setup_9_date ∈ [T − setup_fresh_days, T]`（默认 `setup_fresh_days = 0`，即仅 **扫描当日** 标出第 9 根；可改为 1–5 以放宽） |
-| 展示字段 | 代码、名称、行业、`setup_9_date`、收盘、涨跌幅、Setup 历时 |
+| 入选 | `active_setup` 的 `setup_9_date ∈ [T − lookback_days, T]` |
+| 展示字段 | 代码、名称、行业、九转日、收盘、涨跌幅 |
 
 ### 列 2 — 九转 + 第 9 日量价形态
 
@@ -175,25 +222,31 @@ expand = vol[setup_9] > vol_ma5 * vol_expand_ratio     # 默认 ratio=1.2
 
 ### 列 3 — 列 2 + 临近十三转
 
-在列 2 基础上，Countdown **尚未到 13**，但 **接近完成**：
+在列 2 基础上，Countdown **尚未到 13**，且处于「九转后短期内即将数完」：
 
 ```text
 cd_count >= countdown_near_min          # 默认 10
 cd_count <= countdown_near_max          # 默认 12
-trade_date 距 setup_9_date 的交易日数 <= countdown_window_days   # 默认 30
+trading_days_between(setup_9_date, T) <= countdown_after_setup_days   # 默认 5
 ```
 
-含义：已在 Countdown 阶段且 **最多还差 3 次计数**（默认），并在 Setup 后合理时间窗内。
+含义：
 
-展示：`cd_count`、`cd_remain = 13 - cd_count`、最近计数日。
+- 十三转区间 **已开始**（九转完成次日即起算），与九转区间 **独立**；
+- **默认**：自九转完成日至扫描日 `T` 不超过 **5 个交易日**（`countdown_after_setup_days`）；
+- 在此窗口内 Countdown 已计 10–12 次，视为「临近 13」。
 
-### 列 4 — 列 3 基础 + 已达成十三转
+展示：`cd_count`、`cd_remain = 13 - cd_count`、最近计数日、距九转第几日。
 
-在列 2 基础上（**不要求经过列 3 的「临近」状态**），`cd_count == 13` 且 `countdown_13_date` 落在：
+### 列 4 — 列 2 + 已达成十三转
+
+在列 2 基础上，`cd_count == 13`，且：
 
 ```text
-countdown_13_date ∈ [T − countdown_fresh_days, T]    # 默认 countdown_fresh_days = 0
+countdown_13_date ∈ [T − lookback_days, T]
 ```
+
+（**不要求**曾出现在列 3。）
 
 展示：`countdown_13_date`、`setup_9` 至 `countdown_13` 间隔 K 线数、参考止损价（见下）。
 
@@ -293,15 +346,16 @@ MACD 参数：`macd_fast=12, macd_slow=26, macd_signal=9`（可配）。
 | 4 | 十三转 | + 十三转日、间隔天数、止损参考 |
 | 5 | 底背离 | + MACD 柱(9/13)、背离类型 |
 
-行点击：跳转 `stock-detail.html?code=xxxxxx`（现有页）。
+行点击：跳转 **神奇九转个股明细子页**（见 §6.6），**非**通用 `stock-detail.html`。
 
 ### 6.4 交互
 
 | 操作 | 行为 |
 |------|------|
-| 进入页面 | `GET /api/td-sequential/board?trade_date=` 拉五列 + 漏斗 |
+| 进入页面 | `GET /api/td-sequential/board?trade_date=` 拉五列 + 漏斗（应用 `lookback_days`） |
 | 立即重算 | `POST /api/admin/td-sequential/scan` → 轮询 `GET /api/td-sequential/scan/status` |
 | 空列 | 显示「暂无」+ 链到管理页调参 |
+| 点击股票行 | `td-sequential-detail.html?code=xxxxxx&trade_date=` |
 
 ### 6.5 管理页配置块
 
@@ -310,13 +364,89 @@ MACD 参数：`macd_fast=12, macd_slow=26, macd_signal=9`（可配）。
 | 分组 | 参数 |
 |------|------|
 | **调度** | 开关、自动扫描时刻、历史 K 线天数 |
-| **Setup** | `setup_fresh_days` |
+| **回溯** | `lookback_days`（窗内事件统计） |
 | **量价（列2）** | 缩量/放量比、下影/十字/大阴阈值、合格逻辑（或/且） |
-| **Countdown（列3–4）** | `countdown_near_min/max`、`countdown_window_days`、`countdown_fresh_days` |
+| **Countdown（列3–4）** | `countdown_near_min/max`、`countdown_after_setup_days`（默认 5） |
 | **MACD（列5）** | fast/slow/signal、背离参考字段 |
 | **风控展示** | `stop_loss_pct` |
 
 元数据字典 `TD_SEQUENTIAL_SETTINGS_META` 与火车轨 `TRAIN_TRACK_SETTINGS_META` 同模式。
+
+### 6.6 个股明细子页（`td-sequential-detail.html`）
+
+从五列看板点击某股进入，**只展示「最新一组九转」** 的完整计算过程（窗内若有多组，见 §3.3）。
+
+#### 路由
+
+| 项 | 值 |
+|----|-----|
+| 页面 | `dashboard/td-sequential-detail.html` |
+| API | `GET /api/td-sequential/stocks/{stock_code}?trade_date=` |
+
+#### 页面结构
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│ ← 返回看板    600519 贵州茅台    扫描日 T    回溯 N 日        │
+├──────────────────────────────────────────────────────────────┤
+│ 摘要：九转日 / 十三转日 / 当前列级 / 量价标签 / 背离 / 止损参考  │
+├──────────────────────────────────────────────────────────────┤
+│ 【区间 A】九转 Setup 1→9（连续 9 日）                         │
+│  表格：序号 | 日期 | 收盘 | 比较日(4日前) | 比较日收盘 | 是否满足 │
+├──────────────────────────────────────────────────────────────┤
+│ 【区间 B】十三转 Countdown（九转次日起到第 13 次，非连续）     │
+│  表格：序号 | 日期 | 收盘 | 比较日(2日前低) | 比较日最低 | 是否满足 │
+│        | 第13次附加：当日最低 vs 第8次收盘 | 是否满足            │
+├──────────────────────────────────────────────────────────────┤
+│ 【过滤器结果】（均针对 active_setup）                          │
+│  · 第9日量价：缩量/放量、上下影比、是否合格/是否大阴剔除        │
+│  · 列3：cd_count、距九转交易日数、是否临近13                    │
+│  · 列5：九转日 vs 十三转日 收盘、MACD 柱/DIF、是否底背离        │
+└──────────────────────────────────────────────────────────────┘
+```
+
+#### 明细 API 响应（`detail_json` 结构草案）
+
+```json
+{
+  "stock_code": "600519",
+  "stock_name": "贵州茅台",
+  "scan_trade_date": "2026-06-20",
+  "lookback_days": 20,
+  "active_setup_9_date": "2026-06-18",
+  "setup_bars": [
+    {
+      "seq": 1,
+      "trade_date": "2026-06-06",
+      "close": 1420.5,
+      "ref_date": "2026-05-29",
+      "ref_close": 1450.0,
+      "condition": "close < ref_close",
+      "passed": true
+    }
+  ],
+  "countdown_bars": [
+    {
+      "seq": 1,
+      "trade_date": "2026-06-19",
+      "close": 1410.0,
+      "ref_date": "2026-06-17",
+      "ref_low": 1412.0,
+      "condition": "close <= ref_low",
+      "passed": true,
+      "extra_13v8": null
+    }
+  ],
+  "filters": {
+    "vol_price": { "passed": true, "vol_tag": "shrink", "lower_ratio": 0.55 },
+    "near13": { "passed": false, "cd_count": 8, "days_since_setup": 3 },
+    "macd_div": { "passed": false }
+  },
+  "max_col": 2
+}
+```
+
+实现：扫描时把 `detail_json` 写入 `td_sequential_pick_v4`；子页优先读库，缺省可按 code+date 即时重算。
 
 ---
 
@@ -377,6 +507,8 @@ CREATE TABLE IF NOT EXISTS td_sequential_pick_v4 (
     bars_setup_to_cd13 INTEGER,
     stop_loss_price REAL,
 
+    detail_json TEXT,                     -- 子页：九转/十三转逐日明细 + 过滤器
+
     updated_at TEXT,
     PRIMARY KEY (trade_date, stock_code)
 );
@@ -434,8 +566,8 @@ CREATE TABLE IF NOT EXISTS td_sequential_scan_jobs (
 |----|------|------|------|
 | `td_enabled` | `true` | 调度 | 交易日自动扫描 |
 | `td_time` | `16:45` | 调度 | 扫描时刻（在火车轨之后） |
-| `td_history_days` | `120` | 调度 | 缓存最少交易日 |
-| `td_setup_fresh_days` | `0` | Setup | 九转完成日距扫描日最大偏移 |
+| `td_history_days` | `120` | 调度 | 缓存最少交易日（日 K） |
+| `td_lookback_days` | `20` | 回溯 | 扫描日向前统计九转/十三转的交易日窗 |
 | `td_vol_shrink_ratio` | `0.8` | 量价 | 低于前 5 日均量比例 → 缩量 |
 | `td_vol_expand_ratio` | `1.2` | 量价 | 高于前 5 日均量比例 → 放量 |
 | `td_shadow_lower_min` | `0.5` | 量价 | 下影线占比下限（锤子） |
@@ -444,8 +576,7 @@ CREATE TABLE IF NOT EXISTS td_sequential_scan_jobs (
 | `td_vol_price_mode` | `or` | 量价 | 合格条件：`or` / `and` |
 | `td_countdown_near_min` | `10` | Countdown | 临近 13：最少已计数 |
 | `td_countdown_near_max` | `12` | Countdown | 临近 13：最多已计数 |
-| `td_countdown_window_days` | `30` | Countdown | Setup 后 Countdown 有效窗口 |
-| `td_countdown_fresh_days` | `0` | Countdown | 十三转完成日距扫描日偏移 |
+| `td_countdown_after_setup_days` | `5` | Countdown | 列3：自九转完成日至扫描日最大交易日数 |
 | `td_macd_fast` | `12` | MACD | |
 | `td_macd_slow` | `26` | MACD | |
 | `td_macd_signal` | `9` | MACD | |
@@ -459,7 +590,8 @@ CREATE TABLE IF NOT EXISTS td_sequential_scan_jobs (
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/td-sequential/meta` | 扫描日、最近任务、默认参数摘要 |
-| GET | `/api/td-sequential/board` | `{ funnel, columns: { "1": [...], …, "5": [...] } }` |
+| GET | `/api/td-sequential/board` | `{ lookback_days, funnel, columns: { "1": [...], …, "5": [...] } }` |
+| GET | `/api/td-sequential/stocks/{stock_code}` | 个股明细（`setup_bars` / `countdown_bars` / `filters`） |
 | GET | `/api/td-sequential/scan/status` | 后台任务进度 |
 | POST | `/api/admin/td-sequential/scan` | 触发重算（409 若已有任务） |
 
@@ -476,6 +608,7 @@ scripts/td_sequential_scanner.py   # 全 A 扫描编排（复用 train_track 缓
 scripts/td_sequential_runner.py    # 后台任务入队
 tests/test_td_sequential_common.py
 dashboard/td-sequential.html
+dashboard/td-sequential-detail.html   # 个股九转/十三转明细
 dashboard/static/js/nav.js         # +1 导航项
 dashboard/admin.html + admin.js    # 配置块
 api/server.py                      # 路由 + SettingsUpdate 字段
@@ -490,14 +623,17 @@ scripts/scheduler.py               # 定时扫描（td_time）
 
 | 问题 | 决策 |
 |------|------|
-| 计算口径 | Layer 1 标准 TD + Layer 2–5 过滤器；**仅抄底** |
+| 计算口径 | Layer 1 标准 TD + Layer 2–5 过滤器；**仅抄底**；**仅日 K** |
 | 股票池 | 全 A，排除 ST、停牌 |
-| 页面形态 | **五列递进漏斗**，非单股 K 线画数字 |
+| 页面形态 | **五列递进漏斗** + **个股明细子页** |
 | 逃顶 | v1 **不做** |
 | 日线缓存 | **复用** `train_track_daily_cache` |
 | 列内去重 | 每股 **仅出现在最高达标列** |
-| 九转时效 | 默认仅 **扫描当日** 完成九转（`setup_fresh_days=0`），可配放宽 |
-| 十三转时效 | 默认仅 **扫描当日** 完成十三转（`countdown_fresh_days=0`） |
+| 回溯统计 | 统一 `lookback_days`：窗内达成的九转/十三转均入选对应列（默认 20 交易日） |
+| 九转 vs 十三转 | **两段独立**；十三转自九转完成 **次日** 起算 |
+| 多组九转 | 只取 **`setup_9_date` 最新一组** 做判定与展示 |
+| 列 3 时间窗 | 自九转完成至扫描日 ≤ **5** 个交易日（`countdown_after_setup_days`） |
+| 明细子页 | 逐日列出九转 9 天、十三转各计数日及比较价、过滤器结果 |
 
 ---
 
@@ -506,15 +642,16 @@ scripts/scheduler.py               # 定时扫描（td_time）
 1. **单边暴跌**：绿 9/13 可能连续出现仍继续下跌；文档与 UI 需提示「警报器」定位。
 2. **与通达信差异**：部分软件 Countdown 起算日、13/8 规则有简化实现；本项目以 §3 公式为准，上线后用样本股人工比对 1–2 只校验。
 3. **扫描耗时**：全 A × 120 日状态机，预计与火车轨同量级；必须后台任务 + 进度，避免 HTTP 超时。
-4. **`setup_fresh_days=0` 时列 1 可能很窄**：属预期；放宽参数可增加样本量。
+4. **列 3 窗口较紧**：九转后 5 日内要数到 10–12 次较苛刻，样本可能很少；可调 `countdown_near_min` 或 `countdown_after_setup_days`。
 
 ---
 
 ## 12. 验收标准（开发完成后）
 
-- [ ] 单测覆盖：Setup 连续/中断、Countdown 非连续、13/8 规则、量价过滤器、MACD 背离
-- [ ] 全 A 扫描落库，`funnel_json` 五列计数与列内列表一致
+- [ ] 单测覆盖：Setup 连续/中断、Countdown 非连续、13/8 规则、**多组九转取最新**、量价过滤器、MACD 背离
+- [ ] 全 A 扫描落库，`funnel_json` 五列计数与列内列表一致（`lookback_days` 窗）
 - [ ] 看板五列展示，管理页可改参数并重算
+- [ ] 个股明细子页：九转/十三转逐日表 + 过滤器结果，仅展示最新一组
 - [ ] 日常 `fetch_ts_daily` 后缓存满足 `td_history_days`
 - [ ] 导航可达；空池时有友好提示
 
