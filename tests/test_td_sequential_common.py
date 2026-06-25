@@ -124,6 +124,11 @@ def test_evaluate_stock_td_col1():
     assert ev["max_col"] >= 1
 
 
+def test_near13_default_max_includes_count_13():
+    p = TdSequentialParams()
+    assert p.countdown_near_max == 13
+
+
 def test_gap_setup_to_cd_days_when_countdown_starts_next_day():
     """九转结束日 05-28、十三转首次计数 05-29 → 区间间隔应为 1。"""
     dates = [f"2026-05-{i:02d}" for i in range(10, 32)] + [f"2026-06-{i:02d}" for i in range(1, 21)]

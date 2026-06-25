@@ -241,12 +241,11 @@ expand = vol[setup_9] > vol_ma5 * vol_expand_ratio     # 默认 ratio=1.2
 
 ### 列 3 — 列 2 + 临近十三转
 
-在列 2 基础上，Countdown **尚未到 13**，且处于「九转后短期内即将数完」：
+在列 2 基础上，Countdown 计数处于「临近十三转」区间，且九转与十三转区间间隔合格：
 
 ```text
 cd_count >= countdown_near_min          # 默认 10
-cd_count <= countdown_near_max          # 默认 12
-cd_count < 13
+cd_count <= countdown_near_max          # 默认 13（含已完成十三转）
 gap_setup_to_cd_days <= countdown_after_setup_days   # 默认 5
 ```
 
@@ -254,7 +253,7 @@ gap_setup_to_cd_days <= countdown_after_setup_days   # 默认 5
 
 - 十三转区间 **已开始**（九转完成次日即起算），与九转区间 **独立**；
 - **默认**：九转结束至十三转首次计数日的 **区间间隔** 不超过 **5 个交易日**（`countdown_after_setup_days`）；
-- 在此窗口内 Countdown 已计 10–12 次，视为「临近 13」。
+- 计数在 **10–13** 之间（含已完成 13）视为「临近或已达 13」；列 4 另要求 `countdown_13_date` 落在回溯窗内。
 
 展示：`cd_count`、`cd_remain = 13 - cd_count`、最近计数日、`gap_setup_to_cd_days`（区间间隔）。
 
@@ -604,7 +603,7 @@ CREATE TABLE IF NOT EXISTS td_sequential_scan_jobs (
 | `td_bear_lower_max` | `0.2` | 量价 | 大阴线：下影过小阈值 |
 | `td_vol_price_mode` | `or` | 量价 | 合格条件：`or` / `and` |
 | `td_countdown_near_min` | `10` | Countdown | 临近 13：最少已计数 |
-| `td_countdown_near_max` | `12` | Countdown | 临近 13：最多已计数 |
+| `td_countdown_near_max` | `13` | Countdown | 临近 13：最多已计数（含 13） |
 | `td_countdown_after_setup_days` | `5` | Countdown | 列3：九转结束至十三转开始最大交易日数（区间间隔） |
 | `td_macd_fast` | `12` | MACD | |
 | `td_macd_slow` | `26` | MACD | |

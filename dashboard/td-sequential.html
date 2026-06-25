@@ -16,19 +16,15 @@
     @media (max-width: 1400px) { .board { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
     @media (max-width: 900px) { .board { grid-template-columns: 1fr 1fr; } }
     @media (max-width: 600px) { .board { grid-template-columns: 1fr; } }
-    .col-card { background: #0f172a; border: 1px solid #1e293b; border-radius: 8px; min-height: 200px; }
-    .col-head { padding: 10px 12px; border-bottom: 1px solid #1e293b; font-size: 13px; font-weight: 600; color: #e2e8f0; }
+    .col-card { background: #0f172a; border: 1px solid #1e293b; border-radius: 8px; min-height: 200px; display: flex; flex-direction: column; }
+    .col-head { padding: 10px 12px; border-bottom: 1px solid #1e293b; font-size: 13px; font-weight: 600; color: #e2e8f0; flex-shrink: 0; }
     .col-head span { color: #64748b; font-weight: 400; }
-    .col-body { max-height: 480px; overflow: auto; -webkit-overflow-scrolling: touch; }
-    table.td { width: 100%; border-collapse: collapse; font-size: 11px; }
-    table.td th, table.td td { padding: 5px 6px; border-bottom: 1px solid #1c2740; text-align: right; white-space: nowrap; }
-    table.td thead th {
-      position: sticky;
-      top: 0;
-      z-index: 2;
-      background: #131d30;
-      box-shadow: 0 1px 0 #1c2740;
-    }
+    .col-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    .col-table { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+    .col-scroll { max-height: 440px; overflow: auto; -webkit-overflow-scrolling: touch; flex: 1; min-height: 0; }
+    table.td { width: 100%; border-collapse: collapse; font-size: 11px; table-layout: fixed; }
+    table.td th, table.td td { padding: 5px 6px; border-bottom: 1px solid #1c2740; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    table.td thead th { background: #131d30; }
     table.td th.tl, table.td td.tl { text-align: left; }
     table.td tbody tr { cursor: pointer; }
     table.td tbody tr:hover { background: #131d30; }
@@ -46,7 +42,8 @@
     </div>
     <p class="legend">
       全 A 盘后扫描（排除 ST、停牌）。五列递进漏斗：每列在左列清单基础上继续过滤，并继承左列全部字段。
-      列4 在列2 基础上达成十三转（可不经过列3「临近」态）。口诀：抄底等缩量长腿。
+      列3 在列2 基础上：区间间隔合格且计数进入「临近13」区间（默认 10–13，含已完成13）。
+      列4 另要求十三转完成日落在回溯窗内（可不经过列3展示态）。口诀：抄底等缩量长腿。
       <a href="/admin.html#td-sequential-config">参数配置</a>
     </p>
     <div id="funnelBox" class="funnel"></div>
@@ -146,12 +143,15 @@
         const items = cols[c] || [];
         const fields = fieldsUpTo(c);
         const head = fields.map(f => `<th${f.tl ? ' class="tl"' : ''}>${f.label}</th>`).join('');
-        const body = items.length
-          ? `<table class="td"><thead><tr>${head}</tr></thead><tbody>`
-            + items.map(r => `<tr onclick="location.href='/td-sequential-detail.html?code=${r.stock_code}&trade_date=${encodeURIComponent(data.trade_date)}'">`
+        const colgroup = fields.map(() => '<col />').join('');
+        const rows = items.map(r => `<tr onclick="location.href='/td-sequential-detail.html?code=${r.stock_code}&trade_date=${encodeURIComponent(data.trade_date)}'">`
               + fields.map(f => `<td${f.tl ? ' class="tl"' : ''}>${cellValue(r, f)}</td>`).join('')
-              + '</tr>').join('')
-            + '</tbody></table>'
+              + '</tr>').join('');
+        const body = items.length
+          ? `<div class="col-table">
+              <table class="td"><colgroup>${colgroup}</colgroup><thead><tr>${head}</tr></thead></table>
+              <div class="col-scroll"><table class="td"><colgroup>${colgroup}</colgroup><tbody>${rows}</tbody></table></div>
+            </div>`
           : '<div class="empty">暂无</div>';
         return `<div class="col-card"><div class="col-head">${COL_LABELS[c]} <span>(${items.length})</span></div><div class="col-body">${body}</div></div>`;
       }).join('');

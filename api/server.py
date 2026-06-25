@@ -114,7 +114,7 @@ class SettingsUpdate(BaseModel):
     td_bear_lower_max: float | None = Field(default=None, ge=0, le=1.0)
     td_vol_price_mode: str | None = Field(default=None, pattern="^(or|and)$")
     td_countdown_near_min: int | None = Field(default=None, ge=1, le=12)
-    td_countdown_near_max: int | None = Field(default=None, ge=1, le=12)
+    td_countdown_near_max: int | None = Field(default=None, ge=1, le=13)
     td_countdown_after_setup_days: int | None = Field(default=None, ge=1, le=30)
     td_macd_fast: int | None = Field(default=None, ge=5, le=20)
     td_macd_slow: int | None = Field(default=None, ge=10, le=40)

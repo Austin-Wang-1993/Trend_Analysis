@@ -52,7 +52,7 @@ function collectTdSettings() {
     td_cross_body_max: Number(document.getElementById('td_cross_body_max').value || 0.15),
     td_vol_price_mode: document.getElementById('td_vol_price_mode').value,
     td_countdown_near_min: Number(document.getElementById('td_countdown_near_min').value || 10),
-    td_countdown_near_max: Number(document.getElementById('td_countdown_near_max').value || 12),
+    td_countdown_near_max: Number(document.getElementById('td_countdown_near_max').value || 13),
     td_countdown_after_setup_days: Number(document.getElementById('td_countdown_after_setup_days').value || 5),
     td_stop_loss_pct: Number(document.getElementById('td_stop_loss_pct').value || 0.03),
   };
@@ -251,7 +251,7 @@ function applySettings(s) {
     document.getElementById('td_cross_body_max').value = s.td_cross_body_max || '0.15';
     document.getElementById('td_vol_price_mode').value = s.td_vol_price_mode || 'or';
     document.getElementById('td_countdown_near_min').value = s.td_countdown_near_min || '10';
-    document.getElementById('td_countdown_near_max').value = s.td_countdown_near_max || '12';
+    document.getElementById('td_countdown_near_max').value = s.td_countdown_near_max || '13';
     document.getElementById('td_countdown_after_setup_days').value = s.td_countdown_after_setup_days || '5';
     document.getElementById('td_stop_loss_pct').value = s.td_stop_loss_pct || '0.03';
   }

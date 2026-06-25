@@ -22,7 +22,7 @@ class TdSequentialParams:
     bear_lower_max: float = 0.2
     vol_price_mode: str = "or"  # or | and
     countdown_near_min: int = 10
-    countdown_near_max: int = 12
+    countdown_near_max: int = 13
     countdown_after_setup_days: int = 5
     macd_fast: int = 12
     macd_slow: int = 26
@@ -84,7 +84,7 @@ def parse_td_params(settings: dict[str, str]) -> TdSequentialParams:
         bear_lower_max=float(settings.get("td_bear_lower_max", "0.2")),
         vol_price_mode=str(settings.get("td_vol_price_mode", "or")).lower(),
         countdown_near_min=int(settings.get("td_countdown_near_min", "10")),
-        countdown_near_max=int(settings.get("td_countdown_near_max", "12")),
+        countdown_near_max=int(settings.get("td_countdown_near_max", "13")),
         countdown_after_setup_days=int(settings.get("td_countdown_after_setup_days", "5")),
         macd_fast=int(settings.get("td_macd_fast", "12")),
         macd_slow=int(settings.get("td_macd_slow", "26")),
@@ -474,7 +474,6 @@ def evaluate_stock_td(
         vp["passed"]
         and cd_state.cd_count >= p.countdown_near_min
         and cd_state.cd_count <= p.countdown_near_max
-        and cd_state.cd_count < 13
         and gap_setup_to_cd <= p.countdown_after_setup_days
     )
 
