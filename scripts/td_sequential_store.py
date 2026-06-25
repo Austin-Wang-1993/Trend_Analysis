@@ -178,12 +178,22 @@ class TdSequentialStore:
                 )
 
     def list_picks_by_col(self, trade_date: str, col: int) -> list[dict[str, Any]]:
+        """按列标志筛选（非 max_col）；列间为递进子集由 board() 组装。"""
+        flag = {
+            1: "col1_setup9",
+            2: "col2_vol_price",
+            3: "col3_near13",
+            4: "col4_cd13",
+            5: "col5_macd_div",
+        }.get(col)
+        if not flag:
+            return []
         with self._conn() as conn:
             rows = conn.execute(
-                """SELECT * FROM td_sequential_pick_v4
-                   WHERE trade_date=? AND max_col=?
+                f"""SELECT * FROM td_sequential_pick_v4
+                   WHERE trade_date=? AND {flag}=1
                    ORDER BY setup_9_date DESC, stock_code""",
-                (trade_date, col),
+                (trade_date,),
             ).fetchall()
         return [dict(r) for r in rows]
 

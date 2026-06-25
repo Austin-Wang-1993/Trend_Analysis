@@ -235,11 +235,27 @@ class TdSequentialScanner:
             except json.JSONDecodeError:
                 funnel = None
         columns: dict[str, list[dict[str, Any]]] = {}
-        for col in range(1, 6):
-            items = self.store.list_picks_by_col(td, col)
-            for it in items:
-                it.pop("detail_json", None)
-            columns[str(col)] = items
+        all_picks = self.store.list_all_picks(td)
+        for it in all_picks:
+            it.pop("detail_json", None)
+
+        def _flag(p: dict[str, Any], key: str) -> bool:
+            return bool(p.get(key))
+
+        col1 = [p for p in all_picks if _flag(p, "col1_setup9")]
+        col2 = [p for p in col1 if _flag(p, "col2_vol_price")]
+        col3 = [p for p in col2 if _flag(p, "col3_near13")]
+        # 列4：在列2基础上达成十三转（可不经过列3「临近」态）
+        col4 = [p for p in col2 if _flag(p, "col4_cd13")]
+        col5 = [p for p in col4 if _flag(p, "col5_macd_div")]
+        columns = {"1": col1, "2": col2, "3": col3, "4": col4, "5": col5}
+        if funnel:
+            funnel = dict(funnel)
+            funnel["col1_setup9"] = len(col1)
+            funnel["col2_vol_price"] = len(col2)
+            funnel["col3_near13"] = len(col3)
+            funnel["col4_cd13"] = len(col4)
+            funnel["col5_macd_div"] = len(col5)
         return {
             "trade_date": td,
             "lookback_days": params.lookback_days,

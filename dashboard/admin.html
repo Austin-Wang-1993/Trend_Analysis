@@ -5,6 +5,47 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>管理 — Trend Analysis</title>
   <link rel="stylesheet" href="/static/css/style.css" />
+  <style>
+    /* 神奇九转参数：加宽输入框，隐藏 number 微调箭头避免遮挡数字 */
+    #td-sequential-config .toolbar {
+      gap: 14px 18px;
+      align-items: center;
+    }
+    #td-sequential-config .toolbar label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+      font-size: 13px;
+    }
+    #td-sequential-config input[type="number"] {
+      width: 5.5rem;
+      min-width: 5.5rem;
+      padding: 6px 8px;
+      box-sizing: border-box;
+      -moz-appearance: textfield;
+      appearance: textfield;
+    }
+    #td-sequential-config input[type="number"]::-webkit-outer-spin-button,
+    #td-sequential-config input[type="number"]::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    #td-sequential-config input[type="time"] {
+      width: 7.5rem;
+      min-width: 7.5rem;
+      padding: 6px 8px;
+      box-sizing: border-box;
+    }
+    #td-sequential-config select {
+      min-width: 4.5rem;
+      padding: 6px 8px;
+    }
+    #td-sequential-config .td-range input[type="number"] {
+      width: 3.5rem;
+      min-width: 3.5rem;
+    }
+  </style>
 </head>
 <body>
   <nav></nav>
@@ -84,21 +125,25 @@
 
     <div class="card" id="td-sequential-config">
       <h2 style="font-size:1rem;margin:0 0 0.75rem">神奇九转参数（TD 抄底）</h2>
-      <div class="toolbar" style="flex-wrap:wrap;align-items:flex-start">
+      <div class="toolbar" style="flex-wrap:wrap">
         <label><input type="checkbox" id="td_enabled" /> 启用自动扫描</label>
         <label>扫描时刻 <input id="td_time" type="time" /></label>
-        <label>历史K线 <input id="td_history_days" type="number" min="60" max="250" style="width:4rem" /> 日</label>
-        <label>回溯窗 <input id="td_lookback_days" type="number" min="5" max="60" style="width:3rem" /> 日</label>
-        <label>缩量比 <input id="td_vol_shrink_ratio" type="number" step="0.05" style="width:3.5rem" /></label>
-        <label>放量比 <input id="td_vol_expand_ratio" type="number" step="0.05" style="width:3.5rem" /></label>
-        <label>下影≥ <input id="td_shadow_lower_min" type="number" step="0.05" style="width:3rem" /></label>
-        <label>十字≤ <input id="td_cross_body_max" type="number" step="0.01" style="width:3rem" /></label>
+        <label>历史K线 <input id="td_history_days" type="number" min="60" max="250" /> 日</label>
+        <label>回溯窗 <input id="td_lookback_days" type="number" min="5" max="60" /> 日</label>
+        <label>缩量比 <input id="td_vol_shrink_ratio" type="number" step="0.05" min="0.1" max="1" /></label>
+        <label>放量比 <input id="td_vol_expand_ratio" type="number" step="0.05" min="1" max="3" /></label>
+        <label>下影≥ <input id="td_shadow_lower_min" type="number" step="0.05" min="0" max="1" /></label>
+        <label>十字≤ <input id="td_cross_body_max" type="number" step="0.01" min="0" max="1" /></label>
         <label>量价模式
           <select id="td_vol_price_mode"><option value="or">或</option><option value="and">且</option></select>
         </label>
-        <label>临近13 计数 <input id="td_countdown_near_min" type="number" style="width:2.5rem" />–<input id="td_countdown_near_max" type="number" style="width:2.5rem" /></label>
-        <label>距九转≤ <input id="td_countdown_after_setup_days" type="number" style="width:3rem" /> 日</label>
-        <label>止损% <input id="td_stop_loss_pct" type="number" step="0.01" style="width:3rem" /></label>
+        <label class="td-range">临近13 计数
+          <input id="td_countdown_near_min" type="number" min="1" max="12" />
+          –
+          <input id="td_countdown_near_max" type="number" min="1" max="12" />
+        </label>
+        <label>距九转≤ <input id="td_countdown_after_setup_days" type="number" min="1" max="30" /> 日</label>
+        <label>止损% <input id="td_stop_loss_pct" type="number" step="0.01" min="0.01" max="0.1" /></label>
         <button id="saveTdSettings">保存九转配置</button>
         <button id="runTdScan" type="button">立即重算九转</button>
       </div>
@@ -136,7 +181,7 @@
     </div>
   </main>
   <script src="/static/js/api.js"></script>
-  <script src="/static/js/nav.js?v=20260626"></script>
-  <script src="/static/js/admin.js?v=20260626"></script>
+  <script src="/static/js/nav.js?v=20260628"></script>
+  <script src="/static/js/admin.js?v=20260628"></script>
 </body>
 </html>
