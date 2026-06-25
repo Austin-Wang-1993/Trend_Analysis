@@ -76,7 +76,7 @@ def test_vol_price_shrink_or_hammer():
         params=TdSequentialParams(),
     )
     assert vp["passed"] is True
-    assert vp["vol_tag"] == "shrink"
+    assert vp["vol_tag"] == "缩量"
 
 
 def test_vol_price_reject_bear():

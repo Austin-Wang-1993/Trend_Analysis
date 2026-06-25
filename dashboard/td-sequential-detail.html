@@ -41,6 +41,10 @@
 
     function yn(v) { return v ? '<span class="ok">✓</span>' : '<span class="no">✗</span>'; }
     function num(v, d=2) { return v == null || Number.isNaN(v) ? '—' : Number(v).toFixed(d); }
+    function volTagLabel(v) {
+      const map = { shrink: '缩量', expand: '放量', neutral: '中性' };
+      return map[v] || v || '—';
+    }
 
     function renderSetupTable(bars) {
       if (!bars || !bars.length) return '<p class="footnote">无</p>';
@@ -89,7 +93,7 @@
       document.getElementById('cdTable').innerHTML = renderCdTable(d.countdown_bars);
       const f = d.filters || {};
       document.getElementById('filters').innerHTML = `
-        <div><strong>量价（列2）</strong>：${yn(f.vol_price?.passed)} 标签=${f.vol_price?.vol_tag || '—'} 下影=${num(f.vol_price?.lower_ratio)} 大阴剔除=${yn(!f.vol_price?.rejected_bear)}</div>
+        <div><strong>量价（列2）</strong>：${yn(f.vol_price?.passed)} 标签=${volTagLabel(f.vol_price?.vol_tag)} 下影=${num(f.vol_price?.lower_ratio)} 大阴剔除=${yn(!f.vol_price?.rejected_bear)}</div>
         <div><strong>临近13（列3）</strong>：${yn(f.near13?.passed)} 计数=${f.near13?.cd_count ?? '—'} 区间间隔=${f.near13?.gap_setup_to_cd_days ?? '—'}日</div>
         <div><strong>底背离（列5）</strong>：${yn(f.macd_div?.passed)} 价新低=${yn(f.macd_div?.price_lower)} MACD抬高=${yn(f.macd_div?.macd_higher)}</div>
       `;

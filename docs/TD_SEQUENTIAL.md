@@ -460,7 +460,7 @@ MACD 参数：`macd_fast=12, macd_slow=26, macd_signal=9`（可配）。
     }
   ],
   "filters": {
-    "vol_price": { "passed": true, "vol_tag": "shrink", "lower_ratio": 0.55 },
+    "vol_price": { "passed": true, "vol_tag": "缩量", "lower_ratio": 0.55 },
     "near13": {
       "passed": false,
       "cd_count": 8,
@@ -520,7 +520,7 @@ CREATE TABLE IF NOT EXISTS td_sequential_pick_v4 (
     max_col INTEGER NOT NULL DEFAULT 0,   -- 1–5，展示列
 
     -- 列2 衍生
-    vol_tag TEXT,                         -- shrink / expand / neutral
+    vol_tag TEXT,                         -- 缩量 / 放量 / 中性
     lower_shadow_ratio REAL,
     upper_shadow_ratio REAL,
     body_ratio REAL,

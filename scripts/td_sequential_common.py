@@ -155,11 +155,11 @@ def evaluate_vol_price(
         passed = shrink or hammer
 
     if shrink:
-        vol_tag = "shrink"
+        vol_tag = "缩量"
     elif expand:
-        vol_tag = "expand"
+        vol_tag = "放量"
     else:
-        vol_tag = "neutral"
+        vol_tag = "中性"
 
     return {
         "passed": passed,

@@ -103,6 +103,11 @@
       return out;
     }
 
+    function volTagLabel(v) {
+      const map = { shrink: '缩量', expand: '放量', neutral: '中性' };
+      return map[v] || v || '—';
+    }
+
     function cellValue(r, f) {
       if (f.key === 'code') {
         const link = `/td-sequential-detail.html?code=${r.stock_code}&trade_date=${encodeURIComponent(r.trade_date || '')}`;
@@ -114,7 +119,7 @@
         return c == null ? '—' : Math.max(0, 13 - c);
       }
       const v = r[f.key];
-      if (f.tag) return `<span class="tag">${v || '—'}</span>`;
+      if (f.tag) return `<span class="tag">${volTagLabel(v)}</span>`;
       if (f.fmt === 'num3') return num(v, 3);
       if (f.fmt === 'num') return num(v);
       return v ?? '—';
