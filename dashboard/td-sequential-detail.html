@@ -80,6 +80,8 @@
       document.getElementById('status').textContent = `扫描日 ${d.scan_trade_date} · 回溯 ${d.lookback_days} 日 · 最高列 ${d.max_col}${d.from_cache ? ' · 来自缓存' : ''}`;
       document.getElementById('summary').innerHTML = `
         <strong>九转日</strong> ${d.active_setup_9_date || '—'} ·
+        <strong>十三转起始</strong> ${d.countdown_start_date || '—'} ·
+        <strong>区间间隔</strong> ${d.gap_setup_to_cd_days ?? '—'} 交易日 ·
         <strong>十三转日</strong> ${(d.countdown_bars && d.countdown_bars.length === 13) ? d.countdown_bars[12].trade_date : '—'} ·
         <strong>止损参考</strong> ${num(d.stop_loss_price)}
       `;
@@ -88,7 +90,7 @@
       const f = d.filters || {};
       document.getElementById('filters').innerHTML = `
         <div><strong>量价（列2）</strong>：${yn(f.vol_price?.passed)} 标签=${f.vol_price?.vol_tag || '—'} 下影=${num(f.vol_price?.lower_ratio)} 大阴剔除=${yn(!f.vol_price?.rejected_bear)}</div>
-        <div><strong>临近13（列3）</strong>：${yn(f.near13?.passed)} 计数=${f.near13?.cd_count ?? '—'} 距九转=${f.near13?.days_since_setup ?? '—'}日</div>
+        <div><strong>临近13（列3）</strong>：${yn(f.near13?.passed)} 计数=${f.near13?.cd_count ?? '—'} 区间间隔=${f.near13?.gap_setup_to_cd_days ?? '—'}日 距扫描日=${f.near13?.days_setup_to_scan ?? '—'}日</div>
         <div><strong>底背离（列5）</strong>：${yn(f.macd_div?.passed)} 价新低=${yn(f.macd_div?.price_lower)} MACD抬高=${yn(f.macd_div?.macd_higher)}</div>
       `;
     }

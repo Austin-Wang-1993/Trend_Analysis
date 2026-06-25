@@ -371,13 +371,27 @@ def _date_in_window(d: str, window_start: str, scan_date: str) -> bool:
     return window_start <= d <= scan_date
 
 
-def _trading_days_since(dates: list[str], from_date: str, to_date: str) -> int:
+def _trading_days_offset(dates: list[str], from_date: str, to_date: str) -> int | None:
+    """两日在 dates 序列中的下标差 to_date − from_date（交易日历偏移）。"""
     try:
         i0 = dates.index(from_date)
         i1 = dates.index(to_date)
     except ValueError:
-        return 9999
-    return max(0, i1 - i0)
+        return None
+    return i1 - i0
+
+
+def countdown_start_date(
+    dates: list[str],
+    setup_9_idx: int,
+    cd_state: CountdownState,
+) -> str | None:
+    """十三转区间起始日：有计数取首次计数日，否则为九转完成次日（阶段起算日）。"""
+    if cd_state.countdown_bars:
+        return cd_state.countdown_bars[0].trade_date
+    if setup_9_idx + 1 < len(dates):
+        return dates[setup_9_idx + 1]
+    return None
 
 
 def select_active_setup(
@@ -448,13 +462,21 @@ def evaluate_stock_td(
         params=p,
     )
 
-    days_since = _trading_days_since(dates, active.setup_9_date, scan_date)
+    cd_start = countdown_start_date(dates, active.setup_9_idx, cd_state)
+    gap_setup_to_cd = (
+        _trading_days_offset(dates, active.setup_9_date, cd_start)
+        if cd_start
+        else None
+    )
+    days_setup_to_scan = _trading_days_offset(dates, active.setup_9_date, scan_date)
+    if days_setup_to_scan is None:
+        days_setup_to_scan = 9999
     near13 = (
         vp["passed"]
         and cd_state.cd_count >= p.countdown_near_min
         and cd_state.cd_count <= p.countdown_near_max
         and cd_state.cd_count < 13
-        and days_since <= p.countdown_after_setup_days
+        and days_setup_to_scan <= p.countdown_after_setup_days
     )
 
     cd13_in_window = (
@@ -503,10 +525,19 @@ def evaluate_stock_td(
         active=active,
         cd_state=cd_state,
         vp=vp,
-        near13={"passed": near13, "cd_count": cd_state.cd_count, "days_since_setup": days_since},
+        near13={
+            "passed": near13,
+            "cd_count": cd_state.cd_count,
+            "days_setup_to_scan": days_setup_to_scan,
+            "gap_setup_to_cd_days": gap_setup_to_cd,
+            "countdown_start_date": cd_start,
+        },
         macd_div=macd_div,
         max_col=max_col,
         params=p,
+        countdown_start_date=cd_start,
+        gap_setup_to_cd_days=gap_setup_to_cd,
+        days_setup_to_scan=days_setup_to_scan,
     )
 
     return {
@@ -518,6 +549,9 @@ def evaluate_stock_td(
         "cd_count": cd_state.cd_count,
         "cd_last_date": cd_state.cd_last_date,
         "countdown_13_date": cd_state.countdown_13_date,
+        "countdown_start_date": cd_start,
+        "gap_setup_to_cd_days": gap_setup_to_cd,
+        "days_setup_to_scan": days_setup_to_scan,
         "col1_setup9": int(col1),
         "col2_vol_price": int(col2),
         "col3_near13": int(col3),
@@ -534,7 +568,7 @@ def evaluate_stock_td(
         "macd_div_type": macd_div.get("macd_div_type"),
         "bars_setup_to_cd13": bars_gap,
         "stop_loss_price": stop_loss,
-        "days_since_setup": days_since,
+        "days_since_setup": gap_setup_to_cd,
         "detail_json": json.dumps(detail, ensure_ascii=False),
         "detail": detail,
     }
@@ -553,6 +587,9 @@ def build_detail_json(
     macd_div: dict[str, Any],
     max_col: int,
     params: TdSequentialParams,
+    countdown_start_date: str | None = None,
+    gap_setup_to_cd_days: int | None = None,
+    days_setup_to_scan: int | None = None,
 ) -> dict[str, Any]:
     return {
         "stock_code": stock_code,
@@ -560,6 +597,9 @@ def build_detail_json(
         "scan_trade_date": scan_date,
         "lookback_days": lookback_days,
         "active_setup_9_date": active.setup_9_date,
+        "countdown_start_date": countdown_start_date,
+        "gap_setup_to_cd_days": gap_setup_to_cd_days,
+        "days_setup_to_scan": days_setup_to_scan,
         "setup_bars": [
             {
                 "seq": b.seq,

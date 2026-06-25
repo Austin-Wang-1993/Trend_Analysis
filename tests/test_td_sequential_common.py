@@ -12,11 +12,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from td_sequential_common import (
     TdSequentialParams,
+    CountdownBar,
+    CountdownState,
+    countdown_start_date,
     evaluate_stock_td,
     evaluate_vol_price,
     find_setup_cycles,
     run_countdown,
     select_active_setup,
+    _trading_days_offset,
 )
 
 
@@ -118,3 +122,29 @@ def test_evaluate_stock_td_col1():
     assert ev is not None
     assert ev["col1_setup9"] == 1
     assert ev["max_col"] >= 1
+
+
+def test_gap_setup_to_cd_days_when_countdown_starts_next_day():
+    """九转结束日 05-28、十三转首次计数 05-29 → 区间间隔应为 1（非距扫描日）。"""
+    dates = [f"2026-05-{i:02d}" for i in range(10, 32)] + [f"2026-06-{i:02d}" for i in range(1, 21)]
+    setup_9_idx = dates.index("2026-05-28")
+    cd_state = CountdownState(
+        cd_count=1,
+        countdown_bars=[
+            CountdownBar(
+                seq=1,
+                trade_date="2026-05-29",
+                close=6.9,
+                ref_date="2026-05-27",
+                ref_low=7.0,
+                passed=True,
+            )
+        ],
+        cd_last_date="2026-05-29",
+    )
+    cd_start = countdown_start_date(dates, setup_9_idx, cd_state)
+    assert cd_start == "2026-05-29"
+    gap = _trading_days_offset(dates, "2026-05-28", cd_start)
+    assert gap == 1
+    days_to_scan = _trading_days_offset(dates, "2026-05-28", "2026-06-17")
+    assert days_to_scan is not None and days_to_scan > gap

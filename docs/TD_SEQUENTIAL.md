@@ -146,6 +146,28 @@ countdown_13_date = trade_date[j]
 
 默认缓存深度 `td_history_days = 120`（可配 60–250），与火车轨共用 `train_track_daily_cache` 时取两者较大值写入。
 
+### 3.6 区间 A 与区间 B 之间的「间隔」
+
+九转完成日与十三转起始日是两个独立区间的边界，**间隔**定义为二者在交易日历上的偏移（非日历日）：
+
+```text
+countdown_start_date =
+    若已有 Countdown 计数 → countdown_bars[0].trade_date（首次计数日）
+    否则 → setup_9_date 的下一交易日（阶段起算日，尚未计数时）
+
+gap_setup_to_cd_days = trading_days_offset(setup_9_date, countdown_start_date)
+```
+
+**示例**：九转于 `2026-05-28` 完成，十三转首次计数于 `2026-05-29` → `gap_setup_to_cd_days = 1`。
+
+另有一指标 **`days_setup_to_scan`** = `trading_days_offset(setup_9_date, 扫描日 T)`，用于列 3「九转后短期内即将数完」的窗口判定（见 §4.3），**不等于**区间间隔。
+
+| 字段 | 含义 | 典型用途 |
+|------|------|----------|
+| `gap_setup_to_cd_days` | 九转结束 → 十三转开始 | 明细摘要、校验两段衔接 |
+| `days_setup_to_scan` | 九转完成 → 扫描日 | 列 3 过滤 `≤ countdown_after_setup_days` |
+| `days_since_setup`（库列，兼容） | 同 `gap_setup_to_cd_days` | 旧 API/看板字段名 |
+
 ---
 
 ## 4. 五列漏斗定义
@@ -227,16 +249,17 @@ expand = vol[setup_9] > vol_ma5 * vol_expand_ratio     # 默认 ratio=1.2
 ```text
 cd_count >= countdown_near_min          # 默认 10
 cd_count <= countdown_near_max          # 默认 12
+cd_count < 13
 trading_days_between(setup_9_date, T) <= countdown_after_setup_days   # 默认 5
 ```
 
 含义：
 
 - 十三转区间 **已开始**（九转完成次日即起算），与九转区间 **独立**；
-- **默认**：自九转完成日至扫描日 `T` 不超过 **5 个交易日**（`countdown_after_setup_days`）；
+- **默认**：自九转完成日至扫描日 `T` 不超过 **5 个交易日**（`countdown_after_setup_days`，字段 `days_setup_to_scan`）；
 - 在此窗口内 Countdown 已计 10–12 次，视为「临近 13」。
 
-展示：`cd_count`、`cd_remain = 13 - cd_count`、最近计数日、距九转第几日。
+展示：`cd_count`、`cd_remain = 13 - cd_count`、最近计数日、`gap_setup_to_cd_days`（区间间隔）、`days_setup_to_scan`（距扫描日）。
 
 ### 列 4 — 列 2 + 已达成十三转
 
@@ -400,7 +423,7 @@ MACD 参数：`macd_fast=12, macd_slow=26, macd_signal=9`（可配）。
 ├──────────────────────────────────────────────────────────────┤
 │ 【过滤器结果】（均针对 active_setup）                          │
 │  · 第9日量价：缩量/放量、上下影比、是否合格/是否大阴剔除        │
-│  · 列3：cd_count、距九转交易日数、是否临近13                    │
+│  · 列3：cd_count、区间间隔、距扫描日、是否临近13                    │
 │  · 列5：九转日 vs 十三转日 收盘、MACD 柱/DIF、是否底背离        │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -414,6 +437,9 @@ MACD 参数：`macd_fast=12, macd_slow=26, macd_signal=9`（可配）。
   "scan_trade_date": "2026-06-20",
   "lookback_days": 20,
   "active_setup_9_date": "2026-06-18",
+  "countdown_start_date": "2026-06-19",
+  "gap_setup_to_cd_days": 1,
+  "days_setup_to_scan": 3,
   "setup_bars": [
     {
       "seq": 1,
@@ -439,7 +465,13 @@ MACD 参数：`macd_fast=12, macd_slow=26, macd_signal=9`（可配）。
   ],
   "filters": {
     "vol_price": { "passed": true, "vol_tag": "shrink", "lower_ratio": 0.55 },
-    "near13": { "passed": false, "cd_count": 8, "days_since_setup": 3 },
+    "near13": {
+      "passed": false,
+      "cd_count": 8,
+      "gap_setup_to_cd_days": 1,
+      "days_setup_to_scan": 19,
+      "countdown_start_date": "2026-06-19"
+    },
     "macd_div": { "passed": false }
   },
   "max_col": 2
@@ -506,6 +538,9 @@ CREATE TABLE IF NOT EXISTS td_sequential_pick_v4 (
     -- 列4 衍生
     bars_setup_to_cd13 INTEGER,
     stop_loss_price REAL,
+    days_since_setup INTEGER,             -- 兼容：同 gap_setup_to_cd_days
+    gap_setup_to_cd_days INTEGER,         -- 九转结束 → 十三转开始
+    days_setup_to_scan INTEGER,           -- 九转完成 → 扫描日
 
     detail_json TEXT,                     -- 子页：九转/十三转逐日明细 + 过滤器
 
