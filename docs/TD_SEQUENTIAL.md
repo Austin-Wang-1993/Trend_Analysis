@@ -160,12 +160,9 @@ gap_setup_to_cd_days = trading_days_offset(setup_9_date, countdown_start_date)
 
 **示例**：九转于 `2026-05-28` 完成，十三转首次计数于 `2026-05-29` → `gap_setup_to_cd_days = 1`。
 
-另有一指标 **`days_setup_to_scan`** = `trading_days_offset(setup_9_date, 扫描日 T)`，用于列 3「九转后短期内即将数完」的窗口判定（见 §4.3），**不等于**区间间隔。
-
 | 字段 | 含义 | 典型用途 |
 |------|------|----------|
-| `gap_setup_to_cd_days` | 九转结束 → 十三转开始 | 明细摘要、校验两段衔接 |
-| `days_setup_to_scan` | 九转完成 → 扫描日 | 列 3 过滤 `≤ countdown_after_setup_days` |
+| `gap_setup_to_cd_days` | 九转结束 → 十三转开始 | 列 3 窗口过滤、明细摘要 |
 | `days_since_setup`（库列，兼容） | 同 `gap_setup_to_cd_days` | 旧 API/看板字段名 |
 
 ---
@@ -250,16 +247,16 @@ expand = vol[setup_9] > vol_ma5 * vol_expand_ratio     # 默认 ratio=1.2
 cd_count >= countdown_near_min          # 默认 10
 cd_count <= countdown_near_max          # 默认 12
 cd_count < 13
-trading_days_between(setup_9_date, T) <= countdown_after_setup_days   # 默认 5
+gap_setup_to_cd_days <= countdown_after_setup_days   # 默认 5
 ```
 
 含义：
 
 - 十三转区间 **已开始**（九转完成次日即起算），与九转区间 **独立**；
-- **默认**：自九转完成日至扫描日 `T` 不超过 **5 个交易日**（`countdown_after_setup_days`，字段 `days_setup_to_scan`）；
+- **默认**：九转结束至十三转首次计数日的 **区间间隔** 不超过 **5 个交易日**（`countdown_after_setup_days`）；
 - 在此窗口内 Countdown 已计 10–12 次，视为「临近 13」。
 
-展示：`cd_count`、`cd_remain = 13 - cd_count`、最近计数日、`gap_setup_to_cd_days`（区间间隔）、`days_setup_to_scan`（距扫描日）。
+展示：`cd_count`、`cd_remain = 13 - cd_count`、最近计数日、`gap_setup_to_cd_days`（区间间隔）。
 
 ### 列 4 — 列 2 + 已达成十三转
 
@@ -423,7 +420,7 @@ MACD 参数：`macd_fast=12, macd_slow=26, macd_signal=9`（可配）。
 ├──────────────────────────────────────────────────────────────┤
 │ 【过滤器结果】（均针对 active_setup）                          │
 │  · 第9日量价：缩量/放量、上下影比、是否合格/是否大阴剔除        │
-│  · 列3：cd_count、区间间隔、距扫描日、是否临近13                    │
+│  · 列3：cd_count、区间间隔、是否临近13                          │
 │  · 列5：九转日 vs 十三转日 收盘、MACD 柱/DIF、是否底背离        │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -439,7 +436,6 @@ MACD 参数：`macd_fast=12, macd_slow=26, macd_signal=9`（可配）。
   "active_setup_9_date": "2026-06-18",
   "countdown_start_date": "2026-06-19",
   "gap_setup_to_cd_days": 1,
-  "days_setup_to_scan": 3,
   "setup_bars": [
     {
       "seq": 1,
@@ -469,7 +465,6 @@ MACD 参数：`macd_fast=12, macd_slow=26, macd_signal=9`（可配）。
       "passed": false,
       "cd_count": 8,
       "gap_setup_to_cd_days": 1,
-      "days_setup_to_scan": 19,
       "countdown_start_date": "2026-06-19"
     },
     "macd_div": { "passed": false }
@@ -540,7 +535,6 @@ CREATE TABLE IF NOT EXISTS td_sequential_pick_v4 (
     stop_loss_price REAL,
     days_since_setup INTEGER,             -- 兼容：同 gap_setup_to_cd_days
     gap_setup_to_cd_days INTEGER,         -- 九转结束 → 十三转开始
-    days_setup_to_scan INTEGER,           -- 九转完成 → 扫描日
 
     detail_json TEXT,                     -- 子页：九转/十三转逐日明细 + 过滤器
 
@@ -611,7 +605,7 @@ CREATE TABLE IF NOT EXISTS td_sequential_scan_jobs (
 | `td_vol_price_mode` | `or` | 量价 | 合格条件：`or` / `and` |
 | `td_countdown_near_min` | `10` | Countdown | 临近 13：最少已计数 |
 | `td_countdown_near_max` | `12` | Countdown | 临近 13：最多已计数 |
-| `td_countdown_after_setup_days` | `5` | Countdown | 列3：自九转完成日至扫描日最大交易日数 |
+| `td_countdown_after_setup_days` | `5` | Countdown | 列3：九转结束至十三转开始最大交易日数（区间间隔） |
 | `td_macd_fast` | `12` | MACD | |
 | `td_macd_slow` | `26` | MACD | |
 | `td_macd_signal` | `9` | MACD | |
@@ -667,7 +661,7 @@ scripts/scheduler.py               # 定时扫描（td_time）
 | 回溯统计 | 统一 `lookback_days`：窗内达成的九转/十三转均入选对应列（默认 20 交易日） |
 | 九转 vs 十三转 | **两段独立**；十三转自九转完成 **次日** 起算 |
 | 多组九转 | 只取 **`setup_9_date` 最新一组** 做判定与展示 |
-| 列 3 时间窗 | 自九转完成至扫描日 ≤ **5** 个交易日（`countdown_after_setup_days`） |
+| 列 3 时间窗 | 九转结束至十三转开始 **区间间隔** ≤ **5** 个交易日（`countdown_after_setup_days`） |
 | 明细子页 | 逐日列出九转 9 天、十三转各计数日及比较价、过滤器结果 |
 
 ---
@@ -677,7 +671,7 @@ scripts/scheduler.py               # 定时扫描（td_time）
 1. **单边暴跌**：绿 9/13 可能连续出现仍继续下跌；文档与 UI 需提示「警报器」定位。
 2. **与通达信差异**：部分软件 Countdown 起算日、13/8 规则有简化实现；本项目以 §3 公式为准，上线后用样本股人工比对 1–2 只校验。
 3. **扫描耗时**：全 A × 120 日状态机，预计与火车轨同量级；必须后台任务 + 进度，避免 HTTP 超时。
-4. **列 3 窗口较紧**：九转后 5 日内要数到 10–12 次较苛刻，样本可能很少；可调 `countdown_near_min` 或 `countdown_after_setup_days`。
+4. **列 3 窗口较紧**：区间间隔 5 日内要数到 10–12 次较苛刻，样本可能很少；可调 `countdown_near_min` 或 `countdown_after_setup_days`。
 
 ---
 

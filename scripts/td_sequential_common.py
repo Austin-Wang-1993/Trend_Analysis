@@ -468,15 +468,14 @@ def evaluate_stock_td(
         if cd_start
         else None
     )
-    days_setup_to_scan = _trading_days_offset(dates, active.setup_9_date, scan_date)
-    if days_setup_to_scan is None:
-        days_setup_to_scan = 9999
+    if gap_setup_to_cd is None:
+        gap_setup_to_cd = 9999
     near13 = (
         vp["passed"]
         and cd_state.cd_count >= p.countdown_near_min
         and cd_state.cd_count <= p.countdown_near_max
         and cd_state.cd_count < 13
-        and days_setup_to_scan <= p.countdown_after_setup_days
+        and gap_setup_to_cd <= p.countdown_after_setup_days
     )
 
     cd13_in_window = (
@@ -528,7 +527,6 @@ def evaluate_stock_td(
         near13={
             "passed": near13,
             "cd_count": cd_state.cd_count,
-            "days_setup_to_scan": days_setup_to_scan,
             "gap_setup_to_cd_days": gap_setup_to_cd,
             "countdown_start_date": cd_start,
         },
@@ -537,7 +535,6 @@ def evaluate_stock_td(
         params=p,
         countdown_start_date=cd_start,
         gap_setup_to_cd_days=gap_setup_to_cd,
-        days_setup_to_scan=days_setup_to_scan,
     )
 
     return {
@@ -551,7 +548,6 @@ def evaluate_stock_td(
         "countdown_13_date": cd_state.countdown_13_date,
         "countdown_start_date": cd_start,
         "gap_setup_to_cd_days": gap_setup_to_cd,
-        "days_setup_to_scan": days_setup_to_scan,
         "col1_setup9": int(col1),
         "col2_vol_price": int(col2),
         "col3_near13": int(col3),
@@ -589,7 +585,6 @@ def build_detail_json(
     params: TdSequentialParams,
     countdown_start_date: str | None = None,
     gap_setup_to_cd_days: int | None = None,
-    days_setup_to_scan: int | None = None,
 ) -> dict[str, Any]:
     return {
         "stock_code": stock_code,
@@ -599,7 +594,6 @@ def build_detail_json(
         "active_setup_9_date": active.setup_9_date,
         "countdown_start_date": countdown_start_date,
         "gap_setup_to_cd_days": gap_setup_to_cd_days,
-        "days_setup_to_scan": days_setup_to_scan,
         "setup_bars": [
             {
                 "seq": b.seq,

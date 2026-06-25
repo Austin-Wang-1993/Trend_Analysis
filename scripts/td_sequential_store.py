@@ -46,7 +46,7 @@ TD_SEQUENTIAL_SETTINGS_META: dict[str, str] = {
     "td_vol_price_mode": "列2合格逻辑：or=缩量或锤子其一；and=须同时满足。",
     "td_countdown_near_min": "列3：Countdown 最少已计数。",
     "td_countdown_near_max": "列3：Countdown 最多已计数（未满13）。",
-    "td_countdown_after_setup_days": "列3：自九转完成日至扫描日最大交易日数。",
+    "td_countdown_after_setup_days": "列3：九转结束至十三转开始最大交易日数（区间间隔）。",
     "td_macd_fast": "MACD 快线周期。",
     "td_macd_slow": "MACD 慢线周期。",
     "td_macd_signal": "MACD 信号线周期。",
@@ -85,7 +85,6 @@ CREATE TABLE IF NOT EXISTS td_sequential_pick_v4 (
     stop_loss_price REAL,
     days_since_setup INTEGER,
     gap_setup_to_cd_days INTEGER,
-    days_setup_to_scan INTEGER,
     detail_json TEXT,
     updated_at TEXT,
     PRIMARY KEY (trade_date, stock_code)
@@ -132,8 +131,6 @@ class TdSequentialStore:
             cols = {r[1] for r in conn.execute("PRAGMA table_info(td_sequential_pick_v4)").fetchall()}
             if "gap_setup_to_cd_days" not in cols:
                 conn.execute("ALTER TABLE td_sequential_pick_v4 ADD COLUMN gap_setup_to_cd_days INTEGER")
-            if "days_setup_to_scan" not in cols:
-                conn.execute("ALTER TABLE td_sequential_pick_v4 ADD COLUMN days_setup_to_scan INTEGER")
 
     def replace_picks(self, trade_date: str, picks: list[dict[str, Any]]) -> None:
         now = datetime.now(CST).isoformat()
@@ -149,8 +146,8 @@ class TdSequentialStore:
                         vol_tag, lower_shadow_ratio, upper_shadow_ratio, body_ratio,
                         macd_hist_setup9, macd_hist_cd13, macd_div_type,
                         bars_setup_to_cd13, stop_loss_price, days_since_setup,
-                        gap_setup_to_cd_days, days_setup_to_scan, detail_json, updated_at
-                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        gap_setup_to_cd_days, detail_json, updated_at
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
                         trade_date,
                         row["stock_code"],
@@ -181,7 +178,6 @@ class TdSequentialStore:
                         row.get("stop_loss_price"),
                         row.get("days_since_setup"),
                         row.get("gap_setup_to_cd_days"),
-                        row.get("days_setup_to_scan"),
                         row.get("detail_json"),
                         now,
                     ),

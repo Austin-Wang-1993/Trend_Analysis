@@ -125,7 +125,7 @@ def test_evaluate_stock_td_col1():
 
 
 def test_gap_setup_to_cd_days_when_countdown_starts_next_day():
-    """九转结束日 05-28、十三转首次计数 05-29 → 区间间隔应为 1（非距扫描日）。"""
+    """九转结束日 05-28、十三转首次计数 05-29 → 区间间隔应为 1。"""
     dates = [f"2026-05-{i:02d}" for i in range(10, 32)] + [f"2026-06-{i:02d}" for i in range(1, 21)]
     setup_9_idx = dates.index("2026-05-28")
     cd_state = CountdownState(
@@ -146,5 +146,3 @@ def test_gap_setup_to_cd_days_when_countdown_starts_next_day():
     assert cd_start == "2026-05-29"
     gap = _trading_days_offset(dates, "2026-05-28", cd_start)
     assert gap == 1
-    days_to_scan = _trading_days_offset(dates, "2026-05-28", "2026-06-17")
-    assert days_to_scan is not None and days_to_scan > gap
