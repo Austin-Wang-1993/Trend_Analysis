@@ -95,7 +95,7 @@
       document.getElementById('filters').innerHTML = `
         <div><strong>量价（列2）</strong>：${yn(f.vol_price?.passed)} 标签=${volTagLabel(f.vol_price?.vol_tag)} 下影=${num(f.vol_price?.lower_ratio)} 大阴剔除=${yn(!f.vol_price?.rejected_bear)}</div>
         <div><strong>临近13（列3）</strong>：${yn(f.near13?.passed)} 计数=${f.near13?.cd_count ?? '—'} 区间间隔=${f.near13?.gap_setup_to_cd_days ?? '—'}日</div>
-        <div><strong>底背离（列5）</strong>：${yn(f.macd_div?.passed)} 价新低=${yn(f.macd_div?.price_lower)} MACD抬高=${yn(f.macd_div?.macd_higher)}</div>
+        <div><strong>底背离（列5）</strong>：${yn(f.macd_div?.passed)} P0=${f.macd_div?.p0_date || '—'} 进度=${num(f.macd_div?.closure_progress_eval, 2)} 参照=${f.macd_div?.refs_found ?? '—'} 价新低=${yn(f.macd_div?.price_lower_all ?? f.macd_div?.price_lower)} DIF抬高=${yn(f.macd_div?.dif_higher_all ?? f.macd_div?.macd_higher)}${f.macd_div?.reason ? ` <span class="footnote">(${f.macd_div.reason})</span>` : ''}</div>
       `;
     }
 

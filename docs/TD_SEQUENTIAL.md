@@ -1,6 +1,6 @@
 # 神奇九转（TD Sequential 抄底）v4.4
 
-> 状态：**已实现（v4.4）**  
+> 状态：**已实现（v4.5 列5 跨谷底背离）**  
 > 数据源：**Tushare Pro**（复用火车轨 OHLCV 缓存）  
 > 范围：**仅抄底买入**（下跌 Setup + 买入 Countdown）；**v1 不做逃顶**
 
@@ -275,24 +275,87 @@ countdown_13_date ∈ [T − lookback_days, T]
 stop_loss = setup_9_low * (1 - stop_loss_pct)    # 默认 stop_loss_pct = 0.03
 ```
 
-### 列 5 — 列 4 + 绿 13 底背离
+### 列 5 — 列 4 + 跨谷底 MACD 底背离（v4.5）
 
-在列 4 基础上，MACD 底背离：
+在列 4 基础上，对 **十三转计数区间** 内价格与 MACD **DIF 谷底** 做跨周期底背离判定（非九转日 vs 十三转日两点对比）。
+
+#### 4.5.1 术语
+
+| 术语 | 定义 |
+|------|------|
+| **十三转区间** | `countdown_bars[0].trade_date`（首次计数）→ `countdown_13_date`（第 13 次） |
+| **MACD 谷底区域** | DIF 局部峰值（起点）→ DIF 跌至谷底 → DIF 反弹；形态近 V/U |
+| **谷底起点** | DIF 局部极大值所在日（`peak_idx`） |
+| **谷底最低点** | 该区域内 DIF 最小值日（`trough_idx`） |
+| **已封闭** | 谷内先出现 DIF 下穿 DEA（死叉），再出现 DIF 上穿 DEA（金叉），成对成立 |
+| **封闭进度** | `(DIF[eval] − DIF[trough]) / (DIF[peak] − DIF[trough])` |
+| **收敛中** | 评估日进度 ≥ `macd_valley_close_pct`（默认 10%） |
+| **未收敛** | 评估日进度 &lt; 10%，信号无效 |
+
+判定统一使用 **DIF**；MACD 柱（hist）仅明细展示，不参与列 5 过滤。`td_macd_div_ref` 保留兼容，**不再影响列 5**。
+
+#### 4.5.2 决策流程
 
 ```text
-close[countdown_13] < close[setup_9]              # 价创新低（相对九转日）
-macd_ref[countdown_13] > macd_ref[setup_9]        # MACD 未创新低
+① 锁定十三转区间 [cd_start, cd_13]
+
+② 在区间内取价格最低点索引 p0_interval（Low 最小）
+
+③ 找到包含 p0_interval 的 DIF 谷底 V_target
+   （多谷时取 peak 最近 cd_13 的一段，即 peak_idx 最大者）
+
+④ 在 V_target ∩ 十三转区间内，取 Low 最小日为 P0（最终价格锚点）
+
+⑤ 计算 V_target 封闭进度（评估日 = countdown_13_date，即方案 B）
+   progress_eval ≥ macd_valley_close_pct → 继续；否则无效
+
+⑥ 从 V_target.peak_idx 的前一日起，向历史回溯
+   收集「已封闭」谷底，由近及远最多 macd_ref_valley_max（默认 3）个
+   至少 macd_ref_valley_min（默认 1）个；不足则无效
+   ※ 回溯起点是 P0 所在谷底起点，非十三转区间起点
+   ※ 十三转区间内可有多个 MACD 谷底，只以 P0 所属目标谷为界
+
+⑦ 对每个历史参照谷 R：在 R 封闭 span [peak, golden_cross] 内取 Low 最小日 R0
+
+⑧ 矩阵比较（全部成立才通过）：
+   Low(P0) < Low(R0)  且  DIF(P0) > DIF(R0)   （对每个 R）
 ```
 
-`macd_ref` 可配（默认 **`macd_hist`** = 2×(DIF−DEA)）：
+#### 4.5.3 实现要点
 
-| 选项 | 字段 |
-|------|------|
-| `hist`（默认） | MACD 柱 |
-| `dif` | DIF 线 |
-| `both` | 柱与 DIF 均抬高 |
+| 项 | 约定 |
+|----|------|
+| DIF 局部峰 | `dif[i] ≥ dif[i±1]`（忽略 NaN） |
+| 死叉 | `dif[i-1] ≥ dea[i-1]` 且 `dif[i] < dea[i]` |
+| 金叉 | `dif[i-1] ≤ dea[i-1]` 且 `dif[i] > dea[i]` |
+| 开放谷底 | 未封闭时 `end_idx` 取下一 DIF 峰或评估日 |
+| 历史 K 线 | 依赖 `td_history_days`（默认 120），起点过早可能缺参照 |
 
-MACD 参数：`macd_fast=12, macd_slow=26, macd_signal=9`（可配）。
+#### 4.5.4 明细 JSON（`filters.macd_div`）
+
+```json
+{
+  "passed": true,
+  "reason": null,
+  "p0_date": "2026-06-10",
+  "p0_low": 6.82,
+  "p0_dif": -0.15,
+  "eval_date": "2026-06-20",
+  "closure_progress_eval": 0.42,
+  "closure_progress_p0": 0.08,
+  "target_valley": { "peak_date": "...", "trough_date": "...", "closed": false },
+  "refs_found": 2,
+  "refs": [
+    { "peak_date": "...", "p0_date": "...", "p0_low": 7.1, "p0_dif": -0.22 }
+  ],
+  "price_lower_all": true,
+  "dif_higher_all": true,
+  "macd_hist_p0": -0.30,
+  "macd_hist_cd13": -0.12
+}
+```
+
+MACD 参数：`macd_fast=12, macd_slow=26, macd_signal=9`；`macd_valley_close_pct=0.10`；`macd_ref_valley_max=3`。
 
 ---
 
@@ -363,7 +426,7 @@ MACD 参数：`macd_fast=12, macd_slow=26, macd_signal=9`（可配）。
 | 2 | 量价 | + 量标签、下影比、上影比、实体比 |
 | 3 | 临近13 | + 当前计数、剩余次数、最近计数日 |
 | 4 | 十三转 | + 十三转日、间隔天数、止损参考 |
-| 5 | 底背离 | + MACD 柱(9/13)、背离类型 |
+| 5 | 底背离 | + P0 价/DIF、封闭进度、历史参照、矩阵比较结果 |
 
 行点击：跳转 **神奇九转个股明细子页**（见 §6.6），**非**通用 `stock-detail.html`。
 
@@ -399,7 +462,7 @@ MACD 参数：`macd_fast=12, macd_slow=26, macd_signal=9`（可配）。
 | **回溯** | `lookback_days`（窗内事件统计） |
 | **量价（列2）** | 缩量/放量比、下影/十字/大阴阈值、合格逻辑（或/且） |
 | **Countdown（列3–4）** | `countdown_near_min/max`、`countdown_after_setup_days`（默认 5） |
-| **MACD（列5）** | fast/slow/signal、背离参考字段 |
+| **MACD（列5）** | fast/slow/signal、`macd_valley_close_pct`、`macd_ref_valley_max/min` |
 | **风控展示** | `stop_loss_pct` |
 
 元数据字典 `TD_SEQUENTIAL_SETTINGS_META` 与火车轨 `TRAIN_TRACK_SETTINGS_META` 同模式。
@@ -433,7 +496,7 @@ MACD 参数：`macd_fast=12, macd_slow=26, macd_signal=9`（可配）。
 │ 【过滤器结果】（均针对 active_setup）                          │
 │  · 第9日量价：缩量/放量、上下影比、是否合格/是否大阴剔除        │
 │  · 列3：cd_count、区间间隔、是否临近13                          │
-│  · 列5：九转日 vs 十三转日 收盘、MACD 柱/DIF、是否底背离        │
+│  · 列5：P0、目标谷底、封闭进度、历史参照、底背离矩阵结果              │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -479,7 +542,13 @@ MACD 参数：`macd_fast=12, macd_slow=26, macd_signal=9`（可配）。
       "gap_setup_to_cd_days": 1,
       "countdown_start_date": "2026-06-19"
     },
-    "macd_div": { "passed": false }
+    "macd_div": {
+      "passed": false,
+      "reason": "insufficient_refs",
+      "p0_date": "2026-06-10",
+      "closure_progress_eval": 0.35,
+      "refs_found": 0
+    }
   },
   "max_col": 2
 }
@@ -540,7 +609,7 @@ CREATE TABLE IF NOT EXISTS td_sequential_pick_v4 (
     -- 列5 衍生
     macd_hist_setup9 REAL,
     macd_hist_cd13 REAL,
-    macd_div_type TEXT,                   -- hist / dif / both
+    macd_div_type TEXT,                   -- dif_valley（跨谷底）
 
     -- 列4 衍生
     bars_setup_to_cd13 INTEGER,
@@ -621,7 +690,10 @@ CREATE TABLE IF NOT EXISTS td_sequential_scan_jobs (
 | `td_macd_fast` | `12` | MACD | |
 | `td_macd_slow` | `26` | MACD | |
 | `td_macd_signal` | `9` | MACD | |
-| `td_macd_div_ref` | `hist` | MACD | `hist` / `dif` / `both` |
+| `td_macd_valley_close_pct` | `0.10` | MACD | 列5 目标谷底封闭进度下限 |
+| `td_macd_ref_valley_max` | `3` | MACD | 列5 历史参照谷底最多个数 |
+| `td_macd_ref_valley_min` | `1` | MACD | 列5 历史参照谷底最少个数 |
+| `td_macd_div_ref` | `hist` | MACD | 保留兼容；列5 判定用 DIF |
 | `td_stop_loss_pct` | `0.03` | 风控 | 止损展示：九转最低价下方比例 |
 
 ---

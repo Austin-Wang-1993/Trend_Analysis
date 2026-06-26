@@ -29,6 +29,9 @@ TD_SEQUENTIAL_SETTINGS_DEFAULTS: dict[str, str] = {
     "td_macd_fast": "12",
     "td_macd_slow": "26",
     "td_macd_signal": "9",
+    "td_macd_valley_close_pct": "0.10",
+    "td_macd_ref_valley_max": "3",
+    "td_macd_ref_valley_min": "1",
     "td_macd_div_ref": "hist",
     "td_stop_loss_pct": "0.03",
 }
@@ -50,7 +53,10 @@ TD_SEQUENTIAL_SETTINGS_META: dict[str, str] = {
     "td_macd_fast": "MACD 快线周期。",
     "td_macd_slow": "MACD 慢线周期。",
     "td_macd_signal": "MACD 信号线周期。",
-    "td_macd_div_ref": "列5底背离参考：hist / dif / both。",
+    "td_macd_valley_close_pct": "列5：目标谷底封闭进度下限（评估日=十三转完成日）。",
+    "td_macd_ref_valley_max": "列5：向前回溯最多参照谷底数。",
+    "td_macd_ref_valley_min": "列5：至少需要的已封闭参照谷底数。",
+    "td_macd_div_ref": "保留兼容；列5判定已统一用 DIF，柱仅展示。",
     "td_stop_loss_pct": "参考止损：九转最低价下方比例（仅展示）。",
 }
 

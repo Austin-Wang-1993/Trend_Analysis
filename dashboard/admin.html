@@ -143,6 +143,8 @@
           <input id="td_countdown_near_max" type="number" min="1" max="13" />
         </label>
         <label>区间间隔≤ <input id="td_countdown_after_setup_days" type="number" min="1" max="30" /> 日</label>
+        <label>谷底收敛≥ <input id="td_macd_valley_close_pct" type="number" step="0.01" min="0.01" max="1" /></label>
+        <label>参照谷底≤ <input id="td_macd_ref_valley_max" type="number" min="1" max="5" /> 个</label>
         <label>止损% <input id="td_stop_loss_pct" type="number" step="0.01" min="0.01" max="0.1" /></label>
         <button id="saveTdSettings">保存九转配置</button>
         <button id="runTdScan" type="button">立即重算九转</button>

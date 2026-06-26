@@ -119,6 +119,9 @@ class SettingsUpdate(BaseModel):
     td_macd_fast: int | None = Field(default=None, ge=5, le=20)
     td_macd_slow: int | None = Field(default=None, ge=10, le=40)
     td_macd_signal: int | None = Field(default=None, ge=3, le=20)
+    td_macd_valley_close_pct: float | None = Field(default=None, ge=0.01, le=1.0)
+    td_macd_ref_valley_max: int | None = Field(default=None, ge=1, le=5)
+    td_macd_ref_valley_min: int | None = Field(default=None, ge=1, le=5)
     td_macd_div_ref: str | None = Field(default=None, pattern="^(hist|dif|both)$")
     td_stop_loss_pct: float | None = Field(default=None, ge=0.01, le=0.1)
 

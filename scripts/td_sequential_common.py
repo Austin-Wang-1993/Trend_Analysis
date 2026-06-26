@@ -27,8 +27,21 @@ class TdSequentialParams:
     macd_fast: int = 12
     macd_slow: int = 26
     macd_signal: int = 9
-    macd_div_ref: str = "hist"  # hist | dif | both
+    macd_valley_close_pct: float = 0.10
+    macd_ref_valley_max: int = 3
+    macd_ref_valley_min: int = 1
+    macd_div_ref: str = "hist"  # 保留兼容；列5判定已统一用 DIF
     stop_loss_pct: float = 0.03
+
+
+@dataclass
+class MacdValley:
+    peak_idx: int
+    trough_idx: int
+    end_idx: int
+    closed: bool
+    death_cross_idx: int | None = None
+    golden_cross_idx: int | None = None
 
 
 @dataclass
@@ -89,6 +102,9 @@ def parse_td_params(settings: dict[str, str]) -> TdSequentialParams:
         macd_fast=int(settings.get("td_macd_fast", "12")),
         macd_slow=int(settings.get("td_macd_slow", "26")),
         macd_signal=int(settings.get("td_macd_signal", "9")),
+        macd_valley_close_pct=float(settings.get("td_macd_valley_close_pct", "0.10")),
+        macd_ref_valley_max=int(settings.get("td_macd_ref_valley_max", "3")),
+        macd_ref_valley_min=int(settings.get("td_macd_ref_valley_min", "1")),
         macd_div_ref=str(settings.get("td_macd_div_ref", "hist")).lower(),
         stop_loss_pct=float(settings.get("td_stop_loss_pct", "0.03")),
     )
@@ -189,67 +205,255 @@ def compute_macd_series(
     return dif, dea, hist
 
 
-def _macd_ref_value(
-    dif: pd.Series,
-    hist: pd.Series,
-    idx: int,
-    ref: str,
-) -> float | None:
-    if ref == "dif":
-        v = dif.iloc[idx]
-    elif ref == "both":
-        d, h = dif.iloc[idx], hist.iloc[idx]
-        if pd.isna(d) or pd.isna(h):
-            return None
-        return float(d + h)
-    else:
-        v = hist.iloc[idx]
-    return float(v) if pd.notna(v) else None
+def _dif_local_peaks(dif: np.ndarray, *, start: int, end: int) -> list[int]:
+    peaks: list[int] = []
+    for i in range(max(start, 1), min(end, len(dif) - 1)):
+        if np.isnan(dif[i]) or np.isnan(dif[i - 1]) or np.isnan(dif[i + 1]):
+            continue
+        if dif[i] >= dif[i - 1] and dif[i] > dif[i + 1]:
+            peaks.append(i)
+        elif dif[i] > dif[i - 1] and dif[i] >= dif[i + 1]:
+            peaks.append(i)
+    return peaks
+
+
+def _macd_cross_below(dif: float, dea: float, prev_dif: float, prev_dea: float) -> bool:
+    return prev_dif >= prev_dea and dif < dea
+
+
+def _macd_cross_above(dif: float, dea: float, prev_dif: float, prev_dea: float) -> bool:
+    return prev_dif <= prev_dea and dif > dea
+
+
+def enumerate_macd_valleys(
+    dif: np.ndarray,
+    dea: np.ndarray,
+    *,
+    end_idx: int,
+) -> list[MacdValley]:
+    """自序列起点至 end_idx 枚举 DIF 谷底区域。"""
+    peaks = _dif_local_peaks(dif, start=1, end=end_idx - 1)
+    if not peaks:
+        return []
+    valleys: list[MacdValley] = []
+    for pi, peak_idx in enumerate(peaks):
+        next_peak = peaks[pi + 1] if pi + 1 < len(peaks) else end_idx
+        search_end = min(next_peak, end_idx)
+        trough_idx = peak_idx
+        min_dif = float(dif[peak_idx])
+        death: int | None = None
+        golden: int | None = None
+        for i in range(peak_idx + 1, search_end + 1):
+            if np.isnan(dif[i]):
+                continue
+            if float(dif[i]) < min_dif:
+                min_dif = float(dif[i])
+                trough_idx = i
+            if i >= 1 and not np.isnan(dif[i - 1]) and not np.isnan(dea[i]) and not np.isnan(dea[i - 1]):
+                if death is None and _macd_cross_below(
+                    float(dif[i]), float(dea[i]), float(dif[i - 1]), float(dea[i - 1])
+                ):
+                    death = i
+                if death is not None and golden is None and _macd_cross_above(
+                    float(dif[i]), float(dea[i]), float(dif[i - 1]), float(dea[i - 1])
+                ):
+                    golden = i
+                    break
+        closed = death is not None and golden is not None
+        valley_end = golden if closed and golden is not None else search_end
+        valleys.append(
+            MacdValley(
+                peak_idx=peak_idx,
+                trough_idx=trough_idx,
+                end_idx=valley_end,
+                closed=closed,
+                death_cross_idx=death,
+                golden_cross_idx=golden,
+            )
+        )
+    return valleys
+
+
+def _valley_closure_progress(
+    dif: np.ndarray,
+    peak_idx: int,
+    trough_idx: int,
+    eval_idx: int,
+) -> float:
+    peak_v = float(dif[peak_idx])
+    trough_v = float(dif[trough_idx])
+    eval_v = float(dif[eval_idx])
+    depth = peak_v - trough_v
+    if depth <= 1e-12:
+        return 1.0 if eval_v >= trough_v else 0.0
+    return max(0.0, (eval_v - trough_v) / depth)
+
+
+def _valley_price_low_idx(lows: np.ndarray, valley: MacdValley) -> int:
+    end = (
+        valley.golden_cross_idx
+        if valley.closed and valley.golden_cross_idx is not None
+        else valley.end_idx
+    )
+    seg = lows[valley.peak_idx : end + 1]
+    return valley.peak_idx + int(np.argmin(seg))
+
+
+def _select_target_valley(
+    valleys: list[MacdValley],
+    anchor_idx: int,
+    cd_start: int,
+    cd_end: int,
+) -> MacdValley | None:
+    containing = [v for v in valleys if v.peak_idx <= anchor_idx <= v.end_idx]
+    if containing:
+        return max(containing, key=lambda v: v.peak_idx)
+    overlapping = [
+        v for v in valleys if not (v.end_idx < cd_start or v.peak_idx > cd_end)
+    ]
+    if not overlapping:
+        return None
+    return max(overlapping, key=lambda v: v.peak_idx)
+
+
+def _refine_p0_idx(
+    lows: np.ndarray,
+    valley: MacdValley,
+    cd_start: int,
+    cd_end: int,
+) -> int:
+    a = max(valley.peak_idx, cd_start)
+    b = min(valley.end_idx, cd_end)
+    if a > b:
+        return a
+    return a + int(np.argmin(lows[a : b + 1]))
+
+
+def _macd_valley_to_dict(dates: list[str], valley: MacdValley) -> dict[str, Any]:
+    return {
+        "peak_date": dates[valley.peak_idx],
+        "trough_date": dates[valley.trough_idx],
+        "end_date": dates[valley.end_idx],
+        "closed": valley.closed,
+        "death_cross_date": dates[valley.death_cross_idx] if valley.death_cross_idx is not None else None,
+        "golden_cross_date": dates[valley.golden_cross_idx] if valley.golden_cross_idx is not None else None,
+    }
 
 
 def evaluate_macd_divergence(
     closes: pd.Series,
-    setup_idx: int,
+    lows: pd.Series,
+    dates: list[str],
+    cd_start_idx: int,
     cd13_idx: int | None,
     params: TdSequentialParams,
 ) -> dict[str, Any]:
-    if cd13_idx is None:
-        return {"passed": False, "reason": "no_cd13"}
-    dif, _, hist = compute_macd_series(
+    """跨谷底 MACD 底背离（列 5）；评估日 = countdown_13_date。"""
+    empty: dict[str, Any] = {"passed": False}
+    if cd13_idx is None or cd_start_idx > cd13_idx:
+        return {**empty, "reason": "no_cd13"}
+    dif_s, dea_s, hist_s = compute_macd_series(
         closes,
         fast=params.macd_fast,
         slow=params.macd_slow,
         signal=params.macd_signal,
     )
-    c9 = float(closes.iloc[setup_idx])
-    c13 = float(closes.iloc[cd13_idx])
-    h9 = _macd_ref_value(dif, hist, setup_idx, params.macd_div_ref)
-    h13 = _macd_ref_value(dif, hist, cd13_idx, params.macd_div_ref)
-    if h9 is None or h13 is None:
-        return {"passed": False, "reason": "macd_nan", "macd_hist_setup9": h9, "macd_hist_cd13": h13}
-    price_lower = c13 < c9
-    if params.macd_div_ref == "both":
-        d9, d13 = float(dif.iloc[setup_idx]), float(dif.iloc[cd13_idx])
-        macd_higher = h13 > h9 and d13 > d9
-        div_type = "both"
-    elif params.macd_div_ref == "dif":
-        macd_higher = h13 > h9
-        div_type = "dif"
-    else:
-        macd_higher = h13 > h9
-        div_type = "hist"
-    passed = price_lower and macd_higher
+    dif = dif_s.to_numpy(dtype=float)
+    dea = dea_s.to_numpy(dtype=float)
+    hist = hist_s.to_numpy(dtype=float)
+    low_arr = lows.to_numpy(dtype=float)
+
+    if np.isnan(dif[cd13_idx]) or np.isnan(low_arr[cd_start_idx : cd13_idx + 1]).any():
+        return {**empty, "reason": "macd_nan"}
+
+    p0_interval_idx = cd_start_idx + int(np.argmin(low_arr[cd_start_idx : cd13_idx + 1]))
+    valleys = enumerate_macd_valleys(dif, dea, end_idx=cd13_idx)
+    target = _select_target_valley(valleys, p0_interval_idx, cd_start_idx, cd13_idx)
+    if target is None:
+        return {**empty, "reason": "no_target_valley", "p0_interval_date": dates[p0_interval_idx]}
+
+    p0_idx = _refine_p0_idx(low_arr, target, cd_start_idx, cd13_idx)
+    progress_eval = _valley_closure_progress(dif, target.peak_idx, target.trough_idx, cd13_idx)
+    progress_p0 = _valley_closure_progress(dif, target.peak_idx, target.trough_idx, p0_idx)
+
+    if progress_eval < params.macd_valley_close_pct:
+        return {
+            **empty,
+            "reason": "not_converged",
+            "p0_date": dates[p0_idx],
+            "p0_low": float(low_arr[p0_idx]),
+            "p0_dif": float(dif[p0_idx]),
+            "eval_date": dates[cd13_idx],
+            "closure_progress_eval": progress_eval,
+            "closure_progress_p0": progress_p0,
+            "target_valley": _macd_valley_to_dict(dates, target),
+        }
+
+    prior_closed = [
+        v for v in valleys if v.closed and v.peak_idx < target.peak_idx
+    ]
+    prior_closed.sort(key=lambda v: v.peak_idx, reverse=True)
+    refs = prior_closed[: params.macd_ref_valley_max]
+    if len(refs) < params.macd_ref_valley_min:
+        return {
+            **empty,
+            "reason": "insufficient_refs",
+            "refs_found": len(refs),
+            "p0_date": dates[p0_idx],
+            "target_valley": _macd_valley_to_dict(dates, target),
+            "closure_progress_eval": progress_eval,
+        }
+
+    ref_rows: list[dict[str, Any]] = []
+    price_lower_all = True
+    dif_higher_all = True
+    p0_low = float(low_arr[p0_idx])
+    p0_dif = float(dif[p0_idx])
+
+    for rv in refs:
+        r0_idx = _valley_price_low_idx(low_arr, rv)
+        r0_low = float(low_arr[r0_idx])
+        r0_dif = float(dif[r0_idx])
+        pl = p0_low < r0_low
+        dh = p0_dif > r0_dif
+        price_lower_all = price_lower_all and pl
+        dif_higher_all = dif_higher_all and dh
+        ref_rows.append(
+            {
+                "peak_date": dates[rv.peak_idx],
+                "golden_cross_date": dates[rv.golden_cross_idx] if rv.golden_cross_idx is not None else None,
+                "p0_date": dates[r0_idx],
+                "p0_low": r0_low,
+                "p0_dif": r0_dif,
+                "price_lower": pl,
+                "dif_higher": dh,
+            }
+        )
+
+    passed = price_lower_all and dif_higher_all
     return {
         "passed": passed,
-        "price_lower": price_lower,
-        "macd_higher": macd_higher,
-        "macd_hist_setup9": float(hist.iloc[setup_idx]) if pd.notna(hist.iloc[setup_idx]) else None,
-        "macd_hist_cd13": float(hist.iloc[cd13_idx]) if pd.notna(hist.iloc[cd13_idx]) else None,
-        "macd_dif_setup9": float(dif.iloc[setup_idx]) if pd.notna(dif.iloc[setup_idx]) else None,
-        "macd_dif_cd13": float(dif.iloc[cd13_idx]) if pd.notna(dif.iloc[cd13_idx]) else None,
-        "close_setup9": c9,
-        "close_cd13": c13,
-        "macd_div_type": div_type if passed else None,
+        "reason": None if passed else "divergence_failed",
+        "price_lower": price_lower_all,
+        "macd_higher": dif_higher_all,
+        "price_lower_all": price_lower_all,
+        "dif_higher_all": dif_higher_all,
+        "p0_date": dates[p0_idx],
+        "p0_low": p0_low,
+        "p0_dif": p0_dif,
+        "eval_date": dates[cd13_idx],
+        "closure_progress_eval": progress_eval,
+        "closure_progress_p0": progress_p0,
+        "target_valley": _macd_valley_to_dict(dates, target),
+        "refs_found": len(ref_rows),
+        "refs": ref_rows,
+        "macd_hist_p0": float(hist[p0_idx]) if pd.notna(hist[p0_idx]) else None,
+        "macd_hist_cd13": float(hist[cd13_idx]) if pd.notna(hist[cd13_idx]) else None,
+        "macd_dif_p0": p0_dif,
+        "macd_dif_cd13": float(dif[cd13_idx]),
+        "macd_hist_setup9": float(hist[p0_idx]) if pd.notna(hist[p0_idx]) else None,
+        "macd_dif_setup9": p0_dif,
+        "macd_div_type": "dif_valley" if passed else None,
     }
 
 
@@ -485,9 +689,16 @@ def evaluate_stock_td(
 
     closes_s = pd.Series(closes)
     cd13_idx = dates.index(cd_state.countdown_13_date) if cd_state.countdown_13_date else None
+    cd_start_idx = (
+        dates.index(cd_state.countdown_bars[0].trade_date)
+        if cd_state.countdown_bars
+        else active.setup_9_idx + 1
+    )
     macd_div = evaluate_macd_divergence(
         closes_s,
-        active.setup_9_idx,
+        pd.Series(lows),
+        dates,
+        cd_start_idx,
         cd13_idx,
         p,
     ) if col4 else {"passed": False}
