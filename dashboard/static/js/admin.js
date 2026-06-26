@@ -55,6 +55,7 @@ function collectTdSettings() {
     td_countdown_near_max: Number(document.getElementById('td_countdown_near_max').value || 13),
     td_countdown_after_setup_days: Number(document.getElementById('td_countdown_after_setup_days').value || 5),
     td_macd_valley_close_pct: Number(document.getElementById('td_macd_valley_close_pct').value || 0.10),
+    td_macd_ref_valley_min: Number(document.getElementById('td_macd_ref_valley_min').value || 1),
     td_macd_ref_valley_max: Number(document.getElementById('td_macd_ref_valley_max').value || 3),
     td_stop_loss_pct: Number(document.getElementById('td_stop_loss_pct').value || 0.03),
   };
@@ -256,6 +257,7 @@ function applySettings(s) {
     document.getElementById('td_countdown_near_max').value = s.td_countdown_near_max || '13';
     document.getElementById('td_countdown_after_setup_days').value = s.td_countdown_after_setup_days || '5';
     document.getElementById('td_macd_valley_close_pct').value = s.td_macd_valley_close_pct || '0.10';
+    document.getElementById('td_macd_ref_valley_min').value = s.td_macd_ref_valley_min || '1';
     document.getElementById('td_macd_ref_valley_max').value = s.td_macd_ref_valley_max || '3';
     document.getElementById('td_stop_loss_pct').value = s.td_stop_loss_pct || '0.03';
   }

@@ -462,7 +462,7 @@ MACD 参数：`macd_fast=12, macd_slow=26, macd_signal=9`；`macd_valley_close_p
 | **回溯** | `lookback_days`（窗内事件统计） |
 | **量价（列2）** | 缩量/放量比、下影/十字/大阴阈值、合格逻辑（或/且） |
 | **Countdown（列3–4）** | `countdown_near_min/max`、`countdown_after_setup_days`（默认 5） |
-| **MACD（列5）** | fast/slow/signal、`macd_valley_close_pct`、`macd_ref_valley_max/min` |
+| **MACD（列5）** | fast/slow/signal、`macd_valley_close_pct`、参照谷底 **最少–最多**（`macd_ref_valley_min`–`macd_ref_valley_max`） |
 | **风控展示** | `stop_loss_pct` |
 
 元数据字典 `TD_SEQUENTIAL_SETTINGS_META` 与火车轨 `TRAIN_TRACK_SETTINGS_META` 同模式。

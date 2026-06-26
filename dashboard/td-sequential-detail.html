@@ -15,6 +15,7 @@
     table.det th.tl, table.det td.tl { text-align: left; }
     .ok { color: #22c55e; } .no { color: #ef4444; }
     .filter-box { font-size: 13px; color: #94a3b8; line-height: 1.9; }
+    .macd-sub { margin-top: 10px; }
   </style>
 </head>
 <body>
@@ -73,6 +74,58 @@
       </tr></thead><tbody>${rows}</tbody></table>`;
     }
 
+    function macdReasonLabel(code) {
+      const map = {
+        no_cd13: '未完成十三转',
+        macd_nan: 'MACD 数据不足',
+        no_target_valley: '未识别目标谷底',
+        not_converged: '谷底未收敛',
+        insufficient_refs: '历史参照不足',
+        divergence_failed: '矩阵比较未通过',
+      };
+      return map[code] || code || '';
+    }
+
+    function renderMacdDivDetail(md) {
+      if (!md || (!md.p0_date && !md.reason)) {
+        return '<p class="footnote">暂无底背离数据（需先达成列4 十三转）</p>';
+      }
+      const tv = md.target_valley || {};
+      const pct = v => v == null ? '—' : `${(Number(v) * 100).toFixed(1)}%`;
+      let html = `
+        <div><strong>底背离（列5）</strong>：${yn(md.passed)}${md.reason ? ` <span class="footnote">（${macdReasonLabel(md.reason)}）</span>` : ''}</div>
+        <div><strong>P0</strong>：${md.p0_date || '—'} · Low ${num(md.p0_low)} · DIF ${num(md.p0_dif, 3)}</div>
+        <div><strong>评估日</strong>：${md.eval_date || '—'} · 封闭进度 ${pct(md.closure_progress_eval)}（P0日 ${pct(md.closure_progress_p0)}）</div>
+        <div><strong>目标谷底</strong>：峰 ${tv.peak_date || '—'} → 谷 ${tv.trough_date || '—'} · ${tv.closed ? '已封闭' : '收敛中'}${tv.golden_cross_date ? ` · 金叉 ${tv.golden_cross_date}` : ''}</div>
+      `;
+      const refs = md.refs || [];
+      if (refs.length) {
+        const rows = refs.map((r, i) => `<tr>
+          <td class="tl">#${i + 1}</td>
+          <td class="tl">${r.peak_date || '—'}</td>
+          <td class="tl">${r.p0_date}</td>
+          <td>${num(r.p0_low)}</td>
+          <td>${num(r.p0_dif, 3)}</td>
+          <td>${yn(r.price_lower)}</td>
+          <td>${yn(r.dif_higher)}</td>
+        </tr>`).join('');
+        html += `<div class="macd-sub table-wrap"><table class="det"><thead><tr>
+          <th class="tl">#</th><th class="tl">参照峰日</th><th class="tl">参照低点日</th>
+          <th>参照Low</th><th>参照DIF</th><th>价新低</th><th>DIF抬高</th>
+        </tr></thead><tbody>${rows}
+        <tr>
+          <td class="tl" colspan="3"><strong>当前 P0</strong>（${md.p0_date}）</td>
+          <td>${num(md.p0_low)}</td>
+          <td>${num(md.p0_dif, 3)}</td>
+          <td>${yn(md.price_lower_all ?? md.price_lower)}</td>
+          <td>${yn(md.dif_higher_all ?? md.macd_higher)}</td>
+        </tr></tbody></table></div>`;
+      } else if (md.reason === 'insufficient_refs' || md.refs_found === 0) {
+        html += '<p class="footnote macd-sub">未找到足够的历史已封闭参照谷底</p>';
+      }
+      return html;
+    }
+
     async function load() {
       if (!code) {
         document.getElementById('status').textContent = '缺少股票代码';
@@ -95,7 +148,7 @@
       document.getElementById('filters').innerHTML = `
         <div><strong>量价（列2）</strong>：${yn(f.vol_price?.passed)} 标签=${volTagLabel(f.vol_price?.vol_tag)} 下影=${num(f.vol_price?.lower_ratio)} 大阴剔除=${yn(!f.vol_price?.rejected_bear)}</div>
         <div><strong>临近13（列3）</strong>：${yn(f.near13?.passed)} 计数=${f.near13?.cd_count ?? '—'} 区间间隔=${f.near13?.gap_setup_to_cd_days ?? '—'}日</div>
-        <div><strong>底背离（列5）</strong>：${yn(f.macd_div?.passed)} P0=${f.macd_div?.p0_date || '—'} 进度=${num(f.macd_div?.closure_progress_eval, 2)} 参照=${f.macd_div?.refs_found ?? '—'} 价新低=${yn(f.macd_div?.price_lower_all ?? f.macd_div?.price_lower)} DIF抬高=${yn(f.macd_div?.dif_higher_all ?? f.macd_div?.macd_higher)}${f.macd_div?.reason ? ` <span class="footnote">(${f.macd_div.reason})</span>` : ''}</div>
+        ${renderMacdDivDetail(f.macd_div)}
       `;
     }
 
