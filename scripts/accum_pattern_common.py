@@ -22,7 +22,6 @@ class AccumPatternParams:
     price_rise_min: float = 0.30
     wash_mult: float = 1.5
     vol_shrink_max: float = 1.1
-    vol_wash_max_over_days: int = 1
     vol_wash_max_consecutive_over: int = 2
     vol_reset_trigger: float = 2.0
     drawdown_min: float = 0.60
@@ -64,7 +63,6 @@ def parse_accum_params(settings: dict[str, str]) -> AccumPatternParams:
         price_rise_min=float(settings.get("accum_price_rise_min", "0.30")),
         wash_mult=float(settings.get("accum_wash_mult", "1.5")),
         vol_shrink_max=float(settings.get("accum_vol_shrink_max", "1.1")),
-        vol_wash_max_over_days=int(settings.get("accum_vol_wash_max_over_days", "1")),
         vol_wash_max_consecutive_over=int(
             settings.get("accum_vol_wash_max_consecutive_over", "2")
         ),
@@ -271,7 +269,6 @@ def run_wash_phase(
 
     rise_amp = peak_body_high - start_body_low
     wash_low = peak_body_high
-    over_days = 0
     consec_over = 0
     wash_days_done = 0
     wash_end_idx: int | None = None
@@ -288,11 +285,8 @@ def run_wash_phase(
 
         over = vol >= params.vol_shrink_max * ma5
         if over:
-            over_days += 1
             consec_over += 1
             if consec_over >= params.vol_wash_max_consecutive_over:
-                return None, None
-            if over_days > params.vol_wash_max_over_days:
                 return None, None
         else:
             consec_over = 0
@@ -451,7 +445,6 @@ _EXPAND_FAIL_ZH: dict[str, str] = {
 _WASH_FAIL_ZH: dict[str, str] = {
     "reset": "洗盘期再放量，形态应从此日重置",
     "consecutive_over": "洗盘期连续缩量超标",
-    "over_days": "洗盘期缩量超标天数超过容忍",
     "no_wash_days": "截至扫描日尚未进入洗盘或洗盘无有效交易日",
     "before_wash": "扫描日仍在放量段内，洗盘尚未开始",
 }
@@ -618,7 +611,6 @@ def diagnose_pattern_from_t0(
 
     m_target = max(1, int(params.wash_mult * n_days))
     wash_days: list[dict[str, Any]] = []
-    over_days = 0
     consec_over = 0
     wash_fail: str | None = None
     fail_date: str | None = None
@@ -649,17 +641,12 @@ def diagnose_pattern_from_t0(
         over = vol >= params.vol_shrink_max * ma5
         passed = not over
         if over:
-            over_days += 1
             consec_over += 1
             reason = None
             if consec_over >= params.vol_wash_max_consecutive_over:
                 wash_fail = "consecutive_over"
                 fail_date = dates[i]
                 reason = "consecutive_over"
-            elif over_days > params.vol_wash_max_over_days:
-                wash_fail = "over_days"
-                fail_date = dates[i]
-                reason = "over_days"
         else:
             consec_over = 0
             reason = None

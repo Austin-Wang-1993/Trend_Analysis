@@ -120,7 +120,6 @@ function collectAccumSettings() {
     accum_price_rise_min: Number(document.getElementById('accum_price_rise_min').value || 0.30),
     accum_wash_mult: Number(document.getElementById('accum_wash_mult').value || 1.5),
     accum_vol_shrink_max: Number(document.getElementById('accum_vol_shrink_max').value || 1.1),
-    accum_vol_wash_max_over_days: Number(document.getElementById('accum_vol_wash_max_over_days').value || 1),
     accum_vol_wash_max_consecutive_over: Number(document.getElementById('accum_vol_wash_max_consecutive_over').value || 2),
     accum_vol_reset_trigger: Number(document.getElementById('accum_vol_reset_trigger').value || 2.0),
     accum_drawdown_min: Number(document.getElementById('accum_drawdown_min').value || 0.60),
@@ -350,7 +349,6 @@ function applySettings(s) {
     document.getElementById('accum_price_rise_min').value = s.accum_price_rise_min || '0.30';
     document.getElementById('accum_wash_mult').value = s.accum_wash_mult || '1.5';
     document.getElementById('accum_vol_shrink_max').value = s.accum_vol_shrink_max || '1.1';
-    document.getElementById('accum_vol_wash_max_over_days').value = s.accum_vol_wash_max_over_days || '1';
     document.getElementById('accum_vol_wash_max_consecutive_over').value = s.accum_vol_wash_max_consecutive_over || '2';
     document.getElementById('accum_vol_reset_trigger').value = s.accum_vol_reset_trigger || '2.0';
     document.getElementById('accum_drawdown_min').value = s.accum_drawdown_min || '0.60';

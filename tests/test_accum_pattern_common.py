@@ -118,6 +118,40 @@ def test_wash_in_progress_listed():
     assert pat.listed is True
 
 
+def test_wash_non_consecutive_over_allowed():
+    """洗盘期分散超标日不失败，仅连续超标才失败。"""
+    dates = _dates(20)
+    opens = np.full(20, 10.0)
+    closes = np.full(20, 10.5)
+    vols = np.full(20, 50.0)
+    vols[5:8] = 500.0
+    closes[7] = 14.0
+    # wash: low vol with two single-day overs separated by ok days
+    vols[8:14] = 40.0
+    vols[9] = 120.0   # over at wash day 2
+    vols[11] = 120.0  # over again after reset, not consecutive
+
+    params = AccumPatternParams(vol_min_days=3, price_rise_min=0.25, wash_mult=1.0)
+    pat = find_latest_pattern(dates, opens, closes, vols, params, dates[9])
+    assert pat is not None
+    assert pat.phase in ("wash_in_progress", "wash_complete")
+
+
+def test_wash_consecutive_over_fails():
+    dates = _dates(18)
+    opens = np.full(18, 10.0)
+    closes = np.full(18, 10.5)
+    vols = np.full(18, 50.0)
+    vols[5:8] = 500.0
+    closes[7] = 14.0
+    vols[8:12] = 40.0
+    vols[9] = 120.0
+    vols[10] = 120.0  # consecutive over
+
+    pat = find_latest_pattern(dates, opens, closes, vols, AccumPatternParams(price_rise_min=0.25), dates[11])
+    assert pat is None
+
+
 def test_wash_reset_restarts():
     dates = _dates(25)
     opens = np.full(25, 10.0)
