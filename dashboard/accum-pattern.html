@@ -45,7 +45,7 @@
       </label>
     </div>
     <p class="legend">
-      全 A（排除 ST、停牌）：T₁ 集中放量（N≥3、实体涨≥30%）后进入 T₂ 缩量洗盘观察期 M=int(k×N)。
+      全 A（排除 ST、停牌）：T₁ 集中放量（N≥3、折线涨≥30%）后进入 T₂ 缩量洗盘观察期 M=int(k×N)。
       <strong>洗盘进行中即入选</strong>（锚点 B）。价格前复权实体价，量用原始 vol 对比 MA5。
       参数见 <a href="/admin.html#accum-pattern-config">管理页</a>。
     </p>
@@ -130,7 +130,7 @@
       </tr>`).join('');
       tableWrap.innerHTML = `<table class="ap"><thead><tr>
         <th class="tl">代码</th><th class="tl">名称</th><th class="tl">板块</th>
-        <th>阶段</th><th>T₀</th><th>N</th><th>洗盘</th><th>实体涨幅</th><th>回撤%</th><th>收盘(qfq)</th>
+        <th>阶段</th><th>T₀</th><th>N</th><th>洗盘</th><th>折线涨幅</th><th>回撤%</th><th>收盘(qfq)</th>
       </tr></thead><tbody>${rows}</tbody></table>`;
       tableWrap.querySelectorAll('tbody tr').forEach(tr => {
         tr.onclick = () => {
@@ -147,9 +147,14 @@
       const steps = (r.steps || []).map(s => {
         const icon = { pass: '✓', fail: '✗', warn: '△', skip: '○' }[s.status] || '?';
         let extra = '';
-        if (s.id === 'expand_volume' && s.days) {
+        if (s.id === 'expand_volume' && s.days && r.failed_at === 'expand_volume') {
           const bad = s.days.filter(d => !d.passed).slice(0, 3);
-          if (bad.length) extra = `<div class="diag-detail">未达标日示例：${bad.map(d => `${d.trade_date} 量比${num(d.vol_ratio)}`).join('；')}</div>`;
+          if (bad.length) {
+            extra = `<div class="diag-detail">量能未达标示例：${bad.map(d => {
+              const thr = d.threshold_mult != null ? num(d.threshold_mult, 1) : '—';
+              return `${d.trade_date} 量/MA5=${num(d.vol_ratio)}（需≥${thr}）`;
+            }).join('；')}</div>`;
+          }
         }
         if (s.id === 'wash_volume' && s.days) {
           const bad = s.days.filter(d => !d.passed).slice(0, 3);

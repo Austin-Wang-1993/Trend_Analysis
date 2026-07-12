@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from accum_pattern_common import (
     AccumPatternParams,
+    _expand_polyline_rise,
     apply_qfq_panel,
     diagnose_pattern_from_t0,
     diagnose_stock_accum,
@@ -24,6 +25,61 @@ from accum_pattern_common import (
 def _dates(n: int, start: str = "2026-01-01") -> list[str]:
     base = pd.Timestamp(start)
     return [(base + pd.Timedelta(days=i)).strftime("%Y-%m-%d") for i in range(n)]
+
+
+def test_expand_polyline_rise_connection_points():
+    """折线涨幅：阳线收盘、阴线开盘连接；非 T₀ 实体低起点。"""
+    dates = _dates(12)
+    opens = np.full(12, 10.0)
+    closes = np.full(12, 10.5)
+    vols = np.full(12, 50.0)
+    # T₀ 阳线，实体低 11；后续阴线连接点更低
+    opens[5] = 11.0
+    closes[5] = 12.0
+    opens[6] = 9.5
+    closes[6] = 10.0
+    opens[7] = 10.5
+    closes[7] = 13.2
+    vols[5:8] = 500.0
+
+    rise, poly_high, poly_low = _expand_polyline_rise(5, 7, opens, closes)
+    # 连接点 12, 10, 13.2 → 最低 10，最高 13.2 → 32%
+    assert poly_low == 10.0
+    assert poly_high == 13.2
+    assert abs(rise - 0.32) < 0.001
+
+    params = AccumPatternParams(vol_min_days=3, price_rise_min=0.30)
+    end, rise_out, _, _ = run_expand_phase(5, dates, opens, closes, vols, params)
+    assert end == 7
+    assert rise_out >= 0.30
+
+
+def test_diagnose_price_fail_separate_from_volume():
+    """涨幅失败应落在 expand_price，而非 expand_volume。"""
+    dates = _dates(12)
+    opens = np.full(12, 10.0)
+    closes = np.full(12, 10.5)
+    vols = np.full(12, 50.0)
+    opens[5] = 11.0
+    closes[5] = 11.2
+    opens[6] = 11.1
+    closes[6] = 11.0
+    opens[7] = 11.0
+    closes[7] = 11.3
+    vols[5:8] = 500.0
+
+    r = diagnose_pattern_from_t0(
+        dates,
+        opens,
+        closes,
+        vols,
+        AccumPatternParams(vol_min_days=3, price_rise_min=0.30),
+        t0_date=dates[5],
+        scan_date=dates[10],
+    )
+    assert r["failed_at"] == "expand_price"
+    vol_step = next(s for s in r["steps"] if s["id"] == "expand_volume")
+    assert vol_step["status"] == "pass"
 
 
 def test_expand_min_days_and_price_rise():

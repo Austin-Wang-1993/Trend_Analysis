@@ -42,7 +42,7 @@
       content.innerHTML = `
         <div>扫描日：${d.trade_date || '—'} · T₀：${d.t0_date} · 放量结束：${d.expand_end_date}</div>
         <div>N=${d.n_days} · M=${d.m_target} · 已洗盘 ${d.wash_days_done} 日 · 阶段：${d.phase}</div>
-        <div>实体涨幅 ${num(d.price_rise_pct)}% · 回撤 ${num(d.drawdown_ratio)}% ${d.drawdown_ok ? '✓' : ''}</div>
+        <div>折线涨幅 ${num(d.price_rise_pct)}% · 回撤 ${num(d.drawdown_ratio)}% ${d.drawdown_ok ? '✓' : ''}</div>
         <div>峰值实体 ${num(d.peak_body_high)} · 起点实体低 ${num(d.start_body_low)}</div>
       `;
       const bars = d.wash_bars || [];

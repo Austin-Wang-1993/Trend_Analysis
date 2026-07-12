@@ -90,6 +90,28 @@ def _body_low(o: float, c: float) -> float:
     return min(o, c)
 
 
+def _expand_connection_price(o: float, c: float) -> float:
+    """上涨折线连接点：阳线取收盘价，阴线取开盘价。"""
+    return c if c >= o else o
+
+
+def _expand_polyline_rise(
+    t0_idx: int,
+    expand_end: int,
+    opens: np.ndarray,
+    closes: np.ndarray,
+) -> tuple[float, float, float]:
+    """放量窗口 [T₀, expand_end] 内折线最高相对最低的涨幅。"""
+    points = [
+        _expand_connection_price(float(opens[i]), float(closes[i]))
+        for i in range(t0_idx, expand_end + 1)
+    ]
+    poly_low = min(points)
+    poly_high = max(points)
+    rise = (poly_high - poly_low) / poly_low if poly_low > 0 else 0.0
+    return rise, poly_high, poly_low
+
+
 def _vol_ma5(vols: np.ndarray, idx: int) -> float | None:
     if idx < 5:
         return None
@@ -127,29 +149,36 @@ def run_expand_phase(
     vols: np.ndarray,
     params: AccumPatternParams,
 ) -> tuple[int | None, float, float, float]:
-    end, rise, peak, start_low, _, reason = _run_expand_phase_detail(
+    end, _, _, _, day_logs, reason = _run_expand_volume_detail(
         t0_idx, dates, opens, closes, vols, params
     )
-    if reason == "price_rise_low":
-        return None, rise, peak, start_low
-    if reason is not None:
-        return None, 0.0, peak, start_low
-    return end, rise, peak, start_low
+    if end is None or reason is not None:
+        peak = float(opens[t0_idx]) if end is None else 0.0
+        start = _body_low(float(opens[t0_idx]), float(closes[t0_idx]))
+        if end is not None:
+            _, peak, start = _expand_polyline_rise(t0_idx, end, opens, closes)
+        return None, 0.0, peak, start
+
+    rise, peak_high, start_low = _expand_polyline_rise(t0_idx, end, opens, closes)
+    n_days = end - t0_idx + 1
+    if n_days < params.vol_min_days:
+        return None, rise, peak_high, start_low
+    if rise < params.price_rise_min:
+        return None, rise, peak_high, start_low
+    return end, rise, peak_high, start_low
 
 
-def _run_expand_phase_detail(
+def _run_expand_volume_detail(
     t0_idx: int,
     dates: list[str],
     opens: np.ndarray,
     closes: np.ndarray,
     vols: np.ndarray,
     params: AccumPatternParams,
-) -> tuple[int | None, float, float, float, list[dict[str, Any]], str | None]:
-    """返回 (expand_end, rise, peak, start_low, day_logs, fail_reason)。"""
+) -> tuple[int | None, float, float, list[dict[str, Any]], str | None]:
+    """仅判定放量量能延续，返回 (expand_end, rise, peak, day_logs, fail_reason)。"""
     miss_consec = 0
     expand_end: int | None = None
-    start_low = _body_low(float(opens[t0_idx]), float(closes[t0_idx]))
-    peak_high = start_low
     day_logs: list[dict[str, Any]] = []
     fail_reason: str | None = None
 
@@ -184,19 +213,36 @@ def _run_expand_phase_detail(
             miss_consec += 1
             if miss_consec >= params.vol_expand_max_consecutive_miss:
                 expand_end = i - params.vol_expand_max_consecutive_miss
-                fail_reason = "consecutive_miss"
                 break
         else:
             miss_consec = 0
             expand_end = i
-            bh = _body_high(float(opens[i]), float(closes[i]))
-            if bh > peak_high:
-                peak_high = bh
 
     if expand_end is None or expand_end < t0_idx:
-        return None, 0.0, peak_high, start_low, day_logs, fail_reason or "no_expand_end"
+        start_low = _body_low(float(opens[t0_idx]), float(closes[t0_idx]))
+        return None, 0.0, 0.0, start_low, day_logs, fail_reason or "no_expand_end"
 
-    rise = (peak_high - start_low) / start_low if start_low > 0 else 0.0
+    rise, peak_high, start_low = _expand_polyline_rise(t0_idx, expand_end, opens, closes)
+    return expand_end, rise, peak_high, start_low, day_logs, fail_reason
+
+
+def _run_expand_phase_detail(
+    t0_idx: int,
+    dates: list[str],
+    opens: np.ndarray,
+    closes: np.ndarray,
+    vols: np.ndarray,
+    params: AccumPatternParams,
+) -> tuple[int | None, float, float, float, list[dict[str, Any]], str | None]:
+    """返回 (expand_end, rise, peak, start_low, day_logs, fail_reason)。"""
+    expand_end, rise, peak_high, start_low, day_logs, fail_reason = _run_expand_volume_detail(
+        t0_idx, dates, opens, closes, vols, params
+    )
+    if fail_reason is not None:
+        return expand_end, rise, peak_high, start_low, day_logs, fail_reason
+    if expand_end is None:
+        return None, 0.0, 0.0, 0.0, day_logs, "no_expand_end"
+
     n_days = expand_end - t0_idx + 1
     if n_days < params.vol_min_days:
         return expand_end, rise, peak_high, start_low, day_logs, "n_too_short"
@@ -396,11 +442,10 @@ def _mk_step(
 
 
 _EXPAND_FAIL_ZH: dict[str, str] = {
-    "consecutive_miss": "放量期连续不达标达到上限，放量段结束",
     "ma5_unavailable": "MA5 数据不足，无法继续放量判定",
     "no_expand_end": "未形成有效放量段",
     "n_too_short": "放量天数 N 低于最短要求",
-    "price_rise_low": "实体涨幅未达下限",
+    "price_rise_low": "折线涨幅未达下限",
 }
 
 _WASH_FAIL_ZH: dict[str, str] = {
@@ -472,27 +517,27 @@ def diagnose_pattern_from_t0(
     if not t0_ok:
         return _diagnose_report(steps, failed_at="t0_trigger", t0_date=t0_date, scan_date=scan_date)
 
-    expand_end, rise, peak_high, start_low, expand_days, expand_fail = _run_expand_phase_detail(
+    expand_end, rise, peak_high, start_low, expand_days, vol_fail = _run_expand_volume_detail(
         t0_idx, dates, opens, closes, vols, params
     )
     n_days = (expand_end - t0_idx + 1) if expand_end is not None and expand_end >= t0_idx else 0
-    expand_pass = expand_fail is None
+    vol_pass = vol_fail is None and expand_end is not None and expand_end >= t0_idx
     steps.append(
         _mk_step(
             "expand_volume",
             "T₁ 放量延续",
-            "pass" if expand_pass else "fail",
+            "pass" if vol_pass else "fail",
             (
-                "放量段内逐日量能达标"
-                if expand_pass
-                else _EXPAND_FAIL_ZH.get(expand_fail or "", expand_fail or "放量段失败")
+                f"放量段 {dates[t0_idx]}～{dates[expand_end]}，量能逐日达标"
+                if vol_pass
+                else _EXPAND_FAIL_ZH.get(vol_fail or "", vol_fail or "放量段失败")
             ),
             expand_end_date=dates[expand_end] if expand_end is not None and expand_end >= 0 else None,
             n_days=n_days,
             days=expand_days,
         )
     )
-    if not expand_pass:
+    if not vol_pass:
         return _diagnose_report(
             steps,
             failed_at="expand_volume",
@@ -501,24 +546,39 @@ def diagnose_pattern_from_t0(
             expand_days=expand_days,
         )
 
+    n_ok = n_days >= params.vol_min_days
     steps.append(
         _mk_step(
             "expand_n",
             f"T₁ 最短放量 N≥{params.vol_min_days}",
-            "pass",
+            "pass" if n_ok else "fail",
             f"N={n_days}",
             n_days=n_days,
         )
     )
+    if not n_ok:
+        return _diagnose_report(
+            steps,
+            failed_at="expand_n",
+            t0_date=t0_date,
+            scan_date=scan_date,
+            expand_days=expand_days,
+        )
+
     rise_pct = round(rise * 100, 2)
     rise_ok = rise >= params.price_rise_min
     steps.append(
         _mk_step(
             "expand_price",
-            f"T₁ 实体涨幅≥{params.price_rise_min * 100:.0f}%",
+            f"T₁ 折线涨幅≥{params.price_rise_min * 100:.0f}%",
             "pass" if rise_ok else "fail",
-            f"实体涨幅 {rise_pct}%（峰值实体 {peak_high:.3f} / 起点低 {start_low:.3f}）",
+            (
+                f"折线涨幅 {rise_pct}%（连接点最高 {peak_high:.3f} / 最低 {start_low:.3f}；"
+                f"阳线取收盘、阴线取开盘）"
+            ),
             price_rise_pct=rise_pct,
+            poly_high=peak_high,
+            poly_low=start_low,
         )
     )
     if not rise_ok:
