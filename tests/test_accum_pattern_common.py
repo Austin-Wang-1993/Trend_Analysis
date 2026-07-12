@@ -13,6 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from accum_pattern_common import (
     AccumPatternParams,
     apply_qfq_panel,
+    diagnose_pattern_from_t0,
+    diagnose_stock_accum,
     evaluate_stock_accum,
     find_latest_pattern,
     run_expand_phase,
@@ -111,3 +113,71 @@ def test_evaluate_stock_accum_df():
     ev = evaluate_stock_accum(df, scan_date="2026-01-11", params=AccumPatternParams(price_rise_min=0.25))
     assert ev is not None
     assert ev["phase"] in ("wash_in_progress", "wash_complete")
+
+
+def test_diagnose_t0_trigger_fail():
+    dates = _dates(15)
+    opens = np.full(15, 10.0)
+    closes = np.full(15, 10.5)
+    vols = np.full(15, 50.0)
+    r = diagnose_pattern_from_t0(
+        dates,
+        opens,
+        closes,
+        vols,
+        AccumPatternParams(),
+        t0_date=dates[8],
+        scan_date=dates[12],
+    )
+    assert r["failed_at"] == "t0_trigger"
+    assert r["overall"] in ("fail", "partial")
+
+
+def test_diagnose_wash_in_progress_pass():
+    dates = _dates(30)
+    opens = np.full(30, 10.0)
+    closes = np.full(30, 10.5)
+    vols = np.full(30, 50.0)
+    vols[5:9] = 500.0
+    closes[7] = 14.0
+    vols[9:12] = 30.0
+    closes[9:12] = 13.0
+    r = diagnose_pattern_from_t0(
+        dates,
+        opens,
+        closes,
+        vols,
+        AccumPatternParams(price_rise_min=0.25),
+        t0_date=dates[5],
+        scan_date=dates[10],
+    )
+    assert r["failed_at"] is None
+    assert r["overall"] == "pass"
+    assert any(s["id"] == "wash_volume" and s["status"] == "pass" for s in r["steps"])
+
+
+def test_diagnose_stock_accum_df():
+    rows = []
+    for i in range(20):
+        rows.append(
+            {
+                "trade_date": f"2026-01-{i+1:02d}",
+                "open": 10.0,
+                "close": 10.5,
+                "vol": 50.0 if i < 5 or i >= 9 else 500.0,
+                "adj_factor": 1.0,
+            }
+        )
+    rows[7]["close"] = 14.0
+    for j in range(9, 12):
+        rows[j]["vol"] = 30.0
+        rows[j]["close"] = 13.0
+    df = pd.DataFrame(rows)
+    r = diagnose_stock_accum(
+        df,
+        t0_date="2026-01-06",
+        scan_date="2026-01-11",
+        params=AccumPatternParams(price_rise_min=0.25),
+    )
+    assert "steps" in r
+    assert len(r["steps"]) >= 5

@@ -480,6 +480,22 @@ def api_accum_pattern_stock(
     return detail
 
 
+@app.get("/api/accum-pattern/diagnose")
+def api_accum_pattern_diagnose(
+    stock_code: str = Query(..., min_length=6, max_length=6, pattern=r"^\d{6}$"),
+    t0_date: str = Query(..., description="T₀ 放量触发日 YYYY-MM-DD"),
+    scan_date: str | None = Query(None, description="扫描/观察日，默认最近交易日"),
+) -> dict[str, Any]:
+    code = stock_code.strip()
+    t0 = normalize_date(t0_date)
+    scan = normalize_date(scan_date) if scan_date else None
+    if not is_trading_day(t0):
+        raise HTTPException(status_code=400, detail=f"{t0} 不是交易日")
+    if scan and not is_trading_day(scan):
+        raise HTTPException(status_code=400, detail=f"{scan} 不是交易日")
+    return get_accum_pattern_scanner().diagnose(code, t0_date=t0, scan_date=scan)
+
+
 @app.get("/api/accum-pattern/scan/status")
 def api_accum_pattern_scan_status(job_id: str | None = Query(None)) -> dict[str, Any]:
     return get_accum_scan_status(job_id)

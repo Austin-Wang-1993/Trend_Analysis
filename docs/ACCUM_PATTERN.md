@@ -60,5 +60,44 @@
 - `GET /api/accum-pattern/meta`
 - `GET /api/accum-pattern/picks?trade_date=&phase=`
 - `GET /api/accum-pattern/stocks/{code}?trade_date=`
+- `GET /api/accum-pattern/diagnose?stock_code=&t0_date=&scan_date=` — **形态检测**（见 §6）
 - `GET /api/accum-pattern/scan/status`
 - `POST /api/admin/accum-pattern/scan`
+
+扫描任务 `progress` 字段：
+
+| 阶段 | 格式 | 示例 |
+|------|------|------|
+| 补缓存 | `cache:当前/总数` | `cache:45/120` |
+| 全市场计算 | `compute:当前/总数` | `compute:1250/4800` |
+
+## 6. 形态检测（调试）
+
+用于验证「我认为该入选但未扫出」的个案：指定 **T₀ 放量日** 与 **扫描日**，返回逐步判定结果。
+
+### 输入
+
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| `stock_code` | 是 | 6 位代码 |
+| `t0_date` | 是 | 您认为放量触发的 T₀（交易日） |
+| `scan_date` | 否 | 观察/扫描日，默认最近交易日 |
+
+### 输出步骤（`steps[]`）
+
+1. T₀ 前历史 / T₀ 触发
+2. T₁ 放量延续（含逐日量比明细 `days`）
+3. T₁ N 天数 / 实体涨幅
+4. T₂ 洗盘开始 / 缩量逐日
+5. 回撤区间（洗盘完成时）
+6. 入选规则（锚点 B）
+7. **扫描器对比**：全窗 `find_latest_pattern` 实际采用的 T₀（可能晚于您指定的 T₀）
+
+`status`：`pass` / `fail` / `warn` / `skip`。`failed_at` 为首个失败步骤 id。
+
+### 入口
+
+- 看板页「形态检测」区块
+- API：`GET /api/accum-pattern/diagnose?...`
+
+检测前会自动补全该股窗口内缺失的 qfq 缓存（与扫描相同数据源）。

@@ -147,7 +147,15 @@ async function pollAccumScan(jobId, el) {
     const job = st.job;
     if (el && job) {
       const p = job.progress || job.status;
-      el.textContent = p.startsWith('cache:') ? `扫描中 · 补缓存 ${p.slice(6)}` : `扫描中 · ${p}`;
+      if (p.startsWith('cache:')) {
+        el.textContent = `扫描中 · 补缓存 ${p.slice(6)}`;
+      } else if (p.startsWith('compute:')) {
+        el.textContent = `扫描中 · 计算 ${p.slice(8)}`;
+      } else if (p === 'compute') {
+        el.textContent = '扫描中 · 全市场计算…';
+      } else {
+        el.textContent = `扫描中 · ${p}`;
+      }
     }
     if (!st.active) {
       if (job?.status === 'failed') throw new Error(job.error_message || '扫描失败');

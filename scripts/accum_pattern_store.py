@@ -336,5 +336,7 @@ def cache_rows_from_daily_adj(
 
 def format_scan_progress(phase: str, current: int, total: int) -> str:
     if phase == "compute":
+        if total > 1:
+            return f"compute:{current}/{total}"
         return "compute"
     return f"cache:{current}/{total}"

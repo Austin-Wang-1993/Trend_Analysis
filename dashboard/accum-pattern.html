@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>量价吸筹 — Trend Analysis</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=20260625" />
+  <link rel="stylesheet" href="/static/css/style.css?v=20260712" />
   <style>
     table.ap { width: 100%; border-collapse: collapse; font-size: 13px; }
     table.ap th, table.ap td { padding: 8px 10px; border-bottom: 1px solid #1c2740; text-align: right; white-space: nowrap; }
@@ -17,6 +17,16 @@
     .funnel { font-size: 12px; color: #94a3b8; line-height: 1.8; margin: 10px 0 14px; padding: 10px 12px; background: #111827; border-radius: 8px; border: 1px solid #1f2937; }
     .tag-prog { color: #60a5fa; font-size: 11px; }
     .tag-done { color: #22c55e; font-size: 11px; }
+    .card-diag { margin: 16px 0; padding: 12px 14px; background: #111827; border: 1px solid #1f2937; border-radius: 8px; }
+    .card-diag h2 { font-size: 1rem; margin: 0 0 10px; color: #e2e8f0; }
+    .diag-form { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 12px; }
+    .diag-form input { background: #0f172a; border: 1px solid #334155; color: #e2e8f0; padding: 6px 8px; border-radius: 6px; }
+    .step-pass { color: #22c55e; }
+    .step-fail { color: #ef4444; }
+    .step-warn { color: #f59e0b; }
+    .step-skip { color: #94a3b8; }
+    .diag-steps { font-size: 13px; line-height: 1.9; }
+    .diag-detail { font-size: 12px; color: #64748b; margin-left: 1.2em; }
   </style>
 </head>
 <body>
@@ -39,6 +49,22 @@
       <strong>洗盘进行中即入选</strong>（锚点 B）。价格前复权实体价，量用原始 vol 对比 MA5。
       参数见 <a href="/admin.html#accum-pattern-config">管理页</a>。
     </p>
+
+    <div class="card-diag" id="diagBox">
+      <h2>形态检测（调试用）</h2>
+      <p class="legend" style="margin-bottom:10px">
+        输入<strong>股票代码</strong>与您认为的 <strong>T₀ 放量日</strong>，可选<strong>扫描日</strong>（默认最近交易日）。
+        系统逐步说明符合到哪一步、在哪一步失败，并与扫描器实际入选形态对比。
+      </p>
+      <div class="diag-form">
+        <label>代码 <input id="diagCode" type="text" maxlength="6" placeholder="600519" style="width:5.5rem" /></label>
+        <label>T₀ 日 <input id="diagT0" type="date" /></label>
+        <label>扫描日 <input id="diagScan" type="date" /></label>
+        <button type="button" id="btnDiag">检测</button>
+      </div>
+      <div id="diagResult" class="diag-steps"></div>
+    </div>
+
     <div id="funnelBox"></div>
     <div class="table-wrap" id="tableWrap"></div>
   </main>
@@ -58,6 +84,13 @@
       if (p === 'wash_in_progress') return '<span class="tag-prog">洗盘进行中</span>';
       if (p === 'wash_complete') return '<span class="tag-done">洗盘完成</span>';
       return escapeHtml(p || '—');
+    }
+    function formatProgress(p) {
+      if (!p) return '扫描中…';
+      if (p.startsWith('cache:')) return `补缓存 ${p.slice(6)}`;
+      if (p.startsWith('compute:')) return `计算 ${p.slice(8)}`;
+      if (p === 'compute') return '全市场计算中…';
+      return p;
     }
 
     function renderFunnel(meta) {
@@ -107,6 +140,26 @@
       });
     }
 
+    function renderDiagnose(r) {
+      const el = document.getElementById('diagResult');
+      const cls = { pass: 'step-pass', fail: 'step-fail', warn: 'step-warn', skip: 'step-skip' };
+      const head = `<p><strong>${r.stock_code || ''}</strong> · T₀=${r.t0_date} · 扫描日=${r.scan_date} · 总结：<span class="${cls[r.overall] || ''}">${r.overall}</span>${r.failed_at ? ` · 首败步骤：${r.failed_at}` : ''}</p>`;
+      const steps = (r.steps || []).map(s => {
+        const icon = { pass: '✓', fail: '✗', warn: '△', skip: '○' }[s.status] || '?';
+        let extra = '';
+        if (s.id === 'expand_volume' && s.days) {
+          const bad = s.days.filter(d => !d.passed).slice(0, 3);
+          if (bad.length) extra = `<div class="diag-detail">未达标日示例：${bad.map(d => `${d.trade_date} 量比${num(d.vol_ratio)}`).join('；')}</div>`;
+        }
+        if (s.id === 'wash_volume' && s.days) {
+          const bad = s.days.filter(d => !d.passed).slice(0, 3);
+          if (bad.length) extra = `<div class="diag-detail">异常日：${bad.map(d => `${d.trade_date}${d.reason ? '('+d.reason+')' : ''}`).join('；')}</div>`;
+        }
+        return `<div class="${cls[s.status] || ''}">${icon} <strong>${escapeHtml(s.name)}</strong> — ${escapeHtml(s.message)}</div>${extra}`;
+      }).join('');
+      el.innerHTML = head + steps;
+    }
+
     async function load() {
       const phase = document.getElementById('phaseFilter').value;
       const q = phase ? `?phase=${encodeURIComponent(phase)}` : '';
@@ -118,6 +171,9 @@
       statusEl.textContent = `扫描日 ${picks.trade_date} · 入选 ${picks.pick_count} 只`
         + (meta.last_scan_at ? ` · 上次 ${meta.last_scan_at.slice(0, 19).replace('T', ' ')}` : '')
         + (err ? ` · 提示：${err}` : '');
+      if (!document.getElementById('diagScan').value) {
+        document.getElementById('diagScan').value = picks.trade_date || meta.trade_date || '';
+      }
       renderTable(picks, meta);
     }
 
@@ -131,14 +187,30 @@
         while (true) {
           const st = await apiGet(`/api/accum-pattern/scan/status?job_id=${encodeURIComponent(job.job_id)}`);
           if (!st.active) break;
-          const p = st.job?.progress || st.job?.status;
-          statusEl.textContent = p?.startsWith('cache:') ? `补缓存 ${p.slice(6)}` : `扫描中 ${p}`;
-          await new Promise(x => setTimeout(x, 2000));
+          statusEl.textContent = formatProgress(st.job?.progress || st.job?.status);
+          await new Promise(x => setTimeout(x, 1500));
         }
         await load();
       } catch (e) {
         alert(e.message || '扫描失败');
         load().catch(console.error);
+      }
+    };
+
+    document.getElementById('btnDiag').onclick = async () => {
+      const code = document.getElementById('diagCode').value.trim();
+      const t0 = document.getElementById('diagT0').value;
+      const scan = document.getElementById('diagScan').value;
+      if (!/^\d{6}$/.test(code)) return alert('请输入 6 位股票代码');
+      if (!t0) return alert('请选择 T₀ 放量日');
+      const el = document.getElementById('diagResult');
+      el.textContent = '检测中（必要时补缓存）…';
+      try {
+        let url = `/api/accum-pattern/diagnose?stock_code=${encodeURIComponent(code)}&t0_date=${encodeURIComponent(t0)}`;
+        if (scan) url += `&scan_date=${encodeURIComponent(scan)}`;
+        renderDiagnose(await apiGet(url));
+      } catch (e) {
+        el.innerHTML = `<span class="step-fail">${escapeHtml(e.message || '检测失败')}</span>`;
       }
     };
 

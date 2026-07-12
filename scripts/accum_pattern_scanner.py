@@ -12,6 +12,7 @@ import pandas as pd
 import ts_common as tc
 from accum_pattern_common import (
     cache_days_required,
+    diagnose_stock_accum,
     evaluate_stock_accum,
     min_bars_required,
     parse_accum_params,
@@ -156,9 +157,16 @@ class AccumPatternScanner:
             "listed": 0,
         }
 
-        for code in df_all["stock_code"].unique():
-            if code not in names or code in suspended:
-                continue
+        codes = [
+            c
+            for c in df_all["stock_code"].unique()
+            if c in names and c not in suspended
+        ]
+        total_codes = len(codes)
+        if progress:
+            progress("compute", 0, max(total_codes, 1))
+
+        for i, code in enumerate(codes):
             sub = df_all[df_all["stock_code"] == code].copy()
             if len(sub) < min_bars_required():
                 continue
@@ -179,6 +187,8 @@ class AccumPatternScanner:
                     **{k: v for k, v in ev.items() if k != "detail"},
                 }
             )
+            if progress and (i + 1 == total_codes or (i + 1) % 25 == 0):
+                progress("compute", i + 1, total_codes)
 
         self.store.replace_picks(td, picks)
         self.store.set_scan_log(
@@ -189,7 +199,7 @@ class AccumPatternScanner:
             funnel=funnel,
         )
         if progress:
-            progress("compute", 1, 1)
+            progress("compute", max(total_codes, 1), max(total_codes, 1))
         return {
             "skipped": False,
             "trade_date": td,
@@ -247,6 +257,34 @@ class AccumPatternScanner:
         detail["stock_code"] = stock_code
         detail["trade_date"] = td
         return detail
+
+    def diagnose(
+        self,
+        stock_code: str,
+        *,
+        t0_date: str,
+        scan_date: str | None = None,
+    ) -> dict[str, Any]:
+        """单股形态逐步诊断（指定 T₀ 与扫描日）。"""
+        settings = self._settings()
+        params = parse_accum_params(settings)
+        hist_days = int(settings.get("accum_history_days", "120"))
+        td = self._resolve_scan_date(scan_date)
+        need_days = cache_days_required(hist_days)
+        dates = get_recent_trading_days(need_days, end=td)
+        self._ensure_cache(dates)
+        rows = self.store.load_cache_panel(dates)
+        sub = pd.DataFrame([r for r in rows if r["stock_code"] == stock_code])
+        if sub.empty:
+            return diagnose_stock_accum(
+                sub,
+                t0_date=t0_date,
+                scan_date=td,
+                params=params,
+            )
+        report = diagnose_stock_accum(sub, t0_date=t0_date, scan_date=td, params=params)
+        report["stock_code"] = stock_code
+        return report
 
     def meta(self) -> dict[str, Any]:
         settings = self._settings()
