@@ -34,6 +34,8 @@ from train_track_scanner import TrainTrackScanner  # noqa: E402
 from train_track_runner import enqueue_train_track_scan, get_scan_status  # noqa: E402
 from td_sequential_scanner import TdSequentialScanner  # noqa: E402
 from td_sequential_runner import enqueue_td_scan, get_scan_status as get_td_scan_status  # noqa: E402
+from accum_pattern_scanner import AccumPatternScanner  # noqa: E402
+from accum_pattern_runner import enqueue_accum_scan, get_scan_status as get_accum_scan_status  # noqa: E402
 from trading_calendar import compare_with_biying, get_trading_days, is_trading_day, normalize_date, sync_pmc_to_sqlite, today_cst  # noqa: E402
 
 CST = ZoneInfo("Asia/Shanghai")
@@ -51,6 +53,7 @@ _ts_store: TsStore | None = None
 _signal_scanner: SignalScanner | None = None
 _train_track_scanner: TrainTrackScanner | None = None
 _td_sequential_scanner: TdSequentialScanner | None = None
+_accum_pattern_scanner: AccumPatternScanner | None = None
 
 # v4.0 行业 kind 校验（申万三级/中信三级/东财/同花顺）
 KIND_PATTERN = "^(" + "|".join(TS_KINDS) + ")$"
@@ -124,6 +127,23 @@ class SettingsUpdate(BaseModel):
     td_macd_ref_valley_min: int | None = Field(default=None, ge=1, le=5)
     td_macd_div_ref: str | None = Field(default=None, pattern="^(hist|dif|both)$")
     td_stop_loss_pct: float | None = Field(default=None, ge=0.01, le=0.1)
+    accum_enabled: bool | None = None
+    accum_time: str | None = None
+    accum_history_days: int | None = Field(default=None, ge=60, le=250)
+    accum_vol_expand_trigger: float | None = Field(default=None, ge=1.0, le=5.0)
+    accum_vol_expand_start: float | None = Field(default=None, ge=1.0, le=5.0)
+    accum_vol_expand_decay: float | None = Field(default=None, ge=0.0, le=1.0)
+    accum_vol_expand_floor: float | None = Field(default=None, ge=1.0, le=3.0)
+    accum_vol_expand_max_consecutive_miss: int | None = Field(default=None, ge=1, le=10)
+    accum_vol_min_days: int | None = Field(default=None, ge=3, le=30)
+    accum_price_rise_min: float | None = Field(default=None, ge=0.05, le=2.0)
+    accum_wash_mult: float | None = Field(default=None, ge=1.0, le=1.5)
+    accum_vol_shrink_max: float | None = Field(default=None, ge=1.0, le=2.0)
+    accum_vol_wash_max_over_days: int | None = Field(default=None, ge=0, le=5)
+    accum_vol_wash_max_consecutive_over: int | None = Field(default=None, ge=1, le=5)
+    accum_vol_reset_trigger: float | None = Field(default=None, ge=1.5, le=5.0)
+    accum_drawdown_min: float | None = Field(default=None, ge=0.1, le=1.0)
+    accum_drawdown_max: float | None = Field(default=None, ge=0.1, le=1.0)
 
 
 class FetchRequest(BaseModel):
@@ -226,6 +246,13 @@ def get_td_sequential_scanner() -> TdSequentialScanner:
     return _td_sequential_scanner
 
 
+def get_accum_pattern_scanner() -> AccumPatternScanner:
+    global _accum_pattern_scanner
+    if _accum_pattern_scanner is None:
+        _accum_pattern_scanner = AccumPatternScanner(DB_PATH, get_settings=get_store().get_settings)
+    return _accum_pattern_scanner
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     store = get_store()
@@ -236,6 +263,7 @@ def on_startup() -> None:
     get_signal_scanner().store.init_schema()
     get_train_track_scanner().store.init_schema()
     get_td_sequential_scanner().store.init_schema()
+    get_accum_pattern_scanner().store.init_schema()
 
 
 # --- 公共 API（v4.0：Tushare 四套行业，days 支持 5/15/30）---
@@ -426,6 +454,46 @@ def admin_td_sequential_scan() -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@app.get("/api/accum-pattern/meta")
+def api_accum_pattern_meta() -> dict[str, Any]:
+    return get_accum_pattern_scanner().meta()
+
+
+@app.get("/api/accum-pattern/picks")
+def api_accum_pattern_picks(
+    trade_date: str | None = Query(None),
+    phase: str | None = Query(None, pattern="^(wash_in_progress|wash_complete)$"),
+) -> dict[str, Any]:
+    return get_accum_pattern_scanner().picks(trade_date, phase=phase)
+
+
+@app.get("/api/accum-pattern/stocks/{stock_code}")
+def api_accum_pattern_stock(
+    stock_code: str,
+    trade_date: str | None = Query(None),
+) -> dict[str, Any]:
+    detail = get_accum_pattern_scanner().stock_detail(stock_code, trade_date)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="未找到该股的量价吸筹形态")
+    return detail
+
+
+@app.get("/api/accum-pattern/scan/status")
+def api_accum_pattern_scan_status(job_id: str | None = Query(None)) -> dict[str, Any]:
+    return get_accum_scan_status(job_id)
+
+
+@app.post("/api/admin/accum-pattern/scan")
+def admin_accum_pattern_scan() -> dict[str, Any]:
+    try:
+        result = enqueue_accum_scan(trigger_type="manual")
+        return {"ok": True, **result}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 # --- 管理 API ---
 
 @app.get("/api/admin/settings")
@@ -440,7 +508,7 @@ def admin_get_settings() -> dict[str, Any]:
 def admin_put_settings(body: SettingsUpdate) -> dict[str, Any]:
     store = get_store()
     updates = {k: v for k, v in body.model_dump(exclude_none=True).items()}
-    for bool_key in ("schedule_enabled", "signal_enabled", "train_track_enabled", "td_enabled"):
+    for bool_key in ("schedule_enabled", "signal_enabled", "train_track_enabled", "td_enabled", "accum_enabled"):
         if bool_key in updates:
             updates[bool_key] = "true" if updates[bool_key] else "false"
     settings = store.set_settings({k: str(v) for k, v in updates.items()})
@@ -619,6 +687,16 @@ def page_td_sequential() -> FileResponse:
 @app.get("/td-sequential-detail.html")
 def page_td_sequential_detail() -> FileResponse:
     return _html("td-sequential-detail.html")
+
+
+@app.get("/accum-pattern.html")
+def page_accum_pattern() -> FileResponse:
+    return _html("accum-pattern.html")
+
+
+@app.get("/accum-pattern-detail.html")
+def page_accum_pattern_detail() -> FileResponse:
+    return _html("accum-pattern-detail.html")
 
 
 @app.get("/etf-table.html")

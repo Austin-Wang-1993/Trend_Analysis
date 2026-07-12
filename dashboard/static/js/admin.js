@@ -106,6 +106,73 @@ if (runTdBtn) {
   };
 }
 
+function collectAccumSettings() {
+  return {
+    accum_enabled: document.getElementById('accum_enabled').checked,
+    accum_time: document.getElementById('accum_time').value || '17:00',
+    accum_history_days: Number(document.getElementById('accum_history_days').value || 120),
+    accum_vol_expand_trigger: Number(document.getElementById('accum_vol_expand_trigger').value || 2.0),
+    accum_vol_expand_start: Number(document.getElementById('accum_vol_expand_start').value || 2.0),
+    accum_vol_expand_decay: Number(document.getElementById('accum_vol_expand_decay').value || 0.1),
+    accum_vol_expand_floor: Number(document.getElementById('accum_vol_expand_floor').value || 1.1),
+    accum_vol_expand_max_consecutive_miss: Number(document.getElementById('accum_vol_expand_max_consecutive_miss').value || 3),
+    accum_vol_min_days: Number(document.getElementById('accum_vol_min_days').value || 3),
+    accum_price_rise_min: Number(document.getElementById('accum_price_rise_min').value || 0.30),
+    accum_wash_mult: Number(document.getElementById('accum_wash_mult').value || 1.5),
+    accum_vol_shrink_max: Number(document.getElementById('accum_vol_shrink_max').value || 1.1),
+    accum_vol_wash_max_over_days: Number(document.getElementById('accum_vol_wash_max_over_days').value || 1),
+    accum_vol_wash_max_consecutive_over: Number(document.getElementById('accum_vol_wash_max_consecutive_over').value || 2),
+    accum_vol_reset_trigger: Number(document.getElementById('accum_vol_reset_trigger').value || 2.0),
+    accum_drawdown_min: Number(document.getElementById('accum_drawdown_min').value || 0.60),
+    accum_drawdown_max: Number(document.getElementById('accum_drawdown_max').value || 0.90),
+  };
+}
+
+const saveAccumBtn = document.getElementById('saveAccumSettings');
+if (saveAccumBtn) {
+  saveAccumBtn.onclick = async () => {
+    try {
+      const s = await apiPut('/api/admin/settings', collectAccumSettings());
+      applySettings(s);
+      alert('量价吸筹配置已保存');
+    } catch (e) {
+      alert(typeof e.message === 'string' ? e.message : '保存失败');
+    }
+  };
+}
+
+async function pollAccumScan(jobId, el) {
+  while (true) {
+    const st = await apiGet(`/api/accum-pattern/scan/status?job_id=${encodeURIComponent(jobId)}`);
+    const job = st.job;
+    if (el && job) {
+      const p = job.progress || job.status;
+      el.textContent = p.startsWith('cache:') ? `扫描中 · 补缓存 ${p.slice(6)}` : `扫描中 · ${p}`;
+    }
+    if (!st.active) {
+      if (job?.status === 'failed') throw new Error(job.error_message || '扫描失败');
+      if (el && job) el.textContent = `完成：${job.pick_count ?? 0} 条，扫描日 ${job.trade_date || ''}`;
+      return job;
+    }
+    await new Promise(r => setTimeout(r, 2000));
+  }
+}
+
+const runAccumBtn = document.getElementById('runAccumScan');
+if (runAccumBtn) {
+  runAccumBtn.onclick = async () => {
+    const el = document.getElementById('accumScanResult');
+    if (!confirm('将补全 qfq 缓存并扫描量价吸筹，继续？')) return;
+    if (el) el.textContent = '提交任务…';
+    try {
+      const j = await apiPost('/api/admin/accum-pattern/scan', {});
+      await pollAccumScan(j.job_id, el);
+    } catch (e) {
+      if (el) el.textContent = typeof e.message === 'string' ? e.message : '请求失败';
+    }
+  };
+}
+
 function collectTrainTrackSettings() {
   return {
     train_track_enabled: document.getElementById('train_track_enabled').checked,
@@ -260,6 +327,26 @@ function applySettings(s) {
     document.getElementById('td_macd_ref_valley_min').value = s.td_macd_ref_valley_min || '1';
     document.getElementById('td_macd_ref_valley_max').value = s.td_macd_ref_valley_max || '3';
     document.getElementById('td_stop_loss_pct').value = s.td_stop_loss_pct || '0.03';
+  }
+  const accumOn = document.getElementById('accum_enabled');
+  if (accumOn) {
+    accumOn.checked = s.accum_enabled === 'true' || s.accum_enabled === true;
+    setTimeInput('accum_time', s.accum_time || '17:00');
+    document.getElementById('accum_history_days').value = s.accum_history_days || '120';
+    document.getElementById('accum_vol_expand_trigger').value = s.accum_vol_expand_trigger || '2.0';
+    document.getElementById('accum_vol_expand_start').value = s.accum_vol_expand_start || '2.0';
+    document.getElementById('accum_vol_expand_decay').value = s.accum_vol_expand_decay || '0.1';
+    document.getElementById('accum_vol_expand_floor').value = s.accum_vol_expand_floor || '1.1';
+    document.getElementById('accum_vol_expand_max_consecutive_miss').value = s.accum_vol_expand_max_consecutive_miss || '3';
+    document.getElementById('accum_vol_min_days').value = s.accum_vol_min_days || '3';
+    document.getElementById('accum_price_rise_min').value = s.accum_price_rise_min || '0.30';
+    document.getElementById('accum_wash_mult').value = s.accum_wash_mult || '1.5';
+    document.getElementById('accum_vol_shrink_max').value = s.accum_vol_shrink_max || '1.1';
+    document.getElementById('accum_vol_wash_max_over_days').value = s.accum_vol_wash_max_over_days || '1';
+    document.getElementById('accum_vol_wash_max_consecutive_over').value = s.accum_vol_wash_max_consecutive_over || '2';
+    document.getElementById('accum_vol_reset_trigger').value = s.accum_vol_reset_trigger || '2.0';
+    document.getElementById('accum_drawdown_min').value = s.accum_drawdown_min || '0.60';
+    document.getElementById('accum_drawdown_max').value = s.accum_drawdown_max || '0.90';
   }
 }
 

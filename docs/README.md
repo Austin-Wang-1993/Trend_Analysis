@@ -17,6 +17,7 @@ A 股**细分行业** **成交额 + 买卖** 分析与 Web 看板。
 | [**TRADING_SIGNAL.md**](./TRADING_SIGNAL.md) | **v4.2 反包打板交易信号**（rt_min，无主力资金） |
 | [**TRAIN_TRACK_RPS.md**](./TRAIN_TRACK_RPS.md) | **v4.3 火车轨选股**（SXHCG + RPS，全 A daily） |
 | [**TD_SEQUENTIAL.md**](./TD_SEQUENTIAL.md) | **v4.4 神奇九转**（TD 抄底，五列漏斗） |
+| [**ACCUM_PATTERN.md**](./ACCUM_PATTERN.md) | **v4.6 量价吸筹**（放量→缩量洗盘，锚点 B） |
 | [**REQUIREMENTS.md**](./REQUIREMENTS.md) | **v4.0** 需求摘要 + v3.6 归档 |
 | [**IMPLEMENTATION_PLAN.md**](./IMPLEMENTATION_PLAN.md) | **v4.0** 方案 + v3.6 实现 |
 | [**BRANCHING.md**](./BRANCHING.md) | 分支策略、部署只跟 main |

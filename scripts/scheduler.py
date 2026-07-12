@@ -54,6 +54,14 @@ def _run_td_sequential_scan() -> None:
     )
 
 
+def _run_accum_pattern_scan() -> None:
+    subprocess.run(
+        [sys.executable, str(_SCRIPTS / "accum_pattern_runner.py"), "--scheduled"],
+        cwd=str(_SCRIPTS.parent),
+        check=False,
+    )
+
+
 def _parse_time(s: str) -> tuple[int, int]:
     parts = s.strip().split(":")
     return int(parts[0]), int(parts[1]) if len(parts) > 1 else 0
@@ -153,6 +161,14 @@ def start_scheduler(store: "HistoryStore", run_callback) -> BackgroundScheduler:
             id="td_sequential_scan",
             replace_existing=True,
         )
+    if settings.get("accum_enabled", "true").lower() == "true":
+        accum_hour, accum_minute = _parse_time(settings.get("accum_time", "17:00"))
+        _scheduler.add_job(
+            _run_accum_pattern_scan,
+            CronTrigger(hour=accum_hour, minute=accum_minute, timezone=tz),
+            id="accum_pattern_scan",
+            replace_existing=True,
+        )
     _scheduler.start()
     return _scheduler
 
@@ -224,5 +240,17 @@ def reload_scheduler(store: "HistoryStore", run_callback) -> None:
             _run_td_sequential_scan,
             CronTrigger(hour=td_hour, minute=td_minute, timezone=tz),
             id="td_sequential_scan",
+            replace_existing=True,
+        )
+    try:
+        _scheduler.remove_job("accum_pattern_scan")
+    except Exception:
+        pass
+    if settings.get("accum_enabled", "true").lower() == "true":
+        accum_hour, accum_minute = _parse_time(settings.get("accum_time", "17:00"))
+        _scheduler.add_job(
+            _run_accum_pattern_scan,
+            CronTrigger(hour=accum_hour, minute=accum_minute, timezone=tz),
+            id="accum_pattern_scan",
             replace_existing=True,
         )

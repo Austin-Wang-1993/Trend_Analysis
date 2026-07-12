@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>量价吸筹明细 — Trend Analysis</title>
+  <link rel="stylesheet" href="/static/css/style.css?v=20260625" />
+  <style>
+    .meta { font-size: 13px; color: #94a3b8; line-height: 1.8; margin: 12px 0; }
+    table.detail { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
+    table.detail th, table.detail td { padding: 6px 10px; border-bottom: 1px solid #1c2740; text-align: right; }
+    table.detail th.tl, table.detail td.tl { text-align: left; }
+    a.back { color: #60a5fa; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <nav></nav>
+  <main class="main-wide">
+    <p><a class="back" href="/accum-pattern.html">← 返回列表</a></p>
+    <h1 id="title">量价吸筹明细</h1>
+    <div id="content" class="meta">加载中…</div>
+    <div id="washTable"></div>
+  </main>
+  <script src="/static/js/api.js?v=20260625"></script>
+  <script src="/static/js/nav.js?v=20260625"></script>
+  <script>
+    initNav();
+    const params = new URLSearchParams(location.search);
+    const code = params.get('code');
+    const content = document.getElementById('content');
+    const washTable = document.getElementById('washTable');
+
+    function num(v, d=2) { return v == null ? '—' : Number(v).toFixed(d); }
+
+    async function load() {
+      if (!code) {
+        content.textContent = '缺少 code 参数';
+        return;
+      }
+      document.getElementById('title').textContent = `${code} · 量价吸筹`;
+      const d = await apiGet(`/api/accum-pattern/stocks/${encodeURIComponent(code)}`);
+      content.innerHTML = `
+        <div>扫描日：${d.trade_date || '—'} · T₀：${d.t0_date} · 放量结束：${d.expand_end_date}</div>
+        <div>N=${d.n_days} · M=${d.m_target} · 已洗盘 ${d.wash_days_done} 日 · 阶段：${d.phase}</div>
+        <div>实体涨幅 ${num(d.price_rise_pct)}% · 回撤 ${num(d.drawdown_ratio)}% ${d.drawdown_ok ? '✓' : ''}</div>
+        <div>峰值实体 ${num(d.peak_body_high)} · 起点实体低 ${num(d.start_body_low)}</div>
+      `;
+      const bars = d.wash_bars || [];
+      if (!bars.length) {
+        washTable.innerHTML = '<p class="meta">无洗盘日明细</p>';
+        return;
+      }
+      const rows = bars.map(b => `<tr>
+        <td class="tl">${b.trade_date}</td>
+        <td>${num(b.vol, 0)}</td>
+        <td>${num(b.vol_ma5, 0)}</td>
+        <td>${num(b.vol_ratio)}</td>
+        <td>${num(b.body_low)}</td>
+        <td>${b.over ? '超标' : '—'}</td>
+      </tr>`).join('');
+      washTable.innerHTML = `<h2 style="font-size:1rem">洗盘日明细</h2>
+        <table class="detail"><thead><tr>
+          <th class="tl">日期</th><th>成交量</th><th>MA5</th><th>量比</th><th>实体低</th><th>量</th>
+        </tr></thead><tbody>${rows}</tbody></table>`;
+    }
+
+    load().catch(e => { content.textContent = e.message || '加载失败'; });
+  </script>
+</body>
+</html>

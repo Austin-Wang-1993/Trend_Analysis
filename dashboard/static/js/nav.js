@@ -9,6 +9,7 @@ function initNav(active) {
     ['/signals.html', '交易信号'],
     ['/train-track.html', '火车轨选股'],
     ['/td-sequential.html', '神奇九转'],
+    ['/accum-pattern.html', '量价吸筹'],
     ['/etf-table.html', 'ETF 表格'],
     ['/admin.html', '管理'],
   ];

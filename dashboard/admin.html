@@ -45,6 +45,37 @@
       width: 3.5rem;
       min-width: 3.5rem;
     }
+    #accum-pattern-config .toolbar {
+      gap: 14px 18px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    #accum-pattern-config .toolbar label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+      font-size: 13px;
+    }
+    #accum-pattern-config input[type="number"] {
+      width: 5rem;
+      min-width: 5rem;
+      padding: 6px 8px;
+      box-sizing: border-box;
+      -moz-appearance: textfield;
+      appearance: textfield;
+    }
+    #accum-pattern-config input[type="number"]::-webkit-outer-spin-button,
+    #accum-pattern-config input[type="number"]::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    #accum-pattern-config input[type="time"] {
+      width: 7.5rem;
+      min-width: 7.5rem;
+      padding: 6px 8px;
+      box-sizing: border-box;
+    }
   </style>
 </head>
 <body>
@@ -55,6 +86,7 @@
       快捷：<a href="#signal-config">信号参数</a> ·
       <a href="#train-track-config">火车轨参数</a> ·
       <a href="#td-sequential-config">神奇九转参数</a> ·
+      <a href="#accum-pattern-config">量价吸筹参数</a> ·
       <a href="#fetch-config">手动补数</a>
       <span style="color:#6b7a92">（若看不到参数卡片，请 Ctrl+Shift+R 强刷）</span>
     </p>
@@ -154,6 +186,31 @@
         <button id="runTdScan" type="button">立即重算九转</button>
       </div>
       <p class="footnote" id="tdScanResult">全 A 盘后 TD 抄底五列漏斗。复用火车轨 OHLC 缓存。</p>
+    </div>
+
+    <div class="card" id="accum-pattern-config">
+      <h2 style="font-size:1rem;margin:0 0 0.75rem">量价吸筹参数</h2>
+      <div class="toolbar">
+        <label><input type="checkbox" id="accum_enabled" /> 启用自动扫描</label>
+        <label>扫描时刻 <input id="accum_time" type="time" /></label>
+        <label>历史K线 <input id="accum_history_days" type="number" min="60" max="250" /> 日</label>
+        <label>T₀放量 <input id="accum_vol_expand_trigger" type="number" step="0.1" min="1" max="5" />×MA5</label>
+        <label>M_start <input id="accum_vol_expand_start" type="number" step="0.1" min="1" max="5" /></label>
+        <label>衰减 <input id="accum_vol_expand_decay" type="number" step="0.05" min="0" max="1" />/日</label>
+        <label>下限 <input id="accum_vol_expand_floor" type="number" step="0.1" min="1" max="3" /></label>
+        <label>连续不达标 <input id="accum_vol_expand_max_consecutive_miss" type="number" min="1" max="10" /> 日结束</label>
+        <label>最短放量 N≥ <input id="accum_vol_min_days" type="number" min="3" max="30" /></label>
+        <label>实体涨幅≥ <input id="accum_price_rise_min" type="number" step="0.05" min="0.05" max="2" /></label>
+        <label>洗盘系数 <input id="accum_wash_mult" type="number" step="0.05" min="1" max="1.5" />×N</label>
+        <label>缩量&lt; <input id="accum_vol_shrink_max" type="number" step="0.05" min="1" max="2" />×MA5</label>
+        <label>超标≤ <input id="accum_vol_wash_max_over_days" type="number" min="0" max="5" /> 天</label>
+        <label>连续超标 <input id="accum_vol_wash_max_consecutive_over" type="number" min="1" max="5" /> 日失败</label>
+        <label>重置放量 <input id="accum_vol_reset_trigger" type="number" step="0.1" min="1.5" max="5" />×MA5</label>
+        <label>回撤 <input id="accum_drawdown_min" type="number" step="0.05" min="0.1" max="1" />–<input id="accum_drawdown_max" type="number" step="0.05" min="0.1" max="1" /></label>
+        <button id="saveAccumSettings">保存量价吸筹配置</button>
+        <button id="runAccumScan" type="button">立即重算量价吸筹</button>
+      </div>
+      <p class="footnote" id="accumScanResult">全 A 盘后扫描；价格前复权 + 原始成交量。洗盘<strong>进行中</strong>即入选（锚点 B）。独立 qfq 缓存表。</p>
     </div>
 
     <div class="card" id="fetch-config">
