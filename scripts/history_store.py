@@ -226,6 +226,22 @@ class HistoryStore:
         settings.update({r["key"]: r["value"] for r in rows})
         return settings
 
+    def ensure_settings_defaults(self, defaults: dict[str, str]) -> int:
+        """将缺失的配置项写入 app_settings（不覆盖已有值）。返回新增条数。"""
+        inserted = 0
+        with self._connect() as conn:
+            for key, value in defaults.items():
+                cur = conn.execute(
+                    """
+                    INSERT INTO app_settings(key, value) VALUES (?, ?)
+                    ON CONFLICT(key) DO NOTHING
+                    """,
+                    (key, str(value)),
+                )
+                inserted += cur.rowcount
+            conn.commit()
+        return inserted
+
     def set_settings(self, updates: dict[str, str]) -> dict[str, str]:
         with self._connect() as conn:
             for key, value in updates.items():

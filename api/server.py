@@ -24,6 +24,7 @@ sys.path.insert(0, str(SCRIPTS))
 sys.path.insert(0, str(ROOT / "api"))
 
 from history_store import HistoryStore  # noqa: E402
+from accum_pattern_store import ACCUM_PATTERN_SETTINGS_DEFAULTS  # noqa: E402
 from ts_store import TsStore  # noqa: E402
 from ts_sectors import KINDS as TS_KINDS  # noqa: E402
 from job_worker import cancel_job, enqueue_job, is_job_running, read_log_tail, run_scheduled_fetch  # noqa: E402
@@ -264,6 +265,7 @@ def on_startup() -> None:
     get_train_track_scanner().store.init_schema()
     get_td_sequential_scanner().store.init_schema()
     get_accum_pattern_scanner().store.init_schema()
+    store.ensure_settings_defaults(ACCUM_PATTERN_SETTINGS_DEFAULTS)
 
 
 # --- 公共 API（v4.0：Tushare 四套行业，days 支持 5/15/30）---
