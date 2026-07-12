@@ -16,7 +16,22 @@ function apiErrorFromBody(text, statusText) {
   if (!text.trim()) return statusText || '请求失败';
   try {
     const j = JSON.parse(text);
-    return j.detail || text;
+    const d = j.detail;
+    if (typeof d === 'string') return d;
+    if (Array.isArray(d)) {
+      return d
+        .map((item) => {
+          if (typeof item === 'string') return item;
+          if (!item || typeof item !== 'object') return String(item);
+          const loc = (item.loc || []).filter((x) => x !== 'body').join('.');
+          return loc ? `${loc}: ${item.msg}` : item.msg || JSON.stringify(item);
+        })
+        .join('\n');
+    }
+    if (d && typeof d === 'object') {
+      return d.msg || JSON.stringify(d);
+    }
+    return text;
   } catch {
     return text;
   }

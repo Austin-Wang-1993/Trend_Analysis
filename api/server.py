@@ -138,7 +138,7 @@ class SettingsUpdate(BaseModel):
     accum_vol_expand_max_consecutive_miss: int | None = Field(default=None, ge=1, le=10)
     accum_vol_min_days: int | None = Field(default=None, ge=3, le=30)
     accum_price_rise_min: float | None = Field(default=None, ge=0.05, le=2.0)
-    accum_wash_mult: float | None = Field(default=None, ge=1.0, le=1.5)
+    accum_wash_mult: float | None = Field(default=None, ge=1.0, le=5.0)
     accum_vol_shrink_max: float | None = Field(default=None, ge=1.0, le=2.0)
     accum_vol_wash_max_consecutive_over: int | None = Field(default=None, ge=1, le=5)
     accum_vol_reset_trigger: float | None = Field(default=None, ge=1.5, le=5.0)

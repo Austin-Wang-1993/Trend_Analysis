@@ -42,7 +42,7 @@ ACCUM_PATTERN_SETTINGS_META: dict[str, str] = {
     "accum_vol_expand_max_consecutive_miss": "放量期连续不达标天数达到此值则结束放量段。",
     "accum_vol_min_days": "放量段最短交易日数 N（须 ≥3）。",
     "accum_price_rise_min": "放量段折线涨幅下限（0.30=30%）：窗口内阳线收盘/阴线开盘连接点，最高相对最低。",
-    "accum_wash_mult": "洗盘观察天数系数：M = int(wash_mult × N)，可配 1.0～1.5。",
+    "accum_wash_mult": "洗盘观察天数系数：M = int(wash_mult × N)，可配 1.0～5.0。",
     "accum_vol_shrink_max": "洗盘期缩量上限：V 须 < 此倍数 × MA5。",
     "accum_vol_wash_max_consecutive_over": "洗盘期连续超标（≥缩量上限）天数上限（达到则形态失败）。",
     "accum_vol_reset_trigger": "洗盘期再放量：V > 此倍数 × MA5 则旧形态作废、从该日重扫。",
