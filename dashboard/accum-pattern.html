@@ -46,7 +46,7 @@
     </div>
     <p class="legend">
       全 A（排除 ST、停牌）：T₁ 集中放量（N≥3、折线涨≥30%）后进入 T₂ 缩量洗盘观察期 M=int(k×N)。
-      <strong>洗盘进行中即入选</strong>（锚点 B）。价格前复权实体价，量用原始 vol 对比 MA5。
+      <strong>洗盘进行中即入选</strong>（锚点 B）。列表「吸筹量/洗盘中/洗÷吸」为 T₁、T₂ 窗口内原始成交量合计（万股），洗÷吸越小表示洗盘换手相对越少。
       参数见 <a href="/admin.html#accum-pattern-config">管理页</a>。
     </p>
 
@@ -77,6 +77,14 @@
 
     function num(v, d=2) { return v == null || Number.isNaN(v) ? '—' : Number(v).toFixed(d); }
     function pct(v) { return v == null ? '—' : `${num(v)}%`; }
+    function volWan(v) {
+      if (v == null || Number.isNaN(v)) return '—';
+      return (Number(v) / 10000).toFixed(1);
+    }
+    function washExpandPct(r) {
+      if (r == null || r.wash_expand_vol_ratio == null) return '—';
+      return `${(Number(r.wash_expand_vol_ratio) * 100).toFixed(1)}%`;
+    }
     function escapeHtml(s) {
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
@@ -126,11 +134,15 @@
         <td>${r.wash_days_done ?? '—'}/${r.m_target ?? '—'}</td>
         <td>${pct(r.price_rise_pct)}</td>
         <td>${pct(r.drawdown_ratio)}</td>
+        <td>${volWan(r.expand_vol_sum)}</td>
+        <td>${volWan(r.wash_vol_sum)}</td>
+        <td>${washExpandPct(r)}</td>
         <td>${num(r.close)}</td>
       </tr>`).join('');
       tableWrap.innerHTML = `<table class="ap"><thead><tr>
         <th class="tl">代码</th><th class="tl">名称</th><th class="tl">板块</th>
-        <th>阶段</th><th>T₀</th><th>N</th><th>洗盘</th><th>折线涨幅</th><th>回撤%</th><th>收盘(qfq)</th>
+        <th>阶段</th><th>T₀</th><th>N</th><th>洗盘</th><th>折线涨幅</th><th>回撤%</th>
+        <th>吸筹量</th><th>洗盘中</th><th>洗÷吸</th><th>收盘(qfq)</th>
       </tr></thead><tbody>${rows}</tbody></table>`;
       tableWrap.querySelectorAll('tbody tr').forEach(tr => {
         tr.onclick = () => {

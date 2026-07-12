@@ -46,6 +46,8 @@ class PatternPhase:
     drawdown_ratio: float | None
     drawdown_ok: bool
     listed: bool
+    expand_vol_sum: float = 0.0
+    wash_vol_sum: float = 0.0
     bars: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -310,6 +312,8 @@ def run_wash_phase(
     if wash_days_done < 1:
         return None, None
 
+    wash_vol_sum = float(sum(b["vol"] for b in bars))
+
     dd_ratio: float | None = None
     dd_ok = False
     if rise_amp > 0:
@@ -343,6 +347,7 @@ def run_wash_phase(
         drawdown_ratio=dd_ratio,
         drawdown_ok=dd_ok,
         listed=listed,
+        wash_vol_sum=wash_vol_sum,
         bars=bars,
     )
     return pat, None
@@ -364,6 +369,7 @@ def find_pattern_from_t0(
         return None
 
     n_days = expand_end - t0_idx + 1
+    expand_vol_sum = float(np.nansum(vols[t0_idx : expand_end + 1]))
     wash_start = expand_end + 1
     if wash_start > scan_idx:
         return None
@@ -388,6 +394,7 @@ def find_pattern_from_t0(
     pat.t0_idx = t0_idx
     pat.t0_date = dates[t0_idx]
     pat.price_rise_pct = rise
+    pat.expand_vol_sum = expand_vol_sum
     return pat if pat.listed else None
 
 
@@ -933,9 +940,17 @@ def evaluate_stock_accum(
         "drawdown_ok": pat.drawdown_ok,
         "peak_body_high": pat.peak_body_high,
         "start_body_low": pat.start_body_low,
+        "expand_vol_sum": pat.expand_vol_sum,
+        "wash_vol_sum": pat.wash_vol_sum,
+        "wash_expand_vol_ratio": round(pat.wash_vol_sum / pat.expand_vol_sum, 4)
+        if pat.expand_vol_sum > 0
+        else None,
         "wash_bars": pat.bars,
     }
 
+    vol_ratio = (
+        round(pat.wash_vol_sum / pat.expand_vol_sum, 4) if pat.expand_vol_sum > 0 else None
+    )
     return {
         "t0_date": pat.t0_date,
         "expand_end_date": pat.expand_end_date,
@@ -946,6 +961,9 @@ def evaluate_stock_accum(
         "price_rise_pct": round(pat.price_rise_pct * 100, 2),
         "drawdown_ratio": round(pat.drawdown_ratio * 100, 2) if pat.drawdown_ratio is not None else None,
         "drawdown_ok": 1 if pat.drawdown_ok else 0,
+        "expand_vol_sum": pat.expand_vol_sum,
+        "wash_vol_sum": pat.wash_vol_sum,
+        "wash_expand_vol_ratio": vol_ratio,
         "close": float(sub[sub["trade_date"] == scan_date].iloc[0]["close"]),
         "detail_json": json.dumps(detail, ensure_ascii=False),
         "detail": detail,

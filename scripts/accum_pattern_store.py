@@ -76,6 +76,9 @@ CREATE TABLE IF NOT EXISTS accum_pattern_pick_v4 (
     drawdown_ratio REAL,
     drawdown_ok INTEGER,
     close REAL,
+    expand_vol_sum REAL,
+    wash_vol_sum REAL,
+    wash_expand_vol_ratio REAL,
     detail_json TEXT,
     updated_at TEXT,
     PRIMARY KEY (trade_date, stock_code)
@@ -120,6 +123,18 @@ class AccumPatternStore:
     def init_schema(self) -> None:
         with self._conn() as conn:
             conn.executescript(SCHEMA_SQL)
+            self._migrate_schema(conn)
+
+    def _migrate_schema(self, conn: sqlite3.Connection) -> None:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(accum_pattern_pick_v4)")}
+        migrations = [
+            ("expand_vol_sum", "REAL"),
+            ("wash_vol_sum", "REAL"),
+            ("wash_expand_vol_ratio", "REAL"),
+        ]
+        for name, typ in migrations:
+            if name not in cols:
+                conn.execute(f"ALTER TABLE accum_pattern_pick_v4 ADD COLUMN {name} {typ}")
 
     def upsert_cache_rows(self, rows: list[dict[str, Any]]) -> None:
         if not rows:
@@ -171,8 +186,9 @@ class AccumPatternStore:
                         trade_date, stock_code, stock_name, sector_path,
                         t0_date, expand_end_date, n_days, m_target, wash_days_done,
                         phase, price_rise_pct, drawdown_ratio, drawdown_ok, close,
+                        expand_vol_sum, wash_vol_sum, wash_expand_vol_ratio,
                         detail_json, updated_at
-                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
                         trade_date,
                         row["stock_code"],
@@ -188,6 +204,9 @@ class AccumPatternStore:
                         row.get("drawdown_ratio"),
                         row.get("drawdown_ok", 0),
                         row.get("close"),
+                        row.get("expand_vol_sum"),
+                        row.get("wash_vol_sum"),
+                        row.get("wash_expand_vol_ratio"),
                         row.get("detail_json"),
                         now,
                     ),

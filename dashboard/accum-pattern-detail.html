@@ -31,6 +31,14 @@
     const washTable = document.getElementById('washTable');
 
     function num(v, d=2) { return v == null ? '—' : Number(v).toFixed(d); }
+    function volWan(v) {
+      if (v == null) return '—';
+      return (Number(v) / 10000).toFixed(1);
+    }
+    function washExpandPct(r) {
+      if (r == null || r.wash_expand_vol_ratio == null) return '—';
+      return `${(Number(r.wash_expand_vol_ratio) * 100).toFixed(1)}%`;
+    }
 
     async function load() {
       if (!code) {
@@ -44,6 +52,10 @@
         <div>N=${d.n_days} · M=${d.m_target} · 已洗盘 ${d.wash_days_done} 日 · 阶段：${d.phase}</div>
         <div>折线涨幅 ${num(d.price_rise_pct)}% · 回撤 ${num(d.drawdown_ratio)}% ${d.drawdown_ok ? '✓' : ''}</div>
         <div>峰值实体 ${num(d.peak_body_high)} · 起点实体低 ${num(d.start_body_low)}</div>
+        <div>T₁ 吸筹量合计 <strong>${volWan(d.expand_vol_sum)}</strong> 万股 ·
+          T₂ 洗盘中合计 <strong>${volWan(d.wash_vol_sum)}</strong> 万股 ·
+          洗÷吸 <strong>${washExpandPct(d)}</strong>
+          <span style="color:#64748b">（越小表示洗盘换手相对吸筹越少）</span></div>
       `;
       const bars = d.wash_bars || [];
       if (!bars.length) {

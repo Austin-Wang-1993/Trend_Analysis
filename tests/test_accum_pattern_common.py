@@ -183,6 +183,31 @@ def test_apply_qfq_panel():
     assert out.iloc[1]["close"] == 10.0
 
 
+def test_evaluate_stock_accum_vol_sums():
+    rows = []
+    for i in range(20):
+        rows.append(
+            {
+                "trade_date": f"2026-01-{i+1:02d}",
+                "open": 10.0,
+                "close": 10.5,
+                "vol": 50.0 if i < 5 or i >= 9 else 500.0,
+                "adj_factor": 1.0,
+            }
+        )
+    rows[7]["close"] = 14.0
+    for j in range(9, 12):
+        rows[j]["vol"] = 30.0
+        rows[j]["close"] = 13.0
+    df = pd.DataFrame(rows)
+    ev = evaluate_stock_accum(df, scan_date="2026-01-11", params=AccumPatternParams(price_rise_min=0.25))
+    assert ev is not None
+    assert ev["expand_vol_sum"] > 0
+    assert ev["wash_vol_sum"] > 0
+    assert ev["wash_vol_sum"] < ev["expand_vol_sum"]
+    assert 0 < ev["wash_expand_vol_ratio"] < 1
+
+
 def test_evaluate_stock_accum_df():
     rows = []
     for i in range(20):
