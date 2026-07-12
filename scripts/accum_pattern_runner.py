@@ -121,9 +121,14 @@ def enqueue_accum_scan(
             raise RuntimeError("量价吸筹扫描任务运行中")
         _running = True
 
-    store = AccumPatternStore(DB_PATH)
-    td = _resolve_trade_date(trade_date)
-    job_id = store.create_scan_job(td, trigger_type)
+    try:
+        store = AccumPatternStore(DB_PATH)
+        td = _resolve_trade_date(trade_date)
+        job_id = store.create_scan_job(td, trigger_type)
+    except Exception:
+        with _lock:
+            _running = False
+        raise
 
     def _worker() -> None:
         global _current_job_id
